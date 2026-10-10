@@ -1,0 +1,50 @@
+{
+  "surface": "1.0",
+  "name": "Job monitor",
+  "params": [
+    { "name": "job", "kind": "task@1.0.0", "required": true }
+  ],
+  "state": {},
+  "sources": {
+    "job": {
+      "verb": "impel-service_job-status",
+      "args": { "id": "{{param.job}}" }
+    },
+    "events": {
+      "verb": "impel-service_job-events",
+      "args": { "id": "{{param.job}}", "after_seq": 0 }
+    }
+  },
+  "root": {
+    "column": [
+      { "text": "# {{source.job.kind}}" },
+      { "id": "job-state",
+        "status": { "level": "info", "message": "{{source.job.state}}: {{source.job.message}}" } },
+      { "id": "job-events", "log": "{{source.events.events}}" },
+      { "row": [
+          { "id": "refresh-btn",
+            "button": {
+              "label": "Refresh",
+              "on_click": [
+                { "refresh": { "source": "job" } },
+                { "refresh": { "source": "events" } }
+              ]
+            }
+          },
+          { "id": "cancel-btn",
+            "button": {
+              "label": "Cancel",
+              "on_click": [
+                { "call": { "verb": "impel-service_job-cancel",
+                            "args": { "id": "{{param.job}}" } } },
+                { "refresh": { "source": "job" } },
+                { "emit": { "name": "job-cancel-requested",
+                            "payload": { "job": "{{param.job}}" } } }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,39 @@
+[package]
+name = "impress-layout"
+description = "The layout tree (ADR-0031 D4): panes, containers, channels, verbs, patches and undo rings as pure values"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+autotests = false
+
+[features]
+default = []
+# Derive `schemars::JsonSchema` on the layout value and every verb, so the
+# `layout-service` verbs (L3) can publish their argument schemas. Pulls the
+# same feature through impress-pane-query, whose `PaneQuery` we embed.
+schema = ["dep:schemars", "impress-pane-query/schema"]
+
+[dependencies]
+# Types only: `PaneQuery`, `ParamDecl`, `Bindings`, `RecordKindId`, `ParamName`
+# and `ItemId` are spelled once, in the algebra (ADR-0031 D2), which lives in
+# its own crate free of impress-core's domain modules (ADR-0033 D7). This
+# crate never compiles or runs a query; it only carries them, and must never
+# gain a dependency on impress-core.
+impress-pane-query = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+thiserror = { workspace = true }
+schemars = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in tests/
+# (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would
+# make each of those files a binary of its own again.
+[[test]]
+name = "main"
+path = "tests/main.rs"
+
+[lints]
+workspace = true

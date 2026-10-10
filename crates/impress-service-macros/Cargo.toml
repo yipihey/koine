@@ -1,0 +1,27 @@
+[package]
+name = "impress-service-macros"
+description = "Procedural macros that turn a Rust service trait into MCP tools, CLI subcommands and impel agent tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { workspace = true, features = ["full", "extra-traits"] }
+quote = { workspace = true }
+proc-macro2 = { workspace = true }
+darling = { workspace = true }
+serde_json = { workspace = true }
+koine-workspace-hack.workspace = true
+
+# build.rs embeds the canonical schema refs from schema-refs.json so a
+# misspelt ref in an `effects` declaration is a compile error (ADR-0036 D1).
+[build-dependencies]
+serde_json = { workspace = true }
+impress-schema-ref-codegen = { workspace = true }
+
+[lints]
+workspace = true

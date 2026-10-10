@@ -1,0 +1,16 @@
+[package]
+name = "impress-fs-lock"
+description = "Advisory flock for the suite's device-local files (the AI preferences and worker lease, the settings files); a pure kit crate with no dependencies (ADR-0036 D-R8)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

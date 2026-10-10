@@ -1,0 +1,136 @@
+{
+  "focus_order": [
+    "freq-slider",
+    "bins-slider",
+    "papers-table",
+    "use-bins-btn"
+  ],
+  "root": {
+    "id": "n0",
+    "node": {
+      "items": [
+        {
+          "id": "n0.0",
+          "node": {
+            "kind": "text",
+            "text": "# Signal explorer"
+          }
+        },
+        {
+          "id": "n0.1",
+          "node": {
+            "items": [
+              {
+                "id": "freq-slider",
+                "label": "Frequency",
+                "node": {
+                  "bind": "state.freq",
+                  "field": {
+                    "slider": {
+                      "max": 8,
+                      "min": 0.5,
+                      "step": 0.5
+                    }
+                  },
+                  "kind": "field",
+                  "value": 2.0
+                }
+              },
+              {
+                "id": "bins-slider",
+                "label": "Bins",
+                "node": {
+                  "bind": "state.bins",
+                  "field": {
+                    "slider": {
+                      "max": 64,
+                      "min": 4,
+                      "step": 1
+                    }
+                  },
+                  "kind": "field",
+                  "value": 16
+                }
+              }
+            ],
+            "kind": "row"
+          }
+        },
+        {
+          "id": "n0.2",
+          "node": {
+            "kind": "plot",
+            "spec": {
+              "height": 320.0,
+              "kind": "plot-spec@1.0.0",
+              "series": [
+                {
+                  "color": {
+                    "b": 180,
+                    "g": 119,
+                    "r": 31
+                  },
+                  "kind": "line",
+                  "xs": [
+                    -0.75,
+                    -0.25,
+                    0.25,
+                    0.75
+                  ],
+                  "ys": [
+                    1.0,
+                    2.0,
+                    2.0,
+                    1.0
+                  ]
+                }
+              ],
+              "title": "Histogram",
+              "width": 480.0,
+              "x": {
+                "label": "value",
+                "max": null,
+                "min": null,
+                "scale": "linear"
+              },
+              "y": {
+                "label": "count",
+                "max": null,
+                "min": null,
+                "scale": "linear"
+              }
+            }
+          }
+        },
+        {
+          "id": "papers-table",
+          "node": {
+            "columns": [
+              "title",
+              "year"
+            ],
+            "kind": "table",
+            "rows": [
+              {
+                "title": "A dark matter survey",
+                "year": 2024
+              },
+              {
+                "title": "Signal processing notes",
+                "year": 2023
+              }
+            ]
+          }
+        },
+        {
+          "id": "use-bins-btn",
+          "node": {
+            "kind": "button",
+            "label": "Use these bins"
+          }
+        }
+      ],
+      "kind": "column"
+    }
+  }
+}

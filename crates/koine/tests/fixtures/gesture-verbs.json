@@ -1,0 +1,292 @@
+{
+  "cases": [
+    {
+      "gesture": {
+        "element": {
+          "id": 12,
+          "kind": "tile"
+        },
+        "gesture": "focus"
+      },
+      "name": "focus a tile",
+      "pane": null,
+      "verb": {
+        "target": {
+          "id": 12
+        },
+        "verb": "focus"
+      }
+    },
+    {
+      "gesture": {
+        "element": {
+          "kind": "focused"
+        },
+        "gesture": "focus"
+      },
+      "name": "focus the cursor",
+      "pane": null,
+      "verb": {
+        "target": {
+          "focused": true
+        },
+        "verb": "focus"
+      }
+    },
+    {
+      "gesture": {
+        "element": {
+          "id": "run",
+          "kind": "widget"
+        },
+        "gesture": "focus"
+      },
+      "name": "a widget focus is not a layout verb",
+      "pane": null,
+      "verb": null
+    },
+    {
+      "gesture": {
+        "direction": "down",
+        "gesture": "move"
+      },
+      "name": "a direction focuses that way",
+      "pane": null,
+      "verb": {
+        "direction": "down",
+        "verb": "focus-direction"
+      }
+    },
+    {
+      "gesture": {
+        "element": {
+          "id": 3,
+          "kind": "tile"
+        },
+        "gesture": "drag",
+        "placement": "left",
+        "target": {
+          "id": 1,
+          "kind": "tile"
+        }
+      },
+      "name": "a drag onto another pane moves",
+      "pane": null,
+      "verb": {
+        "placement": "left",
+        "target": {
+          "id": 1
+        },
+        "tile": {
+          "id": 3
+        },
+        "verb": "move-tile"
+      }
+    },
+    {
+      "gesture": {
+        "element": {
+          "id": 3,
+          "kind": "tile"
+        },
+        "gesture": "drag",
+        "placement": "left",
+        "target": {
+          "id": 3,
+          "kind": "tile"
+        }
+      },
+      "name": "a drag onto itself is not yet a verb",
+      "pane": null,
+      "verb": null
+    },
+    {
+      "gesture": {
+        "element": {
+          "id": "pdf",
+          "kind": "widget"
+        },
+        "gesture": "activate"
+      },
+      "name": "a tab click shows that view kind",
+      "pane": 3,
+      "verb": {
+        "target": {
+          "id": 3
+        },
+        "verb": "set-view-kind",
+        "view_kind": "pdf"
+      }
+    },
+    {
+      "gesture": {
+        "element": {
+          "id": "run",
+          "kind": "widget"
+        },
+        "gesture": "activate"
+      },
+      "name": "a button click stays a surface event",
+      "pane": 3,
+      "verb": null
+    },
+    {
+      "gesture": {
+        "element": {
+          "kind": "focused"
+        },
+        "gesture": "secondary"
+      },
+      "name": "a menu click is not a verb",
+      "pane": null,
+      "verb": null
+    },
+    {
+      "gesture": {
+        "edge": "bottom",
+        "element": {
+          "id": 4,
+          "kind": "tile"
+        },
+        "gesture": "resize"
+      },
+      "name": "a resize names an edge and waits for lengths",
+      "pane": null,
+      "verb": null
+    }
+  ],
+  "dividers": [
+    {
+      "child_count": 2,
+      "divider": 0,
+      "edge": "right",
+      "index": 0
+    },
+    {
+      "child_count": 2,
+      "divider": null,
+      "edge": "left",
+      "index": 0
+    },
+    {
+      "child_count": 2,
+      "divider": 0,
+      "edge": "top",
+      "index": 1
+    }
+  ],
+  "resize": [
+    {
+      "after": 1.0,
+      "before": 2.0,
+      "container": 4,
+      "index": 0,
+      "shares": [
+        1.0,
+        1.0
+      ],
+      "verb": {
+        "container": 4,
+        "shares": [
+          2.0,
+          1.0
+        ],
+        "verb": "resize"
+      }
+    }
+  ],
+  "split_axes": [
+    {
+      "after": false,
+      "dir": "horizontal",
+      "placement": "left"
+    },
+    {
+      "after": true,
+      "dir": "horizontal",
+      "placement": "right"
+    },
+    {
+      "after": false,
+      "dir": "vertical",
+      "placement": "above"
+    },
+    {
+      "after": true,
+      "dir": "vertical",
+      "placement": "below"
+    },
+    {
+      "after": true,
+      "dir": "horizontal",
+      "placement": "into-tabs"
+    }
+  ],
+  "tab_order": [
+    {
+      "from": 0,
+      "pane": 3,
+      "tabs": [
+        "info",
+        "pdf",
+        "notes",
+        "bibtex"
+      ],
+      "to": 3,
+      "verb": {
+        "tabs": [
+          "pdf",
+          "notes",
+          "info",
+          "bibtex"
+        ],
+        "target": {
+          "id": 3
+        },
+        "verb": "set-tab-order"
+      }
+    },
+    {
+      "from": 0,
+      "pane": 3,
+      "tabs": [
+        "info",
+        "pdf"
+      ],
+      "to": 1,
+      "verb": null
+    }
+  ],
+  "tab_split": [
+    {
+      "children": [
+        2,
+        3,
+        4
+      ],
+      "index": 0,
+      "placement": "right",
+      "target": 3
+    },
+    {
+      "children": [
+        2,
+        3,
+        4
+      ],
+      "index": 2,
+      "placement": "right",
+      "target": 3
+    },
+    {
+      "children": [
+        2,
+        3
+      ],
+      "index": 1,
+      "placement": "into-tabs",
+      "target": null
+    }
+  ],
+  "wire_version": 1
+}

@@ -1,0 +1,23 @@
+[package]
+name = "impress-pane-query"
+description = "the ADR-0031 D2 pane-query algebra, free of impress-core (ADR-0033 D7)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Derive `schemars::JsonSchema` on the algebra types, so a kit crate (or a
+# `*-service` that publishes argument schemas) can pull it through.
+schema = ["dep:schemars"]
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+thiserror = { workspace = true }
+schemars = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[lints]
+workspace = true

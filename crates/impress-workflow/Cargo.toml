@@ -1,0 +1,44 @@
+[package]
+name = "impress-workflow"
+description = "W1 (plan-self-reflective-layer): the workflow spec, validator and pure planner, pure"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+autotests = false
+
+[features]
+default = []
+# Derive `schemars::JsonSchema` on `WorkflowSpec` and friends, mirroring
+# `impress-surface`'s own `schema` feature (`workflow-service_validate`'s
+# schema answer hands this back verbatim, the same shape `surface_schema`
+# gives for surfaces).
+schema = ["dep:schemars", "impress-surface/schema"]
+
+[dependencies]
+# Workflows reuse the surface action vocabulary (`Action`) and its pure
+# `reduce` rather than forking either (WF-2, plan § Workflows): a workflow is
+# a `SurfaceSpec` with no `root` of its own, built here as a single synthetic
+# node whose `on_submit` is the workflow's `steps`. This crate never reaches
+# `impress-core` (kit rule, tier `pure`).
+impress-surface = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+schemars = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+schemars = { workspace = true }
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in
+# tests/ (plan-verb-pipeline-and-transport § Build cost, B1).
+[[test]]
+name = "main"
+path = "tests/main.rs"
+
+[lints]
+workspace = true
+
+[build-dependencies]
+impress-schema-ref-codegen = { workspace = true }

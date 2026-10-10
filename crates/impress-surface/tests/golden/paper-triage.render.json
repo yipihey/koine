@@ -1,0 +1,95 @@
+{
+  "focus_order": [
+    "papers-table",
+    "star-btn",
+    "flag-red-btn",
+    "tag-to-read-btn"
+  ],
+  "root": {
+    "id": "n0",
+    "node": {
+      "items": [
+        {
+          "id": "n0.0",
+          "node": {
+            "kind": "text",
+            "text": "# Paper triage"
+          }
+        },
+        {
+          "id": "papers-table",
+          "node": {
+            "columns": [
+              "title",
+              "year",
+              "author_text"
+            ],
+            "kind": "table",
+            "rows": [
+              {
+                "author_text": "Zwicky, F.",
+                "flag": null,
+                "id": "11111111-1111-1111-1111-111111111111",
+                "is_read": false,
+                "is_starred": false,
+                "schema": "imbib/bibliography-entry",
+                "tags": [],
+                "title": "A dark matter survey",
+                "year": 2024
+              },
+              {
+                "author_text": "Shannon, C.",
+                "flag": null,
+                "id": "22222222-2222-2222-2222-222222222222",
+                "is_read": false,
+                "is_starred": false,
+                "schema": "imbib/bibliography-entry",
+                "tags": [],
+                "title": "Signal processing notes",
+                "year": 2023
+              }
+            ]
+          }
+        },
+        {
+          "id": "n0.2",
+          "node": {
+            "items": [
+              {
+                "id": "star-btn",
+                "node": {
+                  "kind": "button",
+                  "label": "Star"
+                }
+              },
+              {
+                "id": "flag-red-btn",
+                "node": {
+                  "kind": "button",
+                  "label": "Flag red"
+                }
+              },
+              {
+                "id": "tag-to-read-btn",
+                "node": {
+                  "kind": "button",
+                  "label": "Tag to-read"
+                }
+              }
+            ],
+            "kind": "row"
+          }
+        },
+        {
+          "id": "selection-status",
+          "node": {
+            "kind": "status",
+            "level": "info",
+            "message": "Selected: [\"11111111-1111-1111-1111-111111111111\"]"
+          }
+        }
+      ],
+      "kind": "column"
+    }
+  }
+}

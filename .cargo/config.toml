@@ -1,0 +1,9 @@
+# The grammar builds with the same deployment floor as the suite.
+# Schema-ref codegen reads schema-refs.json at this repository's root
+# unless IMPRESS_SCHEMA_REFS is already set. impress-apps sets that
+# variable to its live manifest, which overrides this file.
+
+[env]
+MACOSX_DEPLOYMENT_TARGET = { value = "14.0", force = true }
+IPHONEOS_DEPLOYMENT_TARGET = { value = "17.0", force = true }
+IMPRESS_SCHEMA_REFS = { value = "schema-refs.json", relative = true }

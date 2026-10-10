@@ -1,0 +1,17 @@
+[package]
+name = "koine-style-file"
+description = "The native writer for koine-style.json. The document itself lives in koine."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-fs-lock = { workspace = true }
+koine = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[lints]
+workspace = true

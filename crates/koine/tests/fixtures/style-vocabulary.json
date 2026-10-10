@@ -1,0 +1,163 @@
+{
+  "frontends": {
+    "swift": {
+      "slots": [
+        {
+          "default": "8",
+          "kind": "spacing",
+          "name": "column"
+        },
+        {
+          "default": "8",
+          "kind": "spacing",
+          "name": "row"
+        },
+        {
+          "default": "automatic",
+          "kind": "font",
+          "name": "text"
+        },
+        {
+          "default": "automatic",
+          "kind": "font",
+          "name": "section"
+        },
+        {
+          "default": "automatic",
+          "kind": "color",
+          "name": "button"
+        },
+        {
+          "default": "automatic",
+          "kind": "font",
+          "name": "field"
+        },
+        {
+          "default": "0",
+          "kind": "spacing",
+          "name": "list"
+        },
+        {
+          "default": "0",
+          "kind": "spacing",
+          "name": "table"
+        },
+        {
+          "default": "error",
+          "kind": "color",
+          "name": "status.error"
+        },
+        {
+          "default": "warning",
+          "kind": "color",
+          "name": "status.warning"
+        },
+        {
+          "default": "info",
+          "kind": "color",
+          "name": "status.info"
+        },
+        {
+          "default": "automatic",
+          "kind": "color",
+          "name": "focus"
+        }
+      ]
+    },
+    "tui": {
+      "slots": [
+        {
+          "default": "2",
+          "kind": "spacing",
+          "name": "column"
+        },
+        {
+          "default": "2",
+          "kind": "spacing",
+          "name": "row"
+        },
+        {
+          "default": "text {text}",
+          "kind": "line",
+          "name": "text"
+        },
+        {
+          "default": "section {title}",
+          "kind": "line",
+          "name": "section"
+        },
+        {
+          "default": "button {label}",
+          "kind": "line",
+          "name": "button"
+        },
+        {
+          "default": "field {value}",
+          "kind": "line",
+          "name": "field"
+        },
+        {
+          "default": "list",
+          "kind": "line",
+          "name": "list"
+        },
+        {
+          "default": "table {columns}",
+          "kind": "line",
+          "name": "table"
+        },
+        {
+          "default": "status error: {message}",
+          "kind": "line",
+          "name": "status.error"
+        },
+        {
+          "default": "status warning: {message}",
+          "kind": "line",
+          "name": "status.warning"
+        },
+        {
+          "default": "status info: {message}",
+          "kind": "line",
+          "name": "status.info"
+        },
+        {
+          "default": ">",
+          "kind": "line",
+          "name": "focus"
+        }
+      ]
+    }
+  },
+  "placeholders": [
+    "columns",
+    "label",
+    "level",
+    "message",
+    "text",
+    "title",
+    "value"
+  ],
+  "spacing": {
+    "max": 64,
+    "min": 0
+  },
+  "tokens": {
+    "color": [
+      "automatic",
+      "accent",
+      "primary",
+      "secondary",
+      "error",
+      "warning",
+      "info"
+    ],
+    "font": [
+      "automatic",
+      "body",
+      "title",
+      "mono"
+    ]
+  },
+  "wire_version": 1
+}

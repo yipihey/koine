@@ -1,0 +1,17 @@
+[package]
+name = "impress-keymap"
+description = "the one registry of app chords (R2): declared once, projected into the palette, the menu and docs/keyboard.md"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+
+[lints]
+workspace = true

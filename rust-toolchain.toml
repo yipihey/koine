@@ -1,0 +1,15 @@
+# Pin the toolchain LOCAL AND CI both resolve — toolchain skew between the
+# two has been a recurring CI-red cause (clippy lint sets move between
+# versions; see memory of the 1.92→1.97 migration). rustup auto-installs
+# this version wherever it's missing, and dtolnay/rust-toolchain respects it.
+# Bump DELIBERATELY: expect new clippy lints to fire when you do, fix them in
+# the same commit.
+# 1.97.1 → 1.98.1 (2026-09-25): one new lint, clippy::chunks_exact_to_as_chunks;
+# and 1.97.1 could not read back stripped proc-macro dylibs on macOS 27, which
+# had impart-apps.yml building with release stripping off.
+[toolchain]
+channel = "1.98.1"
+# llvm-tools: crates/impel-tools/build-xcframework.sh strips bitcode with
+# rust-objcopy, which needs this component's libLLVM.dylib (2026-09-25).
+components = ["rustfmt", "clippy", "llvm-tools"]
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]

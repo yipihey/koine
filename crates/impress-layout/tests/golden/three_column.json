@@ -1,0 +1,120 @@
+{
+  "channels": {},
+  "next_tile": 4,
+  "next_window": 2,
+  "tiles": {
+    "1": {
+      "pane": {
+        "channel": {
+          "number": 1
+        },
+        "query": {
+          "filters": [],
+          "kinds": [
+            "collection",
+            "library"
+          ],
+          "limit": null,
+          "relation": null,
+          "scope": {
+            "scope": "all"
+          },
+          "sort": [],
+          "text": null
+        },
+        "role": "navigator",
+        "view_kind": "outline"
+      }
+    },
+    "2": {
+      "pane": {
+        "channel": {
+          "number": 1
+        },
+        "query": {
+          "filters": [],
+          "kinds": [
+            "publication"
+          ],
+          "limit": null,
+          "relation": null,
+          "scope": {
+            "scope": "all"
+          },
+          "sort": [],
+          "text": null
+        },
+        "role": "list",
+        "view_kind": "list"
+      }
+    },
+    "3": {
+      "pane": {
+        "channel": {
+          "number": 1
+        },
+        "params": [
+          {
+            "decl": {
+              "kind": "publication",
+              "name": "item",
+              "required": false
+            },
+            "source": {
+              "channel": {
+                "number": 1
+              },
+              "source": "channel"
+            }
+          }
+        ],
+        "query": {
+          "filters": [],
+          "kinds": [
+            "publication"
+          ],
+          "limit": null,
+          "relation": null,
+          "scope": {
+            "id": {
+              "name": "item",
+              "ref": "param"
+            },
+            "scope": "item"
+          },
+          "sort": [],
+          "text": null
+        },
+        "role": "detail",
+        "view_kind": "info"
+      }
+    },
+    "4": {
+      "container": {
+        "linear": {
+          "children": [
+            1,
+            2,
+            3
+          ],
+          "dir": "horizontal",
+          "shares": [
+            1.0,
+            2.0,
+            3.0
+          ]
+        }
+      }
+    }
+  },
+  "windows": [
+    {
+      "default_channel": {
+        "number": 1
+      },
+      "focused": 2,
+      "id": 1,
+      "root": 4
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+[package]
+name = "impress-settings"
+description = "The declared settings registry (key, type, default, scope, legacy keys, doc) and its per-scope files under <workspace>/settings/; the generated settings surface (ADR-0036 D5). Pure: no store, no app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The one kit dependency D-R8 approved: the flock `impress_ai::preferences`
+# uses, lifted into its own pure crate so this one never reaches a store-tier
+# crate for it.
+impress-fs-lock = { workspace = true }
+# The settings pane is a generated `SurfaceSpec` (ADR-0035 D2's shape, ADR-0036
+# D5): one field per declared setting, `settings-service_set` on change. The
+# spec crate is pure, so this stays pure.
+impress-surface = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
+
+[build-dependencies]
+impress-schema-ref-codegen = { workspace = true }

@@ -1,0 +1,82 @@
+{
+  "surface": "1.0",
+  "name": "Paper triage",
+  "params": [
+    { "name": "selected", "kind": "imbib/bibliography-entry", "required": false }
+  ],
+  "state": { "selected": [] },
+  "sources": {
+    "papers": {
+      "query": {
+        "kinds": ["publication"],
+        "scope": { "scope": "all" },
+        "filters": [ { "filter": "read", "read": false } ],
+        "text": null,
+        "relation": null,
+        "sort": [ { "field": "modified", "descending": true } ],
+        "limit": 50
+      }
+    }
+  },
+  "root": {
+    "column": [
+      { "text": "# Paper triage" },
+      { "id": "papers-table",
+        "table": {
+          "rows": "{{source.papers}}",
+          "columns": ["title", "year", "author_text"],
+          "on_select": [
+            { "set": { "path": "state.selected", "value": "{{event.value}}" } }
+          ]
+        }
+      },
+      { "row": [
+          { "id": "star-btn",
+            "button": {
+              "label": "Star",
+              "on_click": [
+                { "call": { "verb": "triage-service_set-starred",
+                            "args": { "id": "{{item}}", "starred": true },
+                            "each": "state.selected" } },
+                { "refresh": { "source": "papers" } },
+                { "emit": { "name": "triaged",
+                            "payload": { "id": "{{item}}", "action": "star" },
+                            "each": "state.selected" } }
+              ]
+            }
+          },
+          { "id": "flag-red-btn",
+            "button": {
+              "label": "Flag red",
+              "on_click": [
+                { "call": { "verb": "triage-service_set-flag",
+                            "args": { "id": "{{item}}", "color": "red" },
+                            "each": "state.selected" } },
+                { "refresh": { "source": "papers" } },
+                { "emit": { "name": "triaged",
+                            "payload": { "id": "{{item}}", "action": "flag-red" },
+                            "each": "state.selected" } }
+              ]
+            }
+          },
+          { "id": "tag-to-read-btn",
+            "button": {
+              "label": "Tag to-read",
+              "on_click": [
+                { "call": { "verb": "triage-service_add-tag",
+                            "args": { "id": "{{item}}", "tag": "to-read" },
+                            "each": "state.selected" } },
+                { "refresh": { "source": "papers" } },
+                { "emit": { "name": "triaged",
+                            "payload": { "id": "{{item}}", "action": "tag-to-read" },
+                            "each": "state.selected" } }
+              ]
+            }
+          }
+        ]
+      },
+      { "id": "selection-status",
+        "status": { "level": "info", "message": "Selected: {{state.selected}}" } }
+    ]
+  }
+}

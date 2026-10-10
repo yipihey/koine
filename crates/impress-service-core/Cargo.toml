@@ -1,0 +1,59 @@
+[package]
+name = "impress-service-core"
+description = "Runtime types and helper traits for the impress service codegen pipeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Manual probes/examples are opt-in: `--all-targets` (the workspace gate)
+# otherwise builds and LINKS them on every run - 303 MB of binaries that
+# cannot run in a gate anyway (one needs a plugged-in tablet, another a
+# running app on localhost).
+examples = []
+default = []
+uniffi = ["dep:uniffi"]
+pyo3 = ["dep:pyo3"]
+cli = ["dep:clap"]
+# `pipeline::perf::reset_for_test` outside this crate's own tests — a
+# downstream crate's test harness (e.g. `perf-service`'s) that wants a
+# clean bucket table between cases.
+test-support = []
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+inventory = { workspace = true }
+thiserror = { workspace = true }
+# The pipeline (ADR-0034 D2): a span per call, a call id and a trace id, the
+# audit record's timestamp and the argument summary's hash. All external;
+# this crate stays on the kit's pure tier.
+tracing = { workspace = true }
+# The perf aggregator (G7b): a `Layer` folding closed `verb`/`io` spans into
+# per-name buckets. Kept on the kit's pure tier like the rest of the
+# pipeline — no sink, no I/O, only in-process bucket state.
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+sha2 = "0.10"
+uniffi = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true }
+clap = { version = "4", features = ["std", "help", "usage", "error-context", "string"], default-features = false, optional = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+impress-service-macros = { path = "../impress-service-macros" }
+
+[[example]]
+name = "echo_demo"
+required-features = ["examples"]
+
+[lints]
+workspace = true
+
+[build-dependencies]
+impress-schema-ref-codegen = { workspace = true }

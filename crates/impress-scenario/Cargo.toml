@@ -1,0 +1,35 @@
+[package]
+name = "impress-scenario"
+description = "docs/plan-self-reflective-layer.md S1: the scenario spec, validator and interpreter (pure kit tier — reaches nothing but impress-surface and impress-service-core)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Derive `schemars::JsonSchema` on the scenario vocabulary, the same forwarding
+# pattern `impress-surface`'s `schema` feature uses, so `scenario-service_schema`
+# can hand an agent the JSON Schema without it reading Rust source.
+schema = ["dep:schemars"]
+
+[dependencies]
+# `resolve_value`/`Context` for `{{…}}` templating (reused, extended with
+# `{{uuid}}` and `captures` — docs/plan-self-reflective-layer.md § Scenarios).
+impress-surface = { workspace = true }
+# `Tier`, `CapabilityResult`, `SelfTestReport` — the one shared report shape
+# (SC-1: three copies of the runner disagreed on what `skipped` means).
+impress-service-core = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+schemars = { workspace = true, optional = true }
+uuid = { workspace = true }
+async-trait = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

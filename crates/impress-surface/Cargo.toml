@@ -1,0 +1,46 @@
+[package]
+name = "impress-surface"
+description = "ADR-0033 surfaces: spec, schema, plan/resolve/reduce, pure"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+autotests = false
+
+[features]
+default = []
+# Derive `schemars::JsonSchema` on the surface vocabulary, so the S4 verb
+# `surface_schema` can hand an agent the JSON Schema without it reading Rust
+# source. Forwards the same feature on `impress-pane-query`, whose `PaneQuery` and
+# `ParamDecl` a source and a param declaration embed directly — the same
+# forwarding `impress-layout`'s `schema` feature does for the same types.
+schema = ["dep:schemars", "impress-pane-query/schema"]
+
+[dependencies]
+# `PaneQuery` and `ParamDecl` are spelled once, in the pane-query algebra
+# (ADR-0031 D2). ADR-0033 D7 moved that algebra into `impress-pane-query`
+# (S0), so this crate depends on the algebra crate alone and never on
+# impress-core: the kit line `scripts/check-kit-deps.sh` pins.
+impress-pane-query = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+schemars = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+# Validates the shipped examples (and a set of known-bad specs) against the
+# emitted `surface_schema`, so the schema is proven machine-checkable rather
+# than asserted (review AC-F8, RS-S24). Test-only: no kit crate links it.
+jsonschema = { version = "0.33", default-features = false }
+schemars = { workspace = true }
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in tests/
+# (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would
+# make each of those files a binary of its own again.
+[[test]]
+name = "main"
+path = "tests/main.rs"
+
+[lints]
+workspace = true

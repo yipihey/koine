@@ -1,0 +1,15 @@
+[package]
+name = "impress-schema-ref-codegen"
+description = "Build-time reader for schema-refs.json. Emits Rust constants and the UniFFI enum. Does not link impress-core."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+serde_json = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[lints]
+workspace = true

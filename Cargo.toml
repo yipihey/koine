@@ -1,0 +1,205 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/impress-service-core",
+    "crates/impress-service-macros",
+    "crates/impress-pane-query",
+    "crates/impress-item",
+    "crates/impress-schema-ref-codegen",
+    "crates/impress-layout",
+    "crates/impress-surface",
+    "crates/impress-verb-surface",
+    "crates/koine",
+    "crates/koine-style-file",
+    "crates/koine-tui",
+    "crates/impress-fs-lock",
+    "crates/impress-settings",
+    "crates/surface-demo-service",
+    "crates/impress-keymap",
+    "crates/impress-scenario",
+    "crates/impress-workflow",
+    "crates/koine-workspace-hack",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/yipihey/koine"
+
+[workspace.lints.rust]
+# Keep unsafe operations explicit even inside an unsafe function.
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+# Accidental debug output and unfinished branches must not ship in a verb host.
+dbg_macro = "warn"
+todo = "warn"
+
+[workspace.dependencies]
+# The cargo-hakari workspace-hack crate: every member depends on it so every
+# lane resolves one third-party feature set (plan-verb-pipeline-and-transport
+# § Build cost, B4). Generated; `cargo hakari generate` rewrites it and
+# `cargo hakari manage-deps` adds the line to a new member. Configured in
+# .config/hakari.toml.
+koine-workspace-hack = { path = "crates/koine-workspace-hack" }
+# Shared dependencies across crates
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+thiserror = "2.0"
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Parsing
+nom = "7.1"
+regex = "1.10"
+lazy_static = "1.4"
+
+# UniFFI for FFI bindings (optional).
+# NO `cli` here: that feature makes `uniffi_bindgen` a normal dependency of the
+# facade, so every library enabling `uniffi` linked the whole generator stack
+# (askama, goblin, cargo_metadata, clap - 40 crates) in every profile and for
+# all five Apple triples. The generator lives in ONE binary crate now,
+# `crates/uniffi-bindgen`, which the build-xcframework scripts invoke.
+uniffi = { version = "0.28", default-features = false }
+
+# Async trait support (HTTP source plugins, service traits)
+async-trait = "0.1"
+# HTTP client (rustls so no OpenSSL dependency on macOS/Linux/CI)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+# XML parsing (arXiv Atom feed, PubMed)
+quick-xml = "0.38"
+# HTTP mocking for source-client tests
+mockito = "1"
+
+# Internal workspace crates
+
+# Standalone library crates (local dev, published to crates.io)
+impress-keymap = { path = "crates/impress-keymap" }
+impress-item = { path = "crates/impress-item" }
+impress-schema-ref-codegen = { path = "crates/impress-schema-ref-codegen" }
+impress-layout = { path = "crates/impress-layout" }
+impress-pane-query = { path = "crates/impress-pane-query" }
+impress-surface = { path = "crates/impress-surface" }
+impress-workflow = { path = "crates/impress-workflow" }
+impress-verb-surface = { path = "crates/impress-verb-surface" }
+koine = { path = "crates/koine" }
+koine-style-file = { path = "crates/koine-style-file" }
+koine-tui = { path = "crates/koine-tui" }
+impress-scenario = { path = "crates/impress-scenario" }
+surface-demo-service = { path = "crates/surface-demo-service" }
+# default-features = false HERE, not at the call site: a member inheriting a
+# workspace dependency can only add features, never remove them, so a member
+# writing `default-features = false` is silently ignored (cargo warns, and
+# says it may become a hard error). Consumers opt in to store/index/embedder.
+impress-fs-lock = { path = "crates/impress-fs-lock" }
+impress-settings = { path = "crates/impress-settings" }
+
+# implore crates
+
+# Scientific data I/O (for implore)
+hdf5 = "0.8"
+fitsio = "0.21"
+# `arrow` is in parquet's default feature set and pulls arrow-array/-cast/-ipc/
+# -select, flatbuffers and the lexical-* family (~16 crates) for a reader that
+# only uses `parquet::record` - the row API. Codecs are kept, brotli included,
+# so existing files still read.
+parquet = { version = "53", default-features = false, features = ["snap", "zstd", "flate2", "lz4", "brotli", "base64"] }
+csv = "1.3"
+
+# URL handling
+url = "2"
+urlencoding = "2"
+
+# N-dimensional arrays (for implore volumetric data)
+ndarray = "0.16"
+
+# NPZ/NPY file reading (for implore)
+npyz = "0.8"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# Linear algebra (for implore RG computations)
+nalgebra = "0.33"
+
+# Parallel processing
+rayon = "1.10"
+
+# Plotting (for implore)
+kuva = "0.1"
+# SVG → PNG for a figure's stored artifact (implore-core figure_artifact).
+# Already in the tree through typst-pdf → krilla-svg; no raster-image
+# decoders, because implore's SVG embeds none.
+resvg = { version = "0.45", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
+
+# Typst rendering (for implore lilaq backend + imprint)
+typst = "0.14"
+typst-pdf = "0.14"
+typst-svg = "0.14"
+typst-as-lib = { version = "0.15", features = ["typst-kit-fonts", "typst-kit-embed-fonts"] }
+
+# impel crates
+
+# impel dependencies
+rusqlite = { version = "0.32", features = ["bundled", "serde_json", "backup"] }
+ratatui = "0.29"
+crossterm = "0.28"
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Bridges any remaining `log` caller (a dependency; G7a moved the workspace's
+# own `log`-facade crates onto `tracing`, D-P1) into whatever `tracing`
+# subscriber is installed — `impress-store-ffi`'s bridge layer calls
+# `LogTracer::init()`.
+tracing-log = "0.2"
+
+# Persona/config loading
+toml = "0.8"
+dirs = "6"
+
+# impress-service-* (Phase 0 codegen pipeline)
+impress-service-core = { path = "crates/impress-service-core" }
+impress-service-macros = { path = "crates/impress-service-macros" }
+inventory = "0.3"
+schemars = { version = "0.8", features = ["uuid1"] }
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+darling = "0.20"
+pyo3 = { version = "0.23", features = ["extension-module"] }
+pythonize = "0.23"
+
+# Auto-generated CLI binaries (imbib-cli, imprint-cli) — clap built from
+# CliSubcommand inventory entries registered by `#[impress_service]`.
+clap = { version = "4", default-features = false, features = ["std", "help", "usage", "error-context", "string"] }
+
+# HTTP transport for the unified storage (Phase A/B/C from we-are-planning-…).
+
+# Dev/test debug info. macOS defaults to `split-debuginfo = "unpacked"`, which
+# means rustc KEEPS every codegen unit's `.o` file next to the rlib whenever
+# debuginfo is on - that is where DWARF lives. With ~1,080 registry crates and
+# one flat `target/debug/deps`, those objects reached 1,223,708 files, and a
+# directory that size costs 40-70 SECONDS to launch a test binary out of (same
+# bytes one directory up: 1.7s). A 4-package test run is 21 such launches, which
+# is where ~55 minutes of a measured 58m49s job went - against 3m06s of
+# compiling and 28.8s of actual tests.
+#
+# `debug = false` for dependencies stops the retention for every registry crate
+# (rustc keeps the objects only when debuginfo is enabled); members keep
+# line tables, so backtraces still resolve to file:line in our own code.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+# `[profile.test]` inherits dev, so test binaries get the same treatment.
+#
+# Release is NOT incremental: it used to be, to speed the framework-rebuild
+# loop, but incremental applies only to workspace members while the shipped
+# binaries (impress-mcp, imprint, impress, impel-taskd - signed out of
+# target/release) paid 256-way codegen-unit partitioning for it. The framework
+# scripts set CARGO_INCREMENTAL=1 for themselves instead; they build into
+# target/<triple>/release, which the shipped binaries never share.

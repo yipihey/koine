@@ -1,0 +1,20 @@
+[package]
+name = "koine"
+description = "The impress UI grammar: one semantic document, performed by each frontend, plus the style sheet each frontend applies."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-layout = { workspace = true }
+impress-pane-query = { workspace = true }
+impress-surface = { workspace = true }
+impress-verb-surface = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[lints]
+workspace = true

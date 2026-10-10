@@ -1,0 +1,12 @@
+{
+  "wire_version": 1,
+  "frontends": {
+    "swift": {
+      "button": "accent",
+      "text": "title"
+    },
+    "tui": {
+      "button": "[{label}]"
+    }
+  }
+}

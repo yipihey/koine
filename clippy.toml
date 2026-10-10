@@ -1,0 +1,6 @@
+# Match rust-toolchain.toml so Clippy's version-aware suggestions target CI.
+msrv = "1.98.1"
+
+# P7's schema boundary is enforced by impress-core's SchemaRef type and private
+# constructor. Clippy disallowed-types is global, so banning std::String here
+# would also reject unrelated user text and could not express "schema refs only".

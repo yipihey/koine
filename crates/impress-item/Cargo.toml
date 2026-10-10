@@ -1,0 +1,34 @@
+[package]
+name = "impress-item"
+description = "The item protocol below impress-core: the row, the query, the operation, and the store port. SqliteItemStore stays in impress-core."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Derive `schemars::JsonSchema` on the kernel DTOs that cross an
+# `#[impress_service]` boundary. `impress-core`'s `schema` feature turns this on.
+schema = ["dep:schemars"]
+# `SchemaRef: rusqlite::ToSql`. `impress-core`'s `sqlite` feature turns this on.
+sqlite = ["dep:rusqlite"]
+
+[dependencies]
+# The pane-query edge enum converts into this crate's `EdgeType` at the
+# store boundary. The algebra crate stays free of this one.
+impress-pane-query = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+schemars = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[build-dependencies]
+impress-schema-ref-codegen = { workspace = true }
+
+[lints]
+workspace = true

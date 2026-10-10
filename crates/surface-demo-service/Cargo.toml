@@ -1,0 +1,34 @@
+[package]
+name = "surface-demo-service"
+description = "ADR-0033 D8 demo capability: the scaffold's output and the worked example"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+autotests = false
+
+[dependencies]
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# Proves the example surface is a real SurfaceSpec (ADR-0033 S1) and that
+# `impress_surface::validate` finds nothing wrong with it. Pure/no I/O crate
+# — see its own module docs — so this stays a light dev-dependency.
+impress-surface = { workspace = true }
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in tests/
+# (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would
+# make each of those files a binary of its own again.
+[[test]]
+name = "main"
+path = "tests/main.rs"
+
+[lints]
+workspace = true

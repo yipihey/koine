@@ -1,0 +1,19 @@
+[package]
+name = "impress-verb-surface"
+description = "verb_surface(&VerbDescriptor) -> SurfaceSpec: a generated form, Run button and result view for every linked verb, plus the catalogue (ADR-0035 D2, plan-auto-gui-and-self-docs.md G4)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The descriptor (name, schemas, safety, examples) — pure, no store, no IO;
+# see the kit line `scripts/check-kit-deps.sh` pins for this crate.
+impress-service-core = { workspace = true }
+# The vocabulary this crate builds: `SurfaceSpec`, `Node`, `Action`, `Source`.
+impress-surface = { workspace = true }
+serde_json = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[lints]
+workspace = true
