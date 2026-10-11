@@ -9,7 +9,7 @@
 //! * The `CliSubcommand` inventory: subcommands discovered automatically.
 //! * Direct invocation of the generated async handler with a JSON args object.
 
-use impress_service_core::{runtime, CliSubcommand, McpToolDescriptor};
+use impress_service_core::{CliSubcommand, McpToolDescriptor};
 use impress_service_macros::{impress_service, impress_service_impl};
 // `impress_method` is referenced by attribute syntax inside the trait below;
 // the marker attribute is consumed by `#[impress_service]`.
@@ -48,6 +48,7 @@ impress_service_impl! {
     instance = || DemoEcho,
     safety = read_only,
     since = "0.1.0",
+    effects = {},
     methods = [
         /// Echo a message back to the caller.
         echo(message: String) -> String,
