@@ -66,12 +66,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use clap::builder::NonEmptyStringValueParser;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use serde_json::{Map, Value};
 
 #[cfg(test)]
 use crate::CliSubcommand;
-use crate::{descriptor_handle::VerbHandle, BoxError};
+use crate::{adverb_meaning, descriptor_handle::VerbHandle, Adverb, Adverbs, BoxError, Within};
 
 /// Build a `clap::Command` for the binary named `app_name`, with one
 /// subcommand per registered [`CliSubcommand`].
@@ -138,13 +139,99 @@ fn build_subcommand(name: String, sub: VerbHandle) -> Command {
         })
         .unwrap_or_default();
 
+    let mut taken: HashSet<String> = HashSet::new();
     if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
         for (name, prop) in props {
+            taken.insert(name.replace('_', "-"));
             cmd = cmd.arg(build_arg(name, prop, required.contains(name)));
         }
     }
 
+    for arg in adverb_args_avoiding(&taken) {
+        cmd = cmd.arg(arg);
+    }
+
     cmd
+}
+
+/// Id prefix of the adverb flags, so an adverb's clap id can never collide
+/// with a verb argument's id (which is the bare property name).
+const ADVERB_ID_PREFIX: &str = "adverb:";
+
+fn adverb_id(adverb: Adverb) -> String {
+    format!("{ADVERB_ID_PREFIX}{}", adverb.as_str())
+}
+
+/// The six adverb flags every generated subcommand carries
+/// (docs/grammar.md § Adverbs). Help text is the vocabulary table's meaning.
+pub fn adverb_args() -> Vec<Arg> {
+    Adverb::ALL
+        .into_iter()
+        .map(|a| {
+            let arg = Arg::new(adverb_id(a))
+                .long(a.as_str().replace('_', "-"))
+                .help(adverb_meaning(a));
+            match a {
+                Adverb::Tentatively
+                | Adverb::WithReview
+                | Adverb::Reversibly
+                | Adverb::InBackground => arg.action(ArgAction::SetTrue),
+                Adverb::Once => arg
+                    .action(ArgAction::Set)
+                    .value_name("KEY")
+                    .value_parser(NonEmptyStringValueParser::new()),
+                Adverb::Within => arg
+                    .long("within-ms")
+                    .action(ArgAction::Set)
+                    .value_name("N")
+                    .value_parser(clap::value_parser!(u64).range(1..)),
+            }
+        })
+        .collect()
+}
+
+/// [`adverb_args`], with any flag whose long name a verb argument already
+/// owns renamed `--adverb-<name>`; the verb's argument keeps its flag.
+fn adverb_args_avoiding(taken: &HashSet<String>) -> Vec<Arg> {
+    adverb_args()
+        .into_iter()
+        .map(|arg| match arg.get_long() {
+            Some(long) if taken.contains(long) => {
+                let renamed = format!("adverb-{long}");
+                arg.long(renamed)
+            }
+            _ => arg,
+        })
+        .collect()
+}
+
+/// Read the adverb flags back into the wire value. Tolerates a command built
+/// without them (tests build bare commands).
+fn adverbs_from_matches(matches: &ArgMatches) -> Adverbs {
+    let flag = |a: Adverb| {
+        matches
+            .try_get_one::<bool>(&adverb_id(a))
+            .ok()
+            .flatten()
+            .copied()
+            .unwrap_or(false)
+    };
+    Adverbs {
+        tentatively: flag(Adverb::Tentatively),
+        with_review: flag(Adverb::WithReview),
+        once: matches
+            .try_get_one::<String>(&adverb_id(Adverb::Once))
+            .ok()
+            .flatten()
+            .cloned(),
+        reversibly: flag(Adverb::Reversibly),
+        within: matches
+            .try_get_one::<u64>(&adverb_id(Adverb::Within))
+            .ok()
+            .flatten()
+            .map(|&ms| Within { ms }),
+        in_background: flag(Adverb::InBackground),
+    }
 }
 
 /// Build a `clap::Arg` from a single JSON-Schema property.
@@ -414,6 +501,15 @@ fn matches_to_json(matches: &ArgMatches, schema: &Value) -> Result<Value, BoxErr
         }
     }
 
+    // Adverbs ride beside the arguments under the reserved key; the pipeline
+    // strips them (`Adverbs::take_from`). They are not verb arguments.
+    let adverbs = adverbs_from_matches(matches);
+    if !adverbs.is_empty() {
+        if let Ok(v) = serde_json::to_value(&adverbs) {
+            map.insert(Adverbs::KEY.to_string(), v);
+        }
+    }
+
     Ok(Value::Object(map))
 }
 
@@ -437,6 +533,116 @@ mod tests {
             .arg(build_arg(name, &prop, required));
         let matches = cmd.try_get_matches_from(argv).map_err(|e| e.to_string())?;
         matches_to_json(&matches, &schema).map_err(|e| e.to_string())
+    }
+
+    /// A subcommand shaped like `build_subcommand`'s: verb args + adverb flags.
+    fn subcommand_for(schema: &Value) -> Command {
+        let mut taken = HashSet::new();
+        let mut cmd = Command::new("t").no_binary_name(true);
+        for (name, prop) in schema["properties"].as_object().unwrap() {
+            taken.insert(name.replace('_', "-"));
+            cmd = cmd.arg(build_arg(name, prop, false));
+        }
+        for arg in adverb_args_avoiding(&taken) {
+            cmd = cmd.arg(arg);
+        }
+        cmd
+    }
+
+    fn parse_full(schema: &Value, argv: &[&str]) -> Result<Value, String> {
+        let m = subcommand_for(schema)
+            .try_get_matches_from(argv)
+            .map_err(|e| e.to_string())?;
+        matches_to_json(&m, schema).map_err(|e| e.to_string())
+    }
+
+    fn input_schema() -> Value {
+        json!({"type":"object","properties":{"input":{"type":"string"}}})
+    }
+
+    #[test]
+    fn adverb_flags_parse_into_the_wire_object() {
+        let out = parse_full(
+            &input_schema(),
+            &[
+                "--input",
+                "x",
+                "--tentatively",
+                "--once",
+                "k",
+                "--within-ms",
+                "250",
+            ],
+        )
+        .unwrap();
+        assert_eq!(out["input"], "x");
+        assert_eq!(
+            out["adverbs"],
+            json!({"tentatively": true, "once": "k", "within": {"ms": 250}})
+        );
+        assert_eq!(out.as_object().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn all_six_adverb_flags_parse() {
+        let out = parse_full(
+            &input_schema(),
+            &[
+                "--tentatively",
+                "--with-review",
+                "--reversibly",
+                "--in-background",
+                "--within-ms",
+                "1",
+                "--once",
+                "a",
+            ],
+        )
+        .unwrap();
+        let a: Adverbs = serde_json::from_value(out["adverbs"].clone()).unwrap();
+        assert_eq!(a.used().len(), 6);
+    }
+
+    #[test]
+    fn no_adverb_flags_means_no_adverbs_key() {
+        let out = parse_full(&input_schema(), &["--input", "x"]).unwrap();
+        assert!(out.get(Adverbs::KEY).is_none());
+    }
+
+    #[test]
+    fn zero_within_and_empty_once_are_rejected_by_clap() {
+        let err = parse_full(&input_schema(), &["--within-ms", "0"]).unwrap_err();
+        assert!(err.contains("--within-ms"), "{err}");
+        let err = parse_full(&input_schema(), &["--once", ""]).unwrap_err();
+        assert!(err.contains("--once"), "{err}");
+    }
+
+    #[test]
+    fn a_verb_argument_keeps_its_flag_and_the_adverb_is_renamed() {
+        let schema = json!({"type":"object","properties":{
+            "once":{"type":"string"},
+            "within_ms":{"type":"integer"}}});
+        let out = parse_full(
+            &schema,
+            &[
+                "--once",
+                "verb-value",
+                "--within-ms",
+                "7",
+                "--adverb-once",
+                "key",
+                "--adverb-within-ms",
+                "250",
+                "--tentatively",
+            ],
+        )
+        .unwrap();
+        assert_eq!(out["once"], "verb-value");
+        assert_eq!(out["within_ms"], 7);
+        assert_eq!(
+            out["adverbs"],
+            json!({"tentatively": true, "once": "key", "within": {"ms": 250}})
+        );
     }
 
     /// A documented argument's schema `description` is its `--help` text:

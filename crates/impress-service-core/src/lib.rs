@@ -238,10 +238,74 @@ impl McpToolDescriptor {
         }
     }
 
+    /// The schema MCP advertises: the verb's own arguments plus the optional
+    /// adverbs envelope. The descriptor's `input_schema` is unchanged, so
+    /// strict-argument checks and generated forms see the verb's arguments
+    /// only.
+    pub fn mcp_input_schema(&self) -> serde_json::Value {
+        with_adverbs_property((self.input_schema)())
+    }
+
     /// Iterate all descriptors registered in this binary via `inventory`.
     pub fn iter() -> impl Iterator<Item = &'static McpToolDescriptor> {
         inventory::iter::<McpToolDescriptor>.into_iter()
     }
+}
+
+/// The vocabulary table's meaning of an adverb (docs/grammar.md § Adverbs).
+pub fn adverb_meaning(adverb: Adverb) -> &'static str {
+    match adverb {
+        Adverb::Tentatively => "Do not run; answer what would happen",
+        Adverb::WithReview => "Queue for a person's confirmation, whatever the policy says",
+        Adverb::Once => {
+            "Idempotent under retry: a repeat with the same key answers the first result"
+        }
+        Adverb::Reversibly => "Record an undo step; the result names the inverse call",
+        Adverb::Within => "Give up after N ms with `timed-out`",
+        Adverb::InBackground => "Start as a job and answer the handle",
+    }
+}
+
+/// JSON Schema of the [`Adverbs`] wire object (belongs in `adverb.rs`; lives
+/// here until that file is free to edit).
+pub fn adverbs_schema() -> serde_json::Value {
+    use serde_json::json;
+    let mut props = serde_json::Map::new();
+    for a in Adverb::ALL {
+        let mut p = match a {
+            Adverb::Once => json!({"type": "string", "minLength": 1}),
+            Adverb::Within => json!({
+                "type": "object",
+                "properties": {"ms": {"type": "integer", "minimum": 1}},
+                "required": ["ms"],
+                "additionalProperties": false,
+            }),
+            _ => json!({"type": "boolean"}),
+        };
+        p["description"] = json!(adverb_meaning(a));
+        props.insert(a.as_str().to_string(), p);
+    }
+    json!({
+        "type": "object",
+        "description": "How this call runs, not what the verb does (docs/grammar.md § Adverbs).",
+        "properties": props,
+        "additionalProperties": false,
+    })
+}
+
+/// A copy of a verb's object input schema with an optional `adverbs`
+/// property. A schema that already names `adverbs` is returned untouched.
+pub fn with_adverbs_property(mut schema: serde_json::Value) -> serde_json::Value {
+    let Some(obj) = schema.as_object_mut() else {
+        return schema;
+    };
+    let props = obj
+        .entry("properties")
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(props) = props.as_object_mut() {
+        props.entry(Adverbs::KEY).or_insert_with(adverbs_schema);
+    }
+    schema
 }
 
 impl fmt::Debug for McpToolDescriptor {
@@ -360,6 +424,66 @@ inventory::collect!(CliSubcommand);
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn fixture_schema() -> serde_json::Value {
+        json!({"type":"object","properties":{"q":{"type":"string"}},"required":["q"]})
+    }
+
+    fn fixture_handler(_: serde_json::Value) -> ServiceFuture {
+        Box::pin(async { Ok(serde_json::Value::Null) })
+    }
+
+    #[test]
+    fn mcp_input_schema_adds_the_adverbs_envelope_only_there() {
+        static VERB: VerbDescriptor = VerbDescriptor {
+            name: "fx-service_probe",
+            service: "fx-service",
+            method: "probe",
+            description: "",
+            input_schema: fixture_schema,
+            output_schema: fixture_schema,
+            safety: Safety {
+                class: SafetyClass::ReadOnly,
+                idempotent: true,
+            },
+            since: "0.1.0",
+            effects: Effects::NONE,
+            deprecated: None,
+            aliases: &[],
+            examples: &[],
+            strict: false,
+            budget_ms: None,
+            replay_full: false,
+            supports: &[],
+            adjective: None,
+            source: Source::Linked,
+            handler: fixture_handler,
+        };
+        let tool = McpToolDescriptor::of(&VERB);
+        let adv = &tool.mcp_input_schema()["properties"]["adverbs"];
+        assert_eq!(adv["additionalProperties"], json!(false));
+        let keys: Vec<_> = adv["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        for a in Adverb::ALL {
+            assert!(keys.contains(&a.as_str().to_string()), "{a}");
+        }
+        assert_eq!(keys.len(), 6);
+        assert_eq!((tool.input_schema)(), fixture_schema());
+        assert_eq!(
+            tool.mcp_input_schema()["properties"]["q"],
+            json!({"type":"string"})
+        );
+    }
+
+    #[test]
+    fn with_adverbs_property_leaves_a_schema_naming_adverbs_alone() {
+        let s = json!({"type":"object","properties":{"adverbs":{"type":"string"}}});
+        assert_eq!(with_adverbs_property(s.clone()), s);
+    }
 
     /// The transport-level guarantee behind "no generated tool can emit a
     /// non-object structuredContent": every JSON kind a generated handler can
