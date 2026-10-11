@@ -23,8 +23,49 @@ pub enum FieldMutation {
     SetParent(Option<ItemId>),
 }
 
+/// What a backend can and cannot do, as it declares at open
+/// (`docs/plan-koine-store.md` D1). A host reads this and refuses or
+/// degrades explicitly: nothing silently slows or silently forgets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoreCapabilities {
+    /// Predicates and sorts are served by an index; a query's cost does not
+    /// grow with the number of items of other kinds.
+    pub indexed_query: bool,
+    /// `insert_batch` and `apply_operations_if_clock` are all-or-nothing
+    /// even if the process dies mid-way.
+    pub atomic_batch: bool,
+    /// `subscribe` delivers events for writes made by this process.
+    pub subscribe: bool,
+    /// `subscribe` also delivers events for writes made by other processes.
+    pub cross_process_events: bool,
+    /// Records survive the process.
+    pub durable: bool,
+    /// Two processes may open the same store at once and each sees the
+    /// other's committed writes.
+    pub shared: bool,
+    /// The store holds blobs beside items ([`BlobStore`]).
+    pub blobs: bool,
+}
+
+/// Bytes kept beside an item: a PDF next to its record, a figure next to
+/// its plot (`docs/plan-koine-store.md` D5). A backend whose
+/// [`StoreCapabilities::blobs`] is false does not implement this.
+pub trait BlobStore: Send + Sync {
+    /// Store `bytes` as `name` under `item`, replacing a blob of that name.
+    fn put_blob(&self, item: ItemId, name: &str, bytes: &[u8]) -> Result<(), StoreError>;
+    /// The blob, or `None` when `item` has no blob of that name.
+    fn get_blob(&self, item: ItemId, name: &str) -> Result<Option<Vec<u8>>, StoreError>;
+    /// Remove one blob. A blob that is already gone is not an error.
+    fn delete_blob(&self, item: ItemId, name: &str) -> Result<(), StoreError>;
+    /// The names of `item`'s blobs, sorted.
+    fn list_blobs(&self, item: ItemId) -> Result<Vec<String>, StoreError>;
+}
+
 /// The trait that all storage backends implement.
 pub trait ItemStore: Send + Sync {
+    /// What this backend can do (`docs/plan-koine-store.md` D1).
+    fn capabilities(&self) -> StoreCapabilities;
+
     /// Insert a new item. Returns the item's ID.
     fn insert(&self, item: Item) -> Result<ItemId, StoreError>;
 

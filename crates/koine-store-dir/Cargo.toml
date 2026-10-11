@@ -1,0 +1,20 @@
+[package]
+name = "koine-store-dir"
+description = "The directory koine store: one JSON file per item, blobs beside them, a journal for atomic batches, rsync-able."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-item = { workspace = true }
+impress-fs-lock = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[lints]
+workspace = true

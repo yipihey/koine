@@ -20,6 +20,10 @@ members = [
     "crates/impress-keymap",
     "crates/impress-scenario",
     "crates/impress-workflow",
+    "crates/koine-store-memory",
+    "crates/koine-store-dir",
+    "crates/koine-store-conformance",
+    "crates/koine-store",
     "crates/koine-workspace-hack",
 ]
 
@@ -97,6 +101,12 @@ surface-demo-service = { path = "crates/surface-demo-service" }
 # writing `default-features = false` is silently ignored (cargo warns, and
 # says it may become a hard error). Consumers opt in to store/index/embedder.
 impress-fs-lock = { path = "crates/impress-fs-lock" }
+# The store backends and the suite that proves them the same store
+# (docs/plan-koine-store.md).
+koine-store-memory = { path = "crates/koine-store-memory" }
+koine-store-dir = { path = "crates/koine-store-dir" }
+koine-store-conformance = { path = "crates/koine-store-conformance" }
+koine-store = { path = "crates/koine-store" }
 impress-settings = { path = "crates/impress-settings" }
 
 # implore crates

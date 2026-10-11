@@ -3267,6 +3267,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "koine-store"
+version = "0.1.0"
+dependencies = [
+ "impress-item",
+ "koine-store-dir",
+ "koine-store-memory",
+ "koine-workspace-hack",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "koine-store-conformance"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "impress-item",
+ "koine-workspace-hack",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "koine-store-dir"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "impress-fs-lock",
+ "impress-item",
+ "koine-workspace-hack",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "uuid",
+]
+
+[[package]]
+name = "koine-store-memory"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "impress-item",
+ "koine-workspace-hack",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "koine-style-file"
 version = "0.1.0"
 dependencies = [
