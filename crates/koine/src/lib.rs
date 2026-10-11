@@ -18,6 +18,10 @@
 //! the same query. Adverbs (`verbs::adverb`) are the six modifiers every
 //! verb call may carry, under one reserved `adverbs` key.
 //!
+//! The verb half — [`verbs`] and [`verb_surface`] — is the `verbs` feature,
+//! on by default. A browser build turns it off and performs the document
+//! only (`docs/plan-koine-web.md` D5); every other module is unconditional.
+//!
 //! This crate is the name and the public face. The grammar still lives in the
 //! crates it re-exports, so existing callers keep their paths. The repository
 //! cut that would publish koine on its own is `docs/plan-koine-separation.md`.
@@ -28,8 +32,10 @@ pub mod style_file;
 
 pub use impress_layout as layout;
 pub use impress_pane_query as pane_query;
+#[cfg(feature = "verbs")]
 pub use impress_service_core as verbs;
 pub use impress_surface as surface;
+#[cfg(feature = "verbs")]
 pub use impress_verb_surface as verb_surface;
 
 #[cfg(test)]

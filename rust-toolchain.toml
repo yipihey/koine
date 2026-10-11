@@ -12,4 +12,5 @@ channel = "1.98.1"
 # llvm-tools: crates/impel-tools/build-xcframework.sh strips bitcode with
 # rust-objcopy, which needs this component's libLLVM.dylib (2026-09-25).
 components = ["rustfmt", "clippy", "llvm-tools"]
-targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+# wasm32: the browser frontend (docs/plan-koine-web.md D11).
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "wasm32-unknown-unknown"]

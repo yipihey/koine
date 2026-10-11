@@ -127,6 +127,70 @@
           "name": "focus"
         }
       ]
+    },
+    "web": {
+      "slots": [
+        {
+          "default": "8",
+          "kind": "spacing",
+          "name": "column"
+        },
+        {
+          "default": "8",
+          "kind": "spacing",
+          "name": "row"
+        },
+        {
+          "default": "automatic",
+          "kind": "font",
+          "name": "text"
+        },
+        {
+          "default": "automatic",
+          "kind": "font",
+          "name": "section"
+        },
+        {
+          "default": "automatic",
+          "kind": "color",
+          "name": "button"
+        },
+        {
+          "default": "automatic",
+          "kind": "font",
+          "name": "field"
+        },
+        {
+          "default": "0",
+          "kind": "spacing",
+          "name": "list"
+        },
+        {
+          "default": "0",
+          "kind": "spacing",
+          "name": "table"
+        },
+        {
+          "default": "error",
+          "kind": "color",
+          "name": "status.error"
+        },
+        {
+          "default": "warning",
+          "kind": "color",
+          "name": "status.warning"
+        },
+        {
+          "default": "info",
+          "kind": "color",
+          "name": "status.info"
+        },
+        {
+          "default": "automatic",
+          "kind": "color",
+          "name": "focus"
+        }
+      ]
     }
   },
   "placeholders": [

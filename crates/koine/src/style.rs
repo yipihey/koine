@@ -20,7 +20,7 @@ use crate::surface::{
 
 /// Frontend ids this build knows. A new frontend is a new entry here and a
 /// new arm in [`slots`], in the same change as its renderer.
-pub const FRONTENDS: &[&str] = &["swift", "tui"];
+pub const FRONTENDS: &[&str] = &["swift", "tui", "web"];
 
 /// Slot names every frontend declares, in declaration order. A frontend that
 /// adds a name, or skips one, is not a koine frontend.
@@ -185,6 +185,74 @@ const TUI: &[Slot] = &[
     },
 ];
 
+/// The web frontend (`koine-dioxus`, docs/plan-koine-web.md D3). Its value
+/// kinds are the Swift ones — both are widget toolkits, so spacing is a gap,
+/// a font is a class and a colour is a token — and every value lands on the
+/// page as one CSS custom property, so a changed slot is a style pass, not a
+/// render. The defaults are the browser's own look.
+const WEB: &[Slot] = &[
+    Slot {
+        name: "column",
+        kind: ValueKind::Spacing,
+        default_value: "8",
+    },
+    Slot {
+        name: "row",
+        kind: ValueKind::Spacing,
+        default_value: "8",
+    },
+    Slot {
+        name: "text",
+        kind: ValueKind::Font,
+        default_value: "automatic",
+    },
+    Slot {
+        name: "section",
+        kind: ValueKind::Font,
+        default_value: "automatic",
+    },
+    Slot {
+        name: "button",
+        kind: ValueKind::Color,
+        default_value: "automatic",
+    },
+    Slot {
+        name: "field",
+        kind: ValueKind::Font,
+        default_value: "automatic",
+    },
+    Slot {
+        name: "list",
+        kind: ValueKind::Spacing,
+        default_value: "0",
+    },
+    Slot {
+        name: "table",
+        kind: ValueKind::Spacing,
+        default_value: "0",
+    },
+    Slot {
+        name: "status.error",
+        kind: ValueKind::Color,
+        default_value: "error",
+    },
+    Slot {
+        name: "status.warning",
+        kind: ValueKind::Color,
+        default_value: "warning",
+    },
+    Slot {
+        name: "status.info",
+        kind: ValueKind::Color,
+        default_value: "info",
+    },
+    Slot {
+        name: "focus",
+        kind: ValueKind::Color,
+        default_value: "automatic",
+    },
+];
+
 /// How a frontend stores one slot. The wire name is [`ValueKind::name`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueKind {
@@ -234,6 +302,7 @@ pub fn slots(frontend: &str) -> Result<&'static [Slot], StyleError> {
     match frontend {
         "swift" => Ok(SWIFT),
         "tui" => Ok(TUI),
+        "web" => Ok(WEB),
         _ => Err(StyleError::UnknownFrontend {
             frontend: frontend.to_string(),
         }),
@@ -683,7 +752,7 @@ mod tests {
         book.set("tui", "focus", "*").unwrap();
         let host = book.open("tui").unwrap();
         assert_eq!(host.sheet().value("focus"), "*");
-        assert!(book.open("web").is_err());
+        assert!(book.open("gtk").is_err());
     }
 
     #[test]

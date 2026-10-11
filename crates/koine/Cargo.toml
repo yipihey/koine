@@ -9,13 +9,22 @@ repository.workspace = true
 [dependencies]
 impress-layout = { workspace = true }
 impress-pane-query = { workspace = true }
-impress-service-core = { workspace = true }
+impress-service-core = { workspace = true, optional = true }
 impress-surface = { workspace = true }
-impress-verb-surface = { workspace = true }
+impress-verb-surface = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 koine-workspace-hack.workspace = true
+
+[features]
+# `verbs` is the verb half of the grammar: the descriptor, the pipeline and
+# the generated verb form. It is on by default and off for a browser build,
+# which cannot link tokio or `inventory` and only performs the document
+# (docs/plan-koine-web.md D5). `style`, `gesture`, `surface`, `layout` and
+# `pane_query` are unconditional.
+default = ["verbs"]
+verbs = ["dep:impress-service-core", "dep:impress-verb-surface"]
 
 [lints]
 workspace = true
