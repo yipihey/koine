@@ -215,3 +215,36 @@ string and never names a backend.
 | S2 | `koine-store-dir` with its own tests, then the suite | new crate |
 | S3 | `koine-store` facade; CI; README | new crate, `.github` |
 | S4 | impress-apps: `SqliteItemStore::capabilities`, the suite as a dev-dependency, the rev bump | impress-apps |
+
+## Status (2026-10-11)
+
+S0–S3 are built on koine main. What the suite established:
+
+- **The suite is the oracle's behaviour, not a reading of it.** Its eighty
+  cases were run against a scratch build of `SqliteItemStore` itself (144
+  passed, in-memory and file-backed) before either new backend passed
+  them. Where D2 above had paraphrased SQLite wrongly (an `Updated` event
+  that is never sent; `modified` on reference operations), the text moved
+  to the oracle.
+- **Two blind implementations disagreed exactly where expected.** The
+  directory store, written without seeing the memory store, failed three
+  cases (a blob for a missing item, the blob-name rules, `Not` over a
+  missing field) and differed on four more the suite does not pin
+  (no-op filtering judged against the initial row, `modified` on
+  reference operations, undo values for booleans, reference order). All
+  seven moved to the oracle. This is the drift the suite exists to catch,
+  seen once on purpose.
+- **One evaluation.** `koine-store-memory::eval` is the predicate, sort
+  and paging evaluation for every scanning backend; the directory store
+  depends on it for that and nothing else.
+- **Capabilities as declared:** memory `atomic_batch, subscribe, blobs`;
+  dir `durable, shared, atomic_batch, subscribe, blobs`; SQLite (S4)
+  `indexed_query, atomic_batch, subscribe`, and `durable, shared` when
+  file-backed, `blobs: false`.
+- **Known limits:** the suite takes a store by value and has no cleanup
+  hook, so each directory case leaves a small root under the OS temp dir;
+  the directory store's `delete` is linear in the store (parent and
+  reference cleanup) and nothing is fsynced, so it survives a process
+  exit and not a power loss; cross-process events, conflict copies and
+  an index remain D8.
+
