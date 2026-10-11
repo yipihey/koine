@@ -1,0 +1,37 @@
+ column
+   row
+>    field "8"
+     button Reset
+   row
+     field "8"
+     button Reset
+   row
+     field "automatic"
+     button Reset
+   row
+     field "automatic"
+     button Reset
+   row
+     field "automatic"
+     button Reset
+   row
+     field "automatic"
+     button Reset
+   row
+     field "0"
+     button Reset
+   row
+     field "0"
+     button Reset
+   row
+     field "error"
+     button Reset
+   row
+     field "warning"
+     button Reset
+   row
+     field "info"
+     button Reset
+   row
+     field "automatic"
+     button Reset

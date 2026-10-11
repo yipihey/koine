@@ -1,0 +1,8 @@
+ column
+   text # Paper triage
+   placeholder placeholder: template path '{{source.papers}}' did not resolve to a value
+   row
+>    button Star
+     button Flag red
+     button Tag to-read
+   status info: Selected: []

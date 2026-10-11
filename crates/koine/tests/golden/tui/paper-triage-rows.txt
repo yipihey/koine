@@ -1,0 +1,8 @@
+ column
+   text # Paper triage
+>  table title,year,author_text
+   row
+     button Star
+     button Flag red
+     button Tag to-read
+   status info: Selected: []

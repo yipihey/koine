@@ -1,0 +1,30 @@
+ column
+   row
+>    button Go
+     spacer
+   grid 3
+     text in a grid
+   section Hidden (collapsed)
+     text kept in the DOM
+   tabs 2
+     text first
+     text second
+   table title,year
+   list
+   plot
+   image
+   image
+   field "Ada"
+   field 3
+   field 2
+   field "b"
+   field true
+   field "2026-01-02"
+   field "red"
+   status error: bad
+   status warning: hmm
+   status info: fyi
+   log
+   kv
+   divider
+   placeholder hologram: this build has no 'hologram' widget

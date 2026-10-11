@@ -17,6 +17,15 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 koine-workspace-hack.workspace = true
 
+# The conformance suite (`tests/frontends.rs`, docs/plan-koine-web.md D10)
+# performs one tree with both frontends. Each of them depends on `koine`, and
+# cargo allows that cycle for dev-dependencies. By path, not `workspace = true`,
+# for the reason `koine-dioxus` gives for its own `koine` line: the web
+# frontend must not inherit the `verbs` default.
+[dev-dependencies]
+koine-dioxus = { path = "../koine-dioxus", features = ["ssr"] }
+koine-tui = { path = "../koine-tui" }
+
 [features]
 # `verbs` is the verb half of the grammar: the descriptor, the pipeline and
 # the generated verb form. It is on by default and off for a browser build,

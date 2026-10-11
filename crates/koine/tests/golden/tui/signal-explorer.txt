@@ -1,0 +1,8 @@
+ column
+   text # Signal explorer
+   row
+>    field 1.0
+     field 20
+   placeholder placeholder: template path '{{source.hist.plot}}' did not resolve to a value
+   placeholder placeholder: template path '{{source.papers}}' did not resolve to a value
+   button Use these bins

@@ -1,0 +1,3 @@
+ column
+   text before
+   placeholder holo: nobody draws holograms

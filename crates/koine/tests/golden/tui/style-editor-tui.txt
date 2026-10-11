@@ -1,0 +1,37 @@
+ column
+   row
+>    field "2"
+     button Reset
+   row
+     field "2"
+     button Reset
+   row
+     field "text {text}"
+     button Reset
+   row
+     field "section {title}"
+     button Reset
+   row
+     field "button {label}"
+     button Reset
+   row
+     field "field {value}"
+     button Reset
+   row
+     field "list"
+     button Reset
+   row
+     field "table {columns}"
+     button Reset
+   row
+     field "status error: {message}"
+     button Reset
+   row
+     field "status warning: {message}"
+     button Reset
+   row
+     field "status info: {message}"
+     button Reset
+   row
+     field ">"
+     button Reset

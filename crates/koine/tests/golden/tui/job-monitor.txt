@@ -1,0 +1,7 @@
+ column
+   placeholder placeholder: template path '{{source.job.kind}}' did not resolve to a value
+   placeholder placeholder: template path '{{source.job.state}}' did not resolve to a value
+   placeholder placeholder: template path '{{source.events.events}}' did not resolve to a value
+   row
+>    button Refresh
+     button Cancel
