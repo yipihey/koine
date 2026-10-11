@@ -3308,6 +3308,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "impress-item",
+ "koine-store-conformance",
  "koine-workspace-hack",
  "serde_json",
  "uuid",

@@ -13,5 +13,9 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 koine-workspace-hack.workspace = true
 
+[dev-dependencies]
+# The suite every backend passes; tests/conformance.rs instantiates it.
+koine-store-conformance = { workspace = true }
+
 [lints]
 workspace = true
