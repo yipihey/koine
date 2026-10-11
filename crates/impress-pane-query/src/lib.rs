@@ -54,6 +54,11 @@
 //!   since its own `EdgeType` is what a [`crate::event::StoreMutation`] (a
 //!   type this crate does not and must not know about) carries natively.
 
+pub mod adjective;
+pub use adjective::{
+    expand, Adjective, AdjectiveRegistry, AdjectiveUse, DerivedAdjective, Expanded,
+};
+
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
@@ -233,6 +238,10 @@ pub struct PaneQuery {
     pub scope: Scope,
     #[serde(default)]
     pub filters: Vec<Filter>,
+    /// Adjectives used by name (docs/grammar.md § Adjectives); [`expand`]
+    /// lowers them into `filters` before the query compiles.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub adjectives: Vec<AdjectiveUse>,
     /// Full-text term over `items_fts`.
     #[serde(default)]
     pub text: Option<String>,
@@ -374,6 +383,12 @@ pub enum PaneQueryError {
     /// on `Gte` and no row on `Lte`.
     #[error("date range bound '{value}' on field '{field}' is not ISO-8601")]
     InvalidDate { field: String, value: String },
+    #[error("unknown adjective '{name}'")]
+    UnknownAdjective { name: String },
+    #[error("adjective '{name}' does not apply to kind '{kind}'")]
+    AdjectiveKindMismatch { name: String, kind: RecordKindId },
+    #[error("adjective '{name}': {reason}")]
+    AdjectiveArgument { name: String, reason: String },
 }
 
 /// The names of every parameter the query mentions, in first-use order.
@@ -480,6 +495,7 @@ mod contract_tests {
                 Filter::Flag { color: None },
                 Filter::Starred { starred: true },
             ],
+            adjectives: vec![],
             text: Some("dark matter".into()),
             relation: None,
             sort: vec![SortKey {
