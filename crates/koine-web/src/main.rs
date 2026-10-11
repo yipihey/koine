@@ -10,7 +10,6 @@
 
 mod api;
 mod dom;
-mod frame;
 mod keys;
 mod layout_page;
 mod session;

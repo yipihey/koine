@@ -14,7 +14,8 @@
 //! document. The native writer that locks it is the `koine-style-file` crate.
 //! [`cursor`] is the focus cursor and the key vocabulary every frontend
 //! shares: the same keys move the same focus and send the same events on the
-//! text frontend and the web one.
+//! text frontend and the web one. [`frame`] is what a pointer on a pane frame
+//! means (`Hit` to `Gesture` to layout verb), one copy for both.
 //!
 //! Two parts sit beside the document. Adjectives (`pane_query::adjective`)
 //! are the named, typed filters a pane query is written in, each lowering to
@@ -30,6 +31,7 @@
 //! cut that would publish koine on its own is `docs/plan-koine-separation.md`.
 
 pub mod cursor;
+pub mod frame;
 pub mod gesture;
 pub mod style;
 pub mod style_file;

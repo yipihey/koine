@@ -38,10 +38,6 @@ web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlE
 [dev-dependencies]
 # The native tests render the layout page to HTML, as `koine-dioxus` does.
 dioxus-ssr = "0.7"
-# Test-only. `koine-tui` cannot link into the wasm build (its `koine` carries
-# the `verbs` feature), so `frame.rs` restates its pointer decisions and a test
-# pins the copy to the original.
-koine-tui = { workspace = true }
 
 [features]
 default = ["web"]

@@ -3298,7 +3298,6 @@ dependencies = [
  "impress-surface",
  "koine",
  "koine-dioxus",
- "koine-tui",
  "koine-workspace-hack",
  "reqwest",
  "serde",

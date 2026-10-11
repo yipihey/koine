@@ -187,7 +187,8 @@ Every pane has the frame `koine-tui` draws as cells: a grip on the top
 edge, tab labels on that edge, dividers between siblings. Pointer down,
 move and up on those elements become `koine::gesture::Pointer` and `Edge`
 values, `gesture::layout_verb` names the verb, and the page posts it to
-`/api/layout/verb`. The page decides nothing about what a drag means.
+`/api/layout/verb`. The page decides nothing about what a drag means: the
+decisions are `koine::frame`, shared with `koine-tui`.
 
 ### D8. Who may call: the loopback token
 

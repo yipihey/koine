@@ -5,12 +5,13 @@
 //! starts there belongs to the program in the pane, not to the chassis.
 //!
 //! A pointer report is an SGR mouse sequence (xterm 1006): a cell and a
-//! button. [`pointer_gesture`] and [`drag_gesture`] turn a hit into the same
-//! [`Gesture`] a key produces. [`verb_for_pointer`] and [`verb_for_drag`]
-//! are that gesture through [`koine::gesture::layout_verb`].
+//! button. [`Hit`], [`pointer_gesture`], [`drag_gesture`], [`verb_for_pointer`]
+//! and [`verb_for_drag`] are `koine::frame`, shared with the browser and
+//! re-exported here; this module is the part that is about cells.
 
-use koine::gesture::{Edge, Element, Gesture, Pointer};
-use koine::layout::Placement;
+use koine::gesture::{Edge, Pointer};
+
+pub use koine::frame::{drag_gesture, pointer_gesture, verb_for_drag, verb_for_pointer, Hit};
 
 /// One pane's frame, in terminal cells. `width` and `height` include the
 /// border. The origin is the top-left corner.
@@ -23,16 +24,6 @@ pub struct Frame {
     /// Tab labels drawn on the top edge, after the grip. Empty means the
     /// rest of that edge is the title.
     pub tabs: Vec<String>,
-}
-
-/// Where a cell sits in a frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Hit {
-    Grip,
-    Title,
-    Tab(usize),
-    Frame(Edge),
-    Body,
 }
 
 /// One SGR 1006 report. Columns and rows are 0-based cells.
@@ -192,134 +183,6 @@ pub fn hit(frame: &Frame, col: u16, row: u16) -> Option<Hit> {
     Some(Hit::Body)
 }
 
-/// A press on the frame. The body focuses the pane; a tab activates that
-/// tab; a secondary click is the menu. The wheel and the middle button
-/// return `None` — they belong to the content.
-pub fn pointer_gesture(
-    at: Hit,
-    pointer: Pointer,
-    pane: &Element,
-    tabs: &[Element],
-) -> Option<Gesture> {
-    if pointer == Pointer::Secondary {
-        let element = match at {
-            Hit::Tab(index) => tabs.get(index).cloned().unwrap_or_else(|| pane.clone()),
-            _ => pane.clone(),
-        };
-        return Some(Gesture::Secondary { element });
-    }
-    Some(match at {
-        Hit::Tab(index) => Gesture::Activate {
-            element: tabs.get(index).cloned().unwrap_or_else(|| pane.clone()),
-        },
-        Hit::Frame(edge) => Gesture::Resize {
-            element: pane.clone(),
-            edge,
-        },
-        Hit::Grip | Hit::Title | Hit::Body => Gesture::Focus {
-            element: pane.clone(),
-        },
-    })
-}
-
-/// A drag from `from` to `to`.
-///
-/// A grip dropped on another pane's edge moves it there. Its center becomes
-/// tabs. Its own center cancels. A tab dropped on an edge splits that tab
-/// out; a tab dropped along its own title is a reorder, which this returns
-/// as `None` so the host can call [`koine::gesture::reorder`]. A drag that
-/// starts in the body is the content's pointer.
-pub fn drag_gesture(
-    from: Hit,
-    to: Hit,
-    dragged: &Element,
-    target: &Element,
-    same_pane: bool,
-) -> Option<Gesture> {
-    match from {
-        Hit::Body => None,
-        Hit::Frame(edge) => Some(Gesture::Resize {
-            element: dragged.clone(),
-            edge,
-        }),
-        Hit::Grip | Hit::Title => drag_handle(to, dragged, target, same_pane, true),
-        Hit::Tab(_) => drag_handle(to, dragged, target, same_pane, false),
-    }
-}
-
-/// `pane_handle` is the grip or the title. A tab along its own strip is left
-/// for [`koine::gesture::reorder`].
-fn drag_handle(
-    to: Hit,
-    dragged: &Element,
-    target: &Element,
-    same_pane: bool,
-    pane_handle: bool,
-) -> Option<Gesture> {
-    let placement = match to {
-        Hit::Frame(edge) => Some(edge.placement()),
-        Hit::Body | Hit::Title | Hit::Tab(_) | Hit::Grip => {
-            if same_pane {
-                None
-            } else {
-                Some(Placement::IntoTabs)
-            }
-        }
-    };
-    // A tab dragged along its own title changes order; it does not split.
-    if !pane_handle && same_pane && !matches!(to, Hit::Frame(_)) {
-        return None;
-    }
-    // A pane dropped on its own center cancels. An edge of the same pane
-    // still places it, which is how a tabbed pane splits back out.
-    if pane_handle && same_pane && placement == Some(Placement::IntoTabs) {
-        return None;
-    }
-    placement.map(|placement| Gesture::Drag {
-        element: dragged.clone(),
-        target: target.clone(),
-        placement,
-    })
-}
-
-/// The layout verb a press already determines, or `None` when the press is a
-/// menu, a surface click, or a resize that still needs lengths.
-pub fn verb_for_pointer(
-    at: Hit,
-    pointer: Pointer,
-    pane: &Element,
-    tabs: &[Element],
-) -> Option<koine::layout::Verb> {
-    let pane_id = tile_id(pane);
-    pointer_gesture(at, pointer, pane, tabs)
-        .as_ref()
-        .and_then(|gesture| koine::gesture::layout_verb(gesture, pane_id))
-}
-
-/// The layout verb a drag already determines. A tab pulled onto an edge is
-/// `None`: the host attaches the new spec to [`koine::gesture::split_axes`].
-/// A reorder along the strip is `None`: the host calls
-/// [`koine::gesture::tab_order_verb`].
-pub fn verb_for_drag(
-    from: Hit,
-    to: Hit,
-    dragged: &Element,
-    target: &Element,
-    same_pane: bool,
-) -> Option<koine::layout::Verb> {
-    let pane_id = tile_id(target);
-    drag_gesture(from, to, dragged, target, same_pane)
-        .as_ref()
-        .and_then(|gesture| koine::gesture::layout_verb(gesture, pane_id))
-}
-
-fn tile_id(element: &Element) -> Option<u64> {
-    match element {
-        Element::Tile { id } => Some(*id),
-        Element::Widget { .. } | Element::Focused => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,112 +260,5 @@ mod tests {
 
         assert!(parse_sgr("\u{1b}[<64;1;1M").unwrap().button == MouseButton::WheelUp);
         assert!(parse_sgr("not a mouse").is_none());
-    }
-
-    #[test]
-    fn the_pointer_and_a_drag_become_the_shared_gesture() {
-        let pane = Element::Tile { id: 12 };
-        let tabs = [
-            Element::Widget { id: "info".into() },
-            Element::Widget { id: "pdf".into() },
-        ];
-        assert_eq!(
-            pointer_gesture(Hit::Grip, Pointer::Secondary, &pane, &tabs),
-            Some(Gesture::Secondary {
-                element: pane.clone()
-            })
-        );
-        assert_eq!(
-            pointer_gesture(Hit::Tab(1), Pointer::Primary, &pane, &tabs),
-            Some(Gesture::Activate {
-                element: Element::Widget { id: "pdf".into() }
-            })
-        );
-        assert_eq!(
-            pointer_gesture(Hit::Body, Pointer::Primary, &pane, &tabs),
-            Some(Gesture::Focus {
-                element: pane.clone()
-            })
-        );
-
-        let other = Element::Tile { id: 3 };
-        assert_eq!(
-            drag_gesture(Hit::Grip, Hit::Frame(Edge::Left), &pane, &other, false),
-            Some(Gesture::Drag {
-                element: pane.clone(),
-                target: other.clone(),
-                placement: Placement::Left,
-            })
-        );
-        assert_eq!(
-            drag_gesture(Hit::Grip, Hit::Body, &pane, &other, false),
-            Some(Gesture::Drag {
-                element: pane.clone(),
-                target: other.clone(),
-                placement: Placement::IntoTabs,
-            })
-        );
-        assert_eq!(
-            drag_gesture(Hit::Grip, Hit::Body, &pane, &pane, true),
-            None,
-            "a pane's own center cancels"
-        );
-        assert_eq!(
-            drag_gesture(Hit::Tab(0), Hit::Title, &tabs[0], &pane, true),
-            None,
-            "along the strip is a reorder"
-        );
-        assert_eq!(
-            drag_gesture(Hit::Tab(0), Hit::Frame(Edge::Right), &tabs[0], &pane, true),
-            Some(Gesture::Drag {
-                element: tabs[0].clone(),
-                target: pane.clone(),
-                placement: Placement::Right,
-            })
-        );
-        assert_eq!(
-            drag_gesture(Hit::Body, Hit::Frame(Edge::Left), &pane, &other, false),
-            None,
-            "the body is the content's pointer"
-        );
-        assert_eq!(
-            drag_gesture(Hit::Frame(Edge::Bottom), Hit::Body, &pane, &pane, true),
-            Some(Gesture::Resize {
-                element: pane.clone(),
-                edge: Edge::Bottom,
-            })
-        );
-
-        assert_eq!(
-            verb_for_pointer(Hit::Body, Pointer::Primary, &pane, &tabs),
-            Some(koine::layout::Verb::Focus {
-                target: koine::layout::PaneRef::id(koine::layout::TileId(12)),
-            })
-        );
-        assert_eq!(
-            verb_for_pointer(Hit::Tab(1), Pointer::Primary, &pane, &tabs)
-                .map(|verb| serde_json::to_value(verb).unwrap()),
-            Some(serde_json::json!({
-                "verb": "set-view-kind",
-                "target": {"id": 12},
-                "view_kind": "pdf",
-            }))
-        );
-        assert!(verb_for_pointer(Hit::Grip, Pointer::Secondary, &pane, &tabs).is_none());
-        assert_eq!(
-            verb_for_drag(Hit::Grip, Hit::Frame(Edge::Left), &pane, &other, false)
-                .map(|verb| serde_json::to_value(verb).unwrap()),
-            Some(serde_json::json!({
-                "verb": "move-tile",
-                "tile": {"id": 12},
-                "target": {"id": 3},
-                "placement": "left",
-            }))
-        );
-        assert!(
-            verb_for_drag(Hit::Tab(0), Hit::Frame(Edge::Right), &tabs[0], &pane, true).is_none()
-        );
-        let (dir, after) = koine::gesture::split_axes(Placement::Right);
-        assert_eq!((dir, after), (koine::layout::LinearDir::Horizontal, true));
     }
 }

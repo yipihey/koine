@@ -35,12 +35,12 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use impress_layout::{Container, Layout, LinearDir, Tile, TileId, Verb, Window, WindowId};
+use koine::frame::{self, Hit};
 use koine::gesture::{self, Edge, Element as GestureElement, Gesture, Pointer};
 use koine::pane_query::{ItemRef, Scope};
 
 use crate::api::{self, LayoutTree};
 use crate::dom;
-use crate::frame::{self, Hit};
 use crate::keys;
 use crate::session::Session;
 use crate::surface_page::SurfaceView;
@@ -349,7 +349,7 @@ impl Board {
             return;
         }
         let pane = GestureElement::Tile { id: tile };
-        if let Some(verb) = frame::verb_for_pointer(at, Pointer::Primary, &pane) {
+        if let Some(verb) = frame::verb_for_pointer(at, Pointer::Primary, &pane, &[]) {
             self.post(verb);
         }
     }

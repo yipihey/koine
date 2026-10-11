@@ -119,9 +119,6 @@ focus, and nothing with Control, Alt or Meta held.
 ## Not done
 
 - Tab drags (reorder, split out) and the pane menu on `/layout`.
-- `koine-tui`'s frame decisions in `koine::gesture`: `src/frame.rs` restates
-  them for the browser, because `koine-tui` cannot link into a wasm build, and
-  a native test pins the copy to the original.
 - Persisting a style edit. The sheet lives in the page and a reload returns to
   the defaults (plan D12); the style file is written natively by
   `koine-style-file`.

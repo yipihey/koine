@@ -323,14 +323,14 @@ fn a_click_is_a_focus_and_a_tab_click_focuses_the_tab() {
     );
     assert!(expected.is_some());
     assert_eq!(
-        frame::verb_for_pointer(Hit::Body, Pointer::Primary, &pane),
+        frame::verb_for_pointer(Hit::Body, Pointer::Primary, &pane, &[]),
         expected
     );
     assert_eq!(
-        frame::verb_for_pointer(Hit::Title, Pointer::Primary, &pane),
+        frame::verb_for_pointer(Hit::Title, Pointer::Primary, &pane, &[]),
         expected
     );
-    assert!(frame::verb_for_pointer(Hit::Grip, Pointer::Secondary, &pane).is_none());
+    assert!(frame::verb_for_pointer(Hit::Grip, Pointer::Secondary, &pane, &[]).is_none());
 }
 
 #[test]
