@@ -79,9 +79,11 @@ Spelled from `SqliteItemStore`, which is the oracle for the suite (D6):
   sync needs.
 - **`update` and `apply_operation` both materialize** onto the target
   (tags, flag, read, starred, priority, visibility, payload set/remove/
-  patch, references, parent) and bump the clock and `modified`;
+  patch, references, parent) and bump the clock and `modified` (the two
+  reference operations stamp the clock but leave `modified` alone);
   `apply_operation` also records the operation row with its author,
-  intent, reason, batch and retention, and `OperationApplied` is emitted.
+  intent, reason, batch and retention, and `OperationApplied` is emitted
+  (`update` emits one per applied mutation).
 - **Guarded writes** compare the target's clock inside the same atomic
   step as the write; `Moved { clock }` writes nothing. The batch form
   guards on one row and applies every spec or none.
@@ -94,9 +96,11 @@ Spelled from `SqliteItemStore`, which is the oracle for the suite (D6):
   equality, as the suite's rule says.
 - **`neighbors`** is a breadth-first walk over references up to `depth`,
   filtered by edge type, never returning the start item.
-- **Events** are `Created`, `Updated { mutations }`, `Deleted`,
-  `OperationApplied`, delivered to subscribers whose query's schema matches
-  by prefix (the SQLite rule), from this process.
+- **Events** are `Created`, `Deleted` and `OperationApplied` (`update` sends
+  one `OperationApplied` per applied mutation, never `Updated { mutations }`:
+  the variant exists in `impress-item` and no backend sends it), delivered
+  to subscribers whose query's schema matches by prefix (the SQLite rule),
+  from this process.
 - **Immutable kinds** (manuscript revisions and changes) refuse payload
   mutation. That is a rule of the suite's schema, not of the store; it is
   applied through a `Policy` hook a backend takes at open (default: none)

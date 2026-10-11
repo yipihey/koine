@@ -28,11 +28,11 @@
 //! Nothing is `fsync`ed: the store is durable across process exit, not across
 //! power loss.
 
-pub mod eval;
 mod fsio;
 #[cfg(test)]
 mod tests;
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -44,14 +44,15 @@ use chrono::{DateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use fsio::{record_id, remove_if_present, storage, write_atomic};
+use fsio::{is_temporary, record_id, remove_if_present, storage, write_atomic};
 pub use impress_fs_lock::FileLock;
 use impress_item::{
     build_operation_payload, routine_retention_for_schema, ActorKind, AttributedStore, BlobStore,
     EdgeType, FieldMutation, GuardedBatch, GuardedWrite, Item, ItemEvent, ItemId, ItemQuery,
     ItemStore, OperationIntent, OperationSpec, OperationType, Priority, RetentionTier, SchemaRef,
-    StoreCapabilities, StoreError, Value, Visibility,
+    StoreCapabilities, StoreError, TypedReference, Value, Visibility,
 };
+use koine_store_memory::eval;
 
 /// The on-disk format this build reads and writes.
 pub const FORMAT: u32 = 1;
@@ -186,6 +187,10 @@ impl Row {
             item: &self.item,
             op_target: self.op.map(|o| o.target),
         }
+    }
+
+    fn item_of(&self) -> &Item {
+        &self.item
     }
 }
 
@@ -876,6 +881,7 @@ impl Txn<'_> {
                 true
             }
         });
+        item.references.sort_by_key(reference_key);
         if item.logical_clock == 0 {
             item.logical_clock = self.hlc.next();
         }
@@ -1092,15 +1098,38 @@ impl Txn<'_> {
     }
 }
 
+/// The order references are held in: target, then the edge's JSON, which is
+/// the order of the oracle's `(source, target, edge_type)` primary key (and of
+/// the memory store).
+fn reference_key(r: &TypedReference) -> (String, String) {
+    (
+        r.target.to_string(),
+        serde_json::to_string(&r.edge_type).unwrap_or_default(),
+    )
+}
+
 fn missing_reference(kind: &str, from: ItemId, to: ItemId) -> StoreError {
     StoreError::Validation(format!("{from} has a {kind} to {to}, which does not exist"))
 }
 
+/// A payload field as the oracle captures it for undo (`json_extract`):
+/// absent and `null` are `Null`, booleans come back as the integers 1/0, and
+/// a string that looks like JSON is parsed. (The memory store does the same.)
+fn captured_field(payload: &BTreeMap<String, Value>, field: &str) -> Value {
+    match payload.get(field) {
+        None | Some(Value::Null) => Value::Null,
+        Some(Value::Bool(b)) => Value::Int(i64::from(*b)),
+        Some(Value::String(s)) if s.starts_with('{') || s.starts_with('[') => {
+            serde_json::from_str::<Value>(s).unwrap_or_else(|_| Value::String(s.clone()))
+        }
+        Some(other) => other.clone(),
+    }
+}
+
 /// The value an operation overwrites, kept in the operation row so it can be
-/// undone (`capture_previous_value`). Read from the typed payload, so a
-/// boolean stays a boolean (SQLite's `json_extract` flattens it to 0/1).
+/// undone (`capture_previous_value`).
 fn capture_previous(item: &Item, op: &OperationType) -> Option<Value> {
-    let field = |k: &str| item.payload.get(k).cloned().unwrap_or(Value::Null);
+    let field = |k: &str| captured_field(&item.payload, k);
     match op {
         OperationType::SetRead(_) => Some(Value::Bool(item.is_read)),
         OperationType::SetStarred(_) => Some(Value::Bool(item.is_starred)),
@@ -1137,11 +1166,17 @@ fn capture_previous(item: &Item, op: &OperationType) -> Option<Value> {
 }
 
 /// The oracle's `materialize_operation`: the target takes the operation's
-/// clock, `modified` moves, and the change lands on the envelope or payload.
+/// clock, `modified` moves (except for the two reference operations), and the change lands on the envelope or payload.
 /// A payload key is a literal key (SQLite's `$.a.b` path would nest it).
 fn materialize(item: &mut Item, op: &OperationType, now: DateTime<Utc>, clock: u64) {
     item.logical_clock = clock;
-    item.modified = now;
+    // The reference operations stamp the clock but leave `modified` alone.
+    if !matches!(
+        op,
+        OperationType::AddReference(_) | OperationType::RemoveReference(..)
+    ) {
+        item.modified = now;
+    }
     match op {
         OperationType::SetPayload(k, v) => {
             item.payload.insert(k.clone(), v.clone());
@@ -1174,6 +1209,7 @@ fn materialize(item: &mut Item, op: &OperationType, now: DateTime<Utc>, clock: u
                 .any(|e| e.target == r.target && e.edge_type == r.edge_type)
             {
                 item.references.push(r.clone());
+                item.references.sort_by_key(reference_key);
             }
         }
         OperationType::RemoveReference(target, edge) => item
@@ -1247,20 +1283,15 @@ impl ItemStore for DirStore {
         if !tx.load(id)? {
             return Err(StoreError::NotFound(id));
         }
-        // Drop what changes nothing, against the state each mutation will see.
-        let mut scratch = tx
-            .row(id)
-            .map(|r| r.item.clone())
-            .ok_or(StoreError::NotFound(id))?;
-        let now = trunc_ms(Utc::now());
-        let mut kept = Vec::new();
-        for m in mutations {
-            if is_noop(&scratch, &m) {
-                continue;
-            }
-            materialize(&mut scratch, &OperationType::from(m.clone()), now, 0);
-            kept.push(m);
-        }
+        // Drop what changes nothing, judged against the row as it is now (not
+        // as the earlier mutations of this call leave it): `filter_noop_mutations`.
+        let kept: Vec<FieldMutation> = {
+            let initial = &tx.row(id).ok_or(StoreError::NotFound(id))?.item;
+            mutations
+                .into_iter()
+                .filter(|m| !is_noop(initial, m))
+                .collect()
+        };
         let batch_id = (kept.len() > 1).then(|| Uuid::new_v4().to_string());
         for m in kept {
             tx.apply_op(&OperationSpec {
@@ -1285,8 +1316,8 @@ impl ItemStore for DirStore {
 
     fn query(&self, q: &ItemQuery) -> Result<Vec<Item>, StoreError> {
         let mut rows = self.matching_rows(q)?;
-        eval::sort_rows(&mut rows, &q.sort, Row::eval_row);
-        Ok(eval::page(rows, q)
+        eval::sort_rows(&mut rows, &q.sort, Row::item_of);
+        Ok(eval::page(rows, q.limit, q.offset)
             .into_iter()
             .map(|mut r| {
                 if !q.include_tags {
@@ -1324,11 +1355,9 @@ impl ItemStore for DirStore {
         let mut sources: Vec<&Item> = items.values().collect();
         sources.sort_by_key(|i| (i.created, i.id));
         for item in sources {
-            for r in &item.references {
-                if eval::edge_admitted(edge_types, &r.edge_type) {
-                    adjacent.entry(item.id).or_default().push(r.target);
-                    incoming.entry(r.target).or_default().push(item.id);
-                }
+            for r in eval::follows(item, edge_types) {
+                adjacent.entry(item.id).or_default().push(r.target);
+                incoming.entry(r.target).or_default().push(item.id);
             }
         }
         let mut visited = HashSet::from([id]);
@@ -1369,17 +1398,55 @@ impl ItemStore for DirStore {
 
 impl DirStore {
     fn matching_rows(&self, q: &ItemQuery) -> Result<Vec<Row>, StoreError> {
-        let mut ctx = eval::Context::default();
-        for source in eval::needed_sources(q) {
-            let refs = self
-                .read_row(source)?
-                .map(|r| r.item.references)
-                .unwrap_or_default();
-            ctx.sources.insert(source, refs);
-        }
+        let graph = DiskGraph::new(self);
         let mut rows = self.scan_rows(q.schema.as_ref())?;
-        rows.retain(|r| eval::matches(q, &r.eval_row(), &ctx));
+        rows.retain(|r| eval::matches_query(r.eval_row(), q, &graph));
+        graph.finish()?;
         Ok(rows)
+    }
+}
+
+/// `ReferencedBy` asks whether one particular row holds an edge. Each source
+/// is read from disk once, on first use, for the whole scan. [`eval::Graph`]
+/// answers a plain `bool`, so a read error is held here and surfaced by
+/// [`DiskGraph::finish`] (the answer given meanwhile is "no edge").
+struct DiskGraph<'a> {
+    store: &'a DirStore,
+    sources: RefCell<HashMap<ItemId, Vec<TypedReference>>>,
+    error: RefCell<Option<StoreError>>,
+}
+
+impl<'a> DiskGraph<'a> {
+    fn new(store: &'a DirStore) -> Self {
+        DiskGraph {
+            store,
+            sources: RefCell::new(HashMap::new()),
+            error: RefCell::new(None),
+        }
+    }
+
+    fn finish(self) -> Result<(), StoreError> {
+        match self.error.into_inner() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+}
+
+impl eval::Graph for DiskGraph<'_> {
+    fn has_edge(&self, source: ItemId, edge: &EdgeType, target: ItemId) -> bool {
+        let mut sources = self.sources.borrow_mut();
+        let refs = sources
+            .entry(source)
+            .or_insert_with(|| match self.store.read_row(source) {
+                Ok(row) => row.map(|r| r.item.references).unwrap_or_default(),
+                Err(error) => {
+                    self.error.borrow_mut().get_or_insert(error);
+                    Vec::new()
+                }
+            });
+        refs.iter()
+            .any(|r| r.target == target && &r.edge_type == edge)
     }
 }
 
@@ -1448,16 +1515,15 @@ impl AttributedStore for DirStore {
 // Blobs (D5)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A blob name is one plain file name: not empty, no `/` or `\`, no `..`, no
-/// leading `.` (which is also what keeps a half-written temporary out of
-/// [`BlobStore::list_blobs`]).
+/// A blob name is one plain file name: not empty, not `.` or `..`, and no
+/// `/`, `\\` or NUL. (`.hidden` and `a..b` are fine.) The shape of a
+/// half-written temporary is refused too, because listings skip those.
 fn check_blob_name(name: &str) -> Result<(), StoreError> {
     if name.is_empty()
-        || name.contains('/')
-        || name.contains('\\')
-        || name.contains('\0')
-        || name.contains("..")
-        || name.starts_with('.')
+        || name == "."
+        || name == ".."
+        || name.contains(['/', '\\', '\0'])
+        || is_temporary(name)
     {
         return Err(StoreError::Validation(format!(
             "invalid blob name {name:?}"
@@ -1470,6 +1536,10 @@ impl BlobStore for DirStore {
     fn put_blob(&self, item: ItemId, name: &str, bytes: &[u8]) -> Result<(), StoreError> {
         check_blob_name(name)?;
         let _lock = self.lock()?;
+        // A blob belongs to an item; nothing is stored for one nobody wrote.
+        if self.locate(item)?.is_none() {
+            return Err(StoreError::NotFound(item));
+        }
         let path = self.blob_dir(item).join(name);
         write_atomic(&path, bytes).map_err(|e| storage(format!("write {}", path.display()), e))
     }
@@ -1497,7 +1567,7 @@ impl BlobStore for DirStore {
     fn list_blobs(&self, item: ItemId) -> Result<Vec<String>, StoreError> {
         Ok(fsio::list_dir(&self.blob_dir(item))?
             .into_iter()
-            .filter(|(name, is_dir)| !is_dir && !name.starts_with('.'))
+            .filter(|(name, is_dir)| !is_dir && !is_temporary(name))
             .map(|(name, _)| name)
             .collect())
     }

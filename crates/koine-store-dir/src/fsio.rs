@@ -37,6 +37,16 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     })
 }
 
+/// Is `name` a leftover of [`write_atomic`] (`.<name>.tmp-<32 hex digits>`)?
+/// Listings skip these; a blob may otherwise start with a `.`.
+pub(crate) fn is_temporary(name: &str) -> bool {
+    name.strip_prefix('.')
+        .and_then(|rest| rest.rsplit_once(".tmp-"))
+        .is_some_and(|(stem, suffix)| {
+            !stem.is_empty() && suffix.len() == 32 && suffix.bytes().all(|b| b.is_ascii_hexdigit())
+        })
+}
+
 /// `remove_file` where a file that is already gone is success (replaying a
 /// journal removes what a crashed run may already have removed).
 pub(crate) fn remove_if_present(path: &Path) -> io::Result<()> {

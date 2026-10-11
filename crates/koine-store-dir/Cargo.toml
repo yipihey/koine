@@ -14,7 +14,15 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 thiserror = { workspace = true }
+# The reference evaluation (`koine_store_memory::eval`) and nothing else: a
+# second copy of predicate evaluation is a second definition of what a query
+# means. No other item of the memory crate is used here.
+koine-store-memory = { workspace = true }
 koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+# The suite every backend passes; tests/conformance.rs instantiates it.
+koine-store-conformance = { workspace = true }
 
 [lints]
 workspace = true

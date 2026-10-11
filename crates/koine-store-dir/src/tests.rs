@@ -1497,18 +1497,29 @@ fn blobs_round_trip_list_and_delete() {
     assert!(store.list_blobs(id).unwrap().is_empty());
 
     // blobs are per item
-    let other = Uuid::new_v4();
+    let other = store.insert(make_item("paper", "Q")).unwrap();
     store.put_blob(other, "x", b"y").unwrap();
     assert!(store.list_blobs(id).unwrap().is_empty());
     assert_eq!(store.list_blobs(other).unwrap(), vec!["x"]);
+
+    // a blob belongs to an item: none for an id nobody inserted
+    let ghost = Uuid::new_v4();
+    assert!(matches!(
+        store.put_blob(ghost, "x", b"y"),
+        Err(StoreError::NotFound(g)) if g == ghost
+    ));
+    assert!(files_under(&root.path().join("blobs"))
+        .iter()
+        .all(|f| !f.contains(&ghost.to_string())));
 }
 
 #[test]
 fn blob_names_are_validated() {
     let (root, store) = open();
-    let id = Uuid::new_v4();
+    let id = store.insert(make_item("paper", "P")).unwrap();
+    let temporary = format!(".x.tmp-{}", Uuid::new_v4().simple());
     for bad in [
-        "", "a/b", "../x", "..", ".hidden", "a..b", "a\\b", "x\0y", "/abs",
+        "", ".", "a/b", "../x", "..", "a\\b", "x\0y", "/abs", &temporary,
     ] {
         for result in [
             store.put_blob(id, bad, b"x"),
@@ -1524,7 +1535,21 @@ fn blob_names_are_validated() {
     assert!(files_under(root.path())
         .iter()
         .all(|f| !f.starts_with("blobs")));
-    // dots inside a name are fine
+    // dots inside a name, and a leading one, are fine and are listed; only a
+    // half-written temporary is skipped
     store.put_blob(id, "v1.2.pdf", b"x").unwrap();
-    assert_eq!(store.list_blobs(id).unwrap(), vec!["v1.2.pdf"]);
+    store.put_blob(id, ".hidden", b"x").unwrap();
+    store.put_blob(id, "a..b", b"x").unwrap();
+    std::fs::write(
+        root.path()
+            .join("blobs")
+            .join(id.to_string())
+            .join(&temporary),
+        b"half",
+    )
+    .unwrap();
+    assert_eq!(
+        store.list_blobs(id).unwrap(),
+        vec![".hidden", "a..b", "v1.2.pdf"]
+    );
 }
