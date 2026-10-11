@@ -122,6 +122,13 @@ pub struct CallStep {
     /// steps reference captures as `{{state.name}}`.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub capture: std::collections::BTreeMap<String, CallCapture>,
+    /// Adverbs for this call (`docs/grammar.md` § Adverbs): an opaque object of
+    /// adverb name to value, template-resolved like `args` and merged into the
+    /// resolved args under the reserved key `"adverbs"` — the wire form the
+    /// pipeline strips. The names are the pipeline's to check, not this
+    /// crate's. Requires an object `args` with no `adverbs` key of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adverbs: Option<serde_json::Value>,
 }
 
 /// A closed capture operation on one call's resolved arguments or result. A
@@ -253,6 +260,13 @@ pub struct BestEffortCall {
     pub args: serde_json::Value,
     #[serde(default = "default_as", rename = "as")]
     pub r#as: String,
+    /// Adverbs for this call (`docs/grammar.md` § Adverbs): an opaque object of
+    /// adverb name to value, template-resolved like `args` and merged into the
+    /// resolved args under the reserved key `"adverbs"` — the wire form the
+    /// pipeline strips. The names are the pipeline's to check, not this
+    /// crate's. Requires an object `args` with no `adverbs` key of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adverbs: Option<serde_json::Value>,
 }
 
 fn default_as() -> String {

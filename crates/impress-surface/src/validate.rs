@@ -633,6 +633,40 @@ fn check_node(node: &Node, at: &str, scope: &Scope, problems: &mut Vec<Problem>)
     }
 }
 
+/// `adverbs` is an object of adverb name to value. The names themselves are
+/// the pipeline's to judge (`impress-service-core::adverb`); only the shape is
+/// checked here, so a typo in a key is caught as an identifier, not as a word.
+fn check_adverbs(
+    adverbs: &Value,
+    at: &str,
+    scope: &Scope,
+    has_each: bool,
+    problems: &mut Vec<Problem>,
+) {
+    let Some(map) = adverbs.as_object() else {
+        problems.push(Problem::error(
+            at,
+            "`adverbs` is an object of adverb name to value",
+        ));
+        return;
+    };
+    for key in map.keys() {
+        if !is_snake_ident(key) {
+            problems.push(Problem::error(
+                at,
+                format!("adverb name '{key}' is not a snake_case identifier ([a-z][a-z0-9_]*)"),
+            ));
+        }
+    }
+    check_template_refs(adverbs, at, scope, has_each, problems);
+}
+
+fn is_snake_ident(s: &str) -> bool {
+    let mut chars = s.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
 fn check_action(action: &Action, at: &str, scope: &Scope, problems: &mut Vec<Problem>) {
     match action {
         Action::Set { path, value } => {
@@ -644,6 +678,7 @@ fn check_action(action: &Action, at: &str, scope: &Scope, problems: &mut Vec<Pro
             args,
             into,
             each,
+            adverbs,
         } => {
             check_verb_name(verb, &format!("{at}/call/verb"), problems);
             if let Some(each_path) = each {
@@ -659,6 +694,15 @@ fn check_action(action: &Action, at: &str, scope: &Scope, problems: &mut Vec<Pro
                 each.is_some(),
                 problems,
             );
+            if let Some(adverbs) = adverbs {
+                check_adverbs(
+                    adverbs,
+                    &format!("{at}/call/adverbs"),
+                    scope,
+                    each.is_some(),
+                    problems,
+                );
+            }
         }
         Action::Publish { ids } => {
             if let Some(ids) = ids {
@@ -994,8 +1038,47 @@ mod tests {
                 args,
                 into: None,
                 each: each.map(str::to_string),
+                adverbs: None,
             }],
         }))
+    }
+
+    fn call_with_adverbs(adverbs: Value) -> SurfaceSpec {
+        minimal(Node::leaf(NodeKind::Button(Button {
+            label: "Go".to_string(),
+            on_click: vec![Action::Call {
+                verb: "triage-service_set-starred".to_string(),
+                args: serde_json::json!({}),
+                into: None,
+                each: None,
+                adverbs: Some(adverbs),
+            }],
+        })))
+    }
+
+    #[test]
+    fn non_object_adverbs_are_one_error_at_the_adverbs_path() {
+        let errs = errors(validate(&call_with_adverbs(serde_json::json!(5))));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(format!("{errs:?}").contains("/call/adverbs"));
+        assert!(format!("{errs:?}").contains("object of adverb name to value"));
+    }
+
+    #[test]
+    fn a_non_snake_case_adverb_key_is_one_error_naming_it() {
+        let errs = errors(validate(&call_with_adverbs(
+            serde_json::json!({"Bad-Key": true}),
+        )));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(format!("{errs:?}").contains("Bad-Key"));
+        assert!(format!("{errs:?}").contains("/call/adverbs"));
+    }
+
+    #[test]
+    fn well_formed_adverbs_validate_clean() {
+        let spec =
+            call_with_adverbs(serde_json::json!({"in_background": true, "within": {"ms": 5}}));
+        assert_eq!(errors(validate(&spec)), Vec::new());
     }
 
     #[test]

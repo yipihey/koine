@@ -275,6 +275,7 @@ mod tests {
                 args: serde_json::json!({}),
                 into: None,
                 each: None,
+                adverbs: None,
             }],
         );
         let problems = validate_with(&wf, |_| {
@@ -301,6 +302,7 @@ mod tests {
                 args: serde_json::json!({}),
                 into: None,
                 each: None,
+                adverbs: None,
             }],
         );
         let problems = validate_with(&wf, |_| {

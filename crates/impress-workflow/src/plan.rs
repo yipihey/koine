@@ -93,6 +93,7 @@ mod tests {
             args: json!({"ids": ["{{event.value.stale_id}}"]}),
             into: None,
             each: None,
+            adverbs: None,
         }]);
         let (_, effects) = plan(
             &wf,
@@ -107,6 +108,24 @@ mod tests {
             Effect::Call { verb, args, .. } => {
                 assert_eq!(verb, "imbib-library-service_delete-publications-undoable");
                 assert_eq!(args["ids"][0], "p-1");
+            }
+            other => panic!("expected a Call effect, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_call_step_with_adverbs_plans_to_an_effect_carrying_them() {
+        let wf = manual_workflow(vec![Action::Call {
+            verb: "imbib-library-service_refresh".into(),
+            args: json!({}),
+            into: None,
+            each: None,
+            adverbs: Some(json!({"in_background": true})),
+        }]);
+        let (_, effects) = plan(&wf, json!({}), &json!({}), &json!({}), &json!({})).expect("plans");
+        match &effects[0] {
+            Effect::Call { adverbs, .. } => {
+                assert_eq!(adverbs, &Some(json!({"in_background": true})));
             }
             other => panic!("expected a Call effect, got {other:?}"),
         }
@@ -137,6 +156,7 @@ mod tests {
             args: json!({"id": "{{item}}", "starred": false}),
             into: None,
             each: Some("event.value.ids".into()),
+            adverbs: None,
         }]);
         let (_, effects) = plan(
             &wf,

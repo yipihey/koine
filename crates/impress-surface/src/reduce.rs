@@ -58,6 +58,9 @@ pub enum Effect {
         verb: String,
         args: Value,
         into: Option<String>,
+        /// Resolved adverbs, opaque to this layer (`docs/grammar.md` § Adverbs).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        adverbs: Option<Value>,
     },
     /// `ids` is the resolved value to publish: either the literal path the
     /// action named (walked the same way `bind` is), or — when the action gave
@@ -256,23 +259,34 @@ fn run_action(
             args,
             into,
             each,
+            adverbs,
         } => match each {
             None => {
                 let resolved_args = resolve_value(args, &ctx)?;
+                let resolved_adverbs = adverbs
+                    .as_ref()
+                    .map(|a| resolve_value(a, &ctx))
+                    .transpose()?;
                 effects.push(Effect::Call {
                     verb: verb.clone(),
                     args: resolved_args,
                     into: into.clone(),
+                    adverbs: resolved_adverbs,
                 });
             }
             Some(each_path) => {
                 for item in resolve_each(each_path, &ctx)? {
                     let item_ctx = ctx.with_item(&item);
                     let resolved_args = resolve_value(args, &item_ctx)?;
+                    let resolved_adverbs = adverbs
+                        .as_ref()
+                        .map(|a| resolve_value(a, &item_ctx))
+                        .transpose()?;
                     effects.push(Effect::Call {
                         verb: verb.clone(),
                         args: resolved_args,
                         into: into.clone(),
+                        adverbs: resolved_adverbs,
                     });
                 }
             }
@@ -361,6 +375,7 @@ mod tests {
                 args: serde_json::json!({"id": "{{item}}", "starred": true}),
                 into: None,
                 each: Some("state.selected".to_string()),
+                adverbs: None,
             }],
         }))
         .with_id("star-btn");
@@ -394,14 +409,99 @@ mod tests {
                     verb: "triage-service_set-starred".to_string(),
                     args: serde_json::json!({"id": "a", "starred": true}),
                     into: None,
+                    adverbs: None,
                 },
                 Effect::Call {
                     verb: "triage-service_set-starred".to_string(),
                     args: serde_json::json!({"id": "b", "starred": true}),
                     into: None,
+                    adverbs: None,
                 },
             ]
         );
+    }
+
+    fn adverb_spec(each: Option<&str>, adverbs: Value, state: Value) -> SurfaceSpec {
+        let mut spec = star_button_spec(state);
+        spec.root = Node::leaf(NodeKind::Button(Button {
+            label: "Star".to_string(),
+            on_click: vec![Action::Call {
+                verb: "triage-service_set-starred".to_string(),
+                args: serde_json::json!({"id": "{{item}}"}),
+                into: None,
+                each: each.map(str::to_string),
+                adverbs: Some(adverbs),
+            }],
+        }))
+        .with_id("star-btn");
+        spec
+    }
+
+    #[test]
+    fn adverbs_are_template_resolved_into_the_call_effect() {
+        let mut spec = adverb_spec(
+            None,
+            serde_json::json!({"tentatively": true, "once": "k-{{state.id}}"}),
+            serde_json::json!({"id": "7"}),
+        );
+        spec.root = Node::leaf(NodeKind::Button(Button {
+            label: "Go".to_string(),
+            on_click: vec![Action::Call {
+                verb: "v_x".to_string(),
+                args: serde_json::json!({}),
+                into: None,
+                each: None,
+                adverbs: Some(serde_json::json!({"tentatively": true, "once": "k-{{state.id}}"})),
+            }],
+        }))
+        .with_id("star-btn");
+        let (_, effects) =
+            reduce(&spec, &spec.state, &Value::Null, &Value::Null, &click()).unwrap();
+        match &effects[0] {
+            Effect::Call { adverbs, .. } => assert_eq!(
+                adverbs,
+                &Some(serde_json::json!({"tentatively": true, "once": "k-7"}))
+            ),
+            other => panic!("expected Call, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn each_resolves_item_inside_adverbs_per_item() {
+        let spec = adverb_spec(
+            Some("state.selected"),
+            serde_json::json!({"once": "star-{{item}}"}),
+            serde_json::json!({"selected": ["a", "b"]}),
+        );
+        let (_, effects) =
+            reduce(&spec, &spec.state, &Value::Null, &Value::Null, &click()).unwrap();
+        let got: Vec<_> = effects
+            .iter()
+            .map(|e| match e {
+                Effect::Call { adverbs, .. } => adverbs.clone().unwrap(),
+                other => panic!("expected Call, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                serde_json::json!({"once": "star-a"}),
+                serde_json::json!({"once": "star-b"})
+            ]
+        );
+    }
+
+    #[test]
+    fn an_action_without_adverbs_serialises_with_no_adverbs_key() {
+        let a = Action::Call {
+            verb: "v_x".to_string(),
+            args: Value::Null,
+            into: None,
+            each: None,
+            adverbs: None,
+        };
+        let v = serde_json::to_value(&a).unwrap();
+        assert!(!v.to_string().contains("adverbs"));
     }
 
     #[test]

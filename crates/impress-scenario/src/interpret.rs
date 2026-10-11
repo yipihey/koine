@@ -190,6 +190,7 @@ async fn run_step(
         Step::BestEffort(step) => {
             let call = &step.best_effort;
             let args = template::resolve(&call.args, &captures_value)
+                .and_then(|args| with_adverbs(args, call.adverbs.as_ref(), &captures_value))
                 .map_err(|e| format!("step {index} (best_effort `{}`): {e}", call.call))?;
             let failure = match caller.call(&call.call, args, &call.r#as).await {
                 Err(error) => Some(error),
@@ -317,6 +318,33 @@ fn check_action_outcome(outcome: &CallOutcome) -> Result<(), String> {
     Ok(())
 }
 
+/// Resolve `adverbs` the way `args` is resolved and merge it into the args
+/// object under the reserved `"adverbs"` key (grammar.md "The wire"). The
+/// `Caller` signature is unchanged: the pipeline strips the key. Validation
+/// refuses the cases that would fail here, so this is the backstop.
+fn with_adverbs(
+    mut args: Value,
+    adverbs: Option<&Value>,
+    captures_value: &Value,
+) -> Result<Value, String> {
+    let Some(adverbs) = adverbs else {
+        return Ok(args);
+    };
+    let resolved = template::resolve(adverbs, captures_value)?;
+    // An absent `args` deserialises to null: adverbs make it an empty object.
+    if args.is_null() {
+        args = Value::Object(Default::default());
+    }
+    match args.as_object_mut() {
+        Some(map) if !map.contains_key("adverbs") => {
+            map.insert("adverbs".to_string(), resolved);
+            Ok(args)
+        }
+        Some(_) => Err("`args` already has an `adverbs` key".to_string()),
+        None => Err("`adverbs` need an object `args`".to_string()),
+    }
+}
+
 async fn run_call(
     call_step: &CallStep,
     index: usize,
@@ -350,6 +378,8 @@ async fn run_call(
         })
         .collect::<Result<BTreeMap<_, _>, String>>()?;
 
+    let args = with_adverbs(args, call_step.adverbs.as_ref(), captures_value)
+        .map_err(|e| format!("step {index} (`{}`): {e}", call_step.call))?;
     let outcome = caller
         .call(&call_step.call, args, &call_step.r#as)
         .await
@@ -1122,6 +1152,78 @@ mod tests {
             caller.resize,
             Some(json!({"container": 8, "shares": [1.0, 1.0]}))
         );
+    }
+
+    #[tokio::test]
+    async fn call_step_adverbs_reach_the_caller_inside_args() {
+        struct Fixture {
+            seen: Option<Value>,
+        }
+        #[async_trait::async_trait]
+        impl Caller for Fixture {
+            async fn call(
+                &mut self,
+                _verb: &str,
+                args: Value,
+                _as_ident: &str,
+            ) -> Result<CallOutcome, String> {
+                self.seen = Some(args);
+                Ok(CallOutcome {
+                    result: json!({"ok": true}),
+                    status: None,
+                })
+            }
+            async fn event(&mut self, _event: &EventBody) -> Result<CallOutcome, String> {
+                Err("unused".into())
+            }
+            async fn gesture(&mut self, _gesture: &Value) -> Result<CallOutcome, String> {
+                Err("unused".into())
+            }
+            async fn wait(&mut self, _wait: &WaitBody) -> Result<(), String> {
+                Err("unused".into())
+            }
+            async fn seed(&mut self, _kind: &str, _payload: &Value) -> Result<Value, String> {
+                Ok(json!({"id": "p1"}))
+            }
+            fn wrote(&self, _kind: &str) -> bool {
+                false
+            }
+        }
+        let scenario: Scenario = serde_json::from_value(json!({
+            "wire_version": 1,
+            "id": "adverbs",
+            "description": "adverbs ride in args",
+            "tier": "a",
+            "seed": [{"kind": "k", "payload": {}, "as": "paper"}],
+            "steps": [{
+                "call": "x_y",
+                "args": {"id": "{{state.paper.id}}", "n": 2},
+                "adverbs": {"tentatively": true, "once": "k-{{state.paper.id}}"}
+            }]
+        }))
+        .unwrap();
+        let mut caller = Fixture { seen: None };
+        let result = run(&scenario, &mut caller).await;
+        assert!(result.pass, "{}", result.detail);
+        assert_eq!(
+            caller.seen,
+            Some(json!({
+                "id": "p1", "n": 2,
+                "adverbs": {"tentatively": true, "once": "k-p1"}
+            }))
+        );
+    }
+
+    #[test]
+    fn a_call_step_round_trips_with_and_without_adverbs() {
+        let without = json!({"call": "x_y", "args": {}, "as": "agent:scenario"});
+        let step: CallStep = serde_json::from_value(without.clone()).unwrap();
+        assert!(step.adverbs.is_none());
+        assert_eq!(serde_json::to_value(&step).unwrap(), without);
+        let with = json!({"call": "x_y", "args": {}, "as": "agent:scenario",
+            "adverbs": {"in_background": true}});
+        let step: CallStep = serde_json::from_value(with.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&step).unwrap(), with);
     }
 
     #[tokio::test]

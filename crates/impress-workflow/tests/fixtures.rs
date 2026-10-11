@@ -49,6 +49,7 @@ fn dry_run_returns_would_call_never_executed() {
         args: json!({"ids": []}),
         into: None,
         each: None,
+        adverbs: None,
     }]);
     let (_, effects) = plan(&wf, json!({}), &json!({}), &json!({}), &json!({})).unwrap();
     // The proof: `plan` (what `dry-run` exposes as `would_call`) hands back

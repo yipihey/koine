@@ -82,6 +82,7 @@ pub fn section_surface(section_id: &str, settings: &[Resolved]) -> Option<Surfac
                     }),
                     into: None,
                     each: None,
+                    adverbs: None,
                 }]),
         );
     }

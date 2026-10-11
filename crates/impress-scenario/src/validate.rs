@@ -39,6 +39,7 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
     for (index, step) in scenario.steps.iter().chain(&scenario.teardown).enumerate() {
         let args = match step {
             Step::Call(call) => {
+                check_adverbs(&call.args, call.adverbs.as_ref(), index, &mut problems);
                 let mut capture_references = Vec::new();
                 for (name, capture) in &call.capture {
                     let mut messages = Vec::new();
@@ -107,7 +108,11 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
                     "capture_references": capture_references
                 })
             }
-            Step::BestEffort(step) => step.best_effort.args.clone(),
+            Step::BestEffort(step) => {
+                let call = &step.best_effort;
+                check_adverbs(&call.args, call.adverbs.as_ref(), index, &mut problems);
+                call.args.clone()
+            }
             Step::Store(step) => {
                 if step.store.schema_ref.trim().is_empty()
                     || !(1..=10_000).contains(&step.store.max_rows)
@@ -123,7 +128,15 @@ pub fn validate(scenario: &Scenario) -> Vec<Problem> {
             Step::Gesture(step) => step.gesture.clone(),
             Step::Wait(step) => serde_json::to_value(&step.wait).expect("wait serializes"),
         };
-        for reference in referenced_captures(&args) {
+        let adverbs = match step {
+            Step::Call(call) => call.adverbs.clone(),
+            Step::BestEffort(step) => step.best_effort.adverbs.clone(),
+            _ => None,
+        };
+        for reference in referenced_captures(&args)
+            .into_iter()
+            .chain(adverbs.iter().flat_map(referenced_captures))
+        {
             if !known.contains(&reference) {
                 problems.push(Problem { step: Some(index), message: format!(
                     "`{{{{state.{reference}}}}}` is referenced before `{reference}` is captured or seeded"
@@ -293,6 +306,46 @@ pub fn requires_ok(
     None
 }
 
+/// `adverbs` is an object of snake_case adverb name to value, and it can only
+/// travel in an object `args` that does not already name the reserved key. The
+/// vocabulary is the pipeline's, not checked here.
+fn check_adverbs(
+    args: &serde_json::Value,
+    adverbs: Option<&serde_json::Value>,
+    index: usize,
+    problems: &mut Vec<Problem>,
+) {
+    let Some(adverbs) = adverbs else { return };
+    let mut push = |message: String| {
+        problems.push(Problem {
+            step: Some(index),
+            message,
+        })
+    };
+    let Some(map) = adverbs.as_object() else {
+        push("`adverbs` is an object of adverb name to value".into());
+        return;
+    };
+    for key in map.keys() {
+        let mut chars = key.chars();
+        let ok = matches!(chars.next(), Some(c) if c.is_ascii_lowercase())
+            && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+        if !ok {
+            push(format!(
+                "adverb name '{key}' is not a snake_case identifier ([a-z][a-z0-9_]*)"
+            ));
+        }
+    }
+    match args {
+        serde_json::Value::Object(a) if a.contains_key("adverbs") => push(
+            "`args` already has an `adverbs` key; put adverbs in the step's `adverbs` field".into(),
+        ),
+        // A defaulted (absent) `args` is null: it becomes an empty object.
+        serde_json::Value::Object(_) | serde_json::Value::Null => {}
+        _ => push("`adverbs` need an object `args`".into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,7 +373,49 @@ mod tests {
             r#as: "agent:scenario".to_string(),
             expect: None,
             capture: Default::default(),
+            adverbs: None,
         })
+    }
+
+    fn with_adverbs(mut step: Step, adverbs: serde_json::Value) -> Step {
+        if let Step::Call(c) = &mut step {
+            c.adverbs = Some(adverbs);
+        }
+        step
+    }
+
+    #[test]
+    fn adverbs_in_an_args_object_validate_clean() {
+        let s = base(vec![with_adverbs(
+            call(json!({"a": 1})),
+            json!({"tentatively": true}),
+        )]);
+        assert!(validate(&s).is_empty());
+    }
+
+    #[test]
+    fn a_step_whose_args_already_has_an_adverbs_key_fails_validation() {
+        let s = base(vec![with_adverbs(
+            call(json!({"adverbs": {}})),
+            json!({"tentatively": true}),
+        )]);
+        let problems = validate(&s);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].message.contains("already has an `adverbs` key"));
+    }
+
+    #[test]
+    fn adverbs_need_an_object_args_an_object_value_and_snake_case_keys() {
+        let non_object_args = validate(&base(vec![with_adverbs(call(json!([1])), json!({}))]));
+        assert_eq!(non_object_args.len(), 1);
+        let non_object = validate(&base(vec![with_adverbs(call(json!({})), json!(5))]));
+        assert_eq!(non_object.len(), 1);
+        let bad_key = validate(&base(vec![with_adverbs(
+            call(json!({})),
+            json!({"Bad-Key": true}),
+        )]));
+        assert_eq!(bad_key.len(), 1);
+        assert!(bad_key[0].message.contains("Bad-Key"));
     }
 
     #[test]

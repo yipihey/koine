@@ -288,6 +288,15 @@ pub enum Action {
     /// template, resolved at reduce time; see [`crate::reduce::reduce`] for the
     /// fan-out and [`crate::validate::validate`] for the checks. Reference the
     /// current element as `{{item}}`/`{{item.field}}` inside `args`.
+    ///
+    /// `adverbs`, when present, is an opaque JSON object of adverb name to
+    /// value (`{"tentatively": true, "once": "star-{{item}}"}`). It is
+    /// template-resolved exactly like `args` (including `{{item}}` under
+    /// `each`) and reaches the runtime unchanged in
+    /// [`crate::reduce::Effect::Call`]; this layer neither knows nor
+    /// interprets the vocabulary. The names are checked by the invoker
+    /// pipeline (`impress-service-core::adverb`), which refuses a bad one as
+    /// `invalid-argument`, not by `validate`. See `docs/grammar.md` § Adverbs.
     Call {
         verb: String,
         #[serde(default)]
@@ -296,6 +305,8 @@ pub enum Action {
         into: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         each: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        adverbs: Option<Value>,
     },
     /// Publish a selection on the pane's channel. `ids` is a literal path (like
     /// `bind`), not a template; absent, it defaults to `event.value` at reduce
