@@ -359,6 +359,34 @@ pub fn decide(caller: &CallerIdentity, verb: &dyn VerbFacts) -> Decision {
     decision
 }
 
+/// Whether [`decide`] took a write lease when it answered `Run` for `verb`
+/// (the preconditions of [`check_conflict`]).
+fn takes_lease(verb: &dyn VerbFacts) -> bool {
+    conflict_detection_enabled()
+        && verb.safety().class != SafetyClass::ReadOnly
+        && !literal_write_kinds(verb).is_empty()
+}
+
+/// [`decide`] for a caller that only wants the answer (`tentatively`,
+/// `with_review`): any write lease a `Run` decision took is given back at
+/// once, so nothing is left in flight for a call that will not run.
+pub fn decide_without_lease(caller: &CallerIdentity, verb: &dyn VerbFacts) -> Decision {
+    let decision = decide(caller, verb);
+    if decision == Decision::Run {
+        give_back_lease(verb);
+    }
+    decision
+}
+
+/// Give back the lease a `Run` [`decide`] took, when it took one. Unlike
+/// [`release`] this is a no-op for a verb that never leases, so it cannot
+/// steal another call's.
+pub fn give_back_lease(verb: &dyn VerbFacts) {
+    if takes_lease(verb) {
+        release(verb);
+    }
+}
+
 /// Queue a reviewed call and build its answer.
 pub fn queue(caller: &CallerIdentity, verb: &dyn VerbFacts, args: &Value) -> Value {
     let queue = QUEUE.read().ok().and_then(|q| q.clone());

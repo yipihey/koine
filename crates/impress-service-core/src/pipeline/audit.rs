@@ -74,6 +74,12 @@ pub struct VerbCallRecord {
     /// its canonical name — so a retired name's traffic is counted under
     /// the name that was actually asked for, not the one it now answers as.
     pub requested_name: Option<String>,
+    /// The adverbs the call used ([`crate::Adverbs::to_record_value`]:
+    /// `{"used": [...], "within_ms": N}`, never a `once` key's value);
+    /// `Null` when none.
+    pub adverbs: Value,
+    /// The inverse call a `reversibly` call recorded, `{verb, args}`.
+    pub undo: Option<Value>,
 }
 
 impl VerbCallRecord {
@@ -102,6 +108,12 @@ impl VerbCallRecord {
         payload.insert("arg_bytes".into(), json!(self.arg_bytes));
         payload.insert("result_bytes".into(), json!(self.result_bytes));
         payload.insert("requested_name".into(), json!(self.requested_name));
+        if !self.adverbs.is_null() {
+            payload.insert("adverbs".into(), self.adverbs.clone());
+        }
+        if let Some(undo) = &self.undo {
+            payload.insert("undo".into(), undo.clone());
+        }
         payload.insert("wire_version".into(), json!(crate::wire::WIRE_VERSION));
         payload
     }
@@ -975,6 +987,8 @@ mod tests {
             result_bytes: 0,
             store_override: None,
             requested_name: None,
+            adverbs: Value::Null,
+            undo: None,
         });
         assert!(dropped() > before || has_sink());
     }

@@ -29,6 +29,7 @@ use std::sync::{Arc, Mutex};
 use serde::Deserialize;
 
 use super::identity::CallerIdentity;
+use crate::adverb::Adverbs;
 
 /// Created and deleted item ids observed while one handler runs. Each call
 /// gets its own instance, including a call nested inside another handler.
@@ -71,6 +72,22 @@ impl MutationIds {
     }
 }
 
+/// The inverse a `reversibly` call's handler recorded, shared by every clone
+/// of its context.
+#[derive(Debug, Clone, Default)]
+pub struct InverseSlot(Arc<Mutex<Option<(String, serde_json::Value)>>>);
+
+impl InverseSlot {
+    fn set(&self, verb: String, args: serde_json::Value) {
+        *self.0.lock().unwrap_or_else(|p| p.into_inner()) = Some((verb, args));
+    }
+
+    /// The recorded inverse, if the handler noted one.
+    pub fn take(&self) -> Option<(String, serde_json::Value)> {
+        self.0.lock().unwrap_or_else(|p| p.into_inner()).take()
+    }
+}
+
 /// What every call runs under.
 #[derive(Debug, Clone)]
 pub struct CallContext {
@@ -92,6 +109,11 @@ pub struct CallContext {
     pub store_override: Option<Arc<dyn Any + Send + Sync>>,
     /// Item creations and deletions observed during this call only.
     pub mutation_ids: MutationIds,
+    /// The adverbs this call carries, so a verb that declares
+    /// `supports(tentatively)` or `supports(reversibly)` can read them.
+    pub adverbs: Adverbs,
+    /// The inverse call a `reversibly` handler recorded ([`note_inverse`]).
+    pub inverse: InverseSlot,
 }
 
 /// Trusted identity and parent metadata crossing a native callback boundary.
@@ -222,6 +244,19 @@ pub fn note_mutation(id: String, created: bool, deleted: bool) {
     let _ = CURRENT.try_with(|context| context.mutation_ids.note(id, created, deleted));
 }
 
+/// The adverbs of the current call; empty outside a call.
+pub fn current_adverbs() -> Adverbs {
+    CURRENT.try_with(|c| c.adverbs.clone()).unwrap_or_default()
+}
+
+/// Record the inverse of what the current call just did, for `reversibly`:
+/// the pipeline puts it on the envelope as `"undo": {"verb", "args"}` and on
+/// the audit row. A later note replaces an earlier one.
+pub fn note_inverse(verb: impl Into<String>, args: serde_json::Value) {
+    let verb = verb.into();
+    let _ = CURRENT.try_with(|context| context.inverse.set(verb, args));
+}
+
 /// The store the current call was told to use, when it was told one.
 pub fn store_override<T: Any + Send + Sync>() -> Option<Arc<T>> {
     let erased = CURRENT
@@ -257,6 +292,8 @@ mod tests {
             verb: "x-service_y".into(),
             store_override: None,
             mutation_ids: MutationIds::default(),
+            adverbs: Adverbs::default(),
+            inverse: InverseSlot::default(),
         })
     }
 
@@ -299,6 +336,21 @@ mod tests {
         ] {
             assert!(TransportContext::from_json(raw).is_err(), "accepted {raw}");
         }
+    }
+
+    #[test]
+    fn an_inverse_is_noted_on_the_current_call_only() {
+        note_inverse("x_ignored", serde_json::json!({}));
+        let ctx = context("c4");
+        sync_scope(ctx.clone(), || {
+            note_inverse("x-service_undo", serde_json::json!({"id": 1}));
+            assert!(current_adverbs().is_empty());
+        });
+        assert_eq!(
+            ctx.inverse.take(),
+            Some(("x-service_undo".to_string(), serde_json::json!({"id": 1})))
+        );
+        assert_eq!(ctx.inverse.take(), None);
     }
 
     #[tokio::test]
