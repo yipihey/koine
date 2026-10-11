@@ -669,6 +669,8 @@ mod collision_tests {
             strict: false,
             budget_ms: None,
             replay_full: false,
+            supports: &[],
+            adjective: None,
             source: crate::Source::Linked,
             handler: apply,
         }

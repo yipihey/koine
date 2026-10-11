@@ -665,6 +665,8 @@ pub(crate) mod tests {
         strict: true,
         budget_ms: None,
         replay_full: false,
+        supports: &[],
+        adjective: None,
         source: Source::Linked,
         handler: echo,
     };

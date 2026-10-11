@@ -459,6 +459,8 @@ mod tests {
             strict: false,
             budget_ms,
             replay_full: false,
+            supports: &[],
+            adjective: None,
             source: Source::Linked,
             handler,
         }

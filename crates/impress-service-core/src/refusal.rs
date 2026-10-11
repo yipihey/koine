@@ -55,6 +55,11 @@ pub mod codes {
     /// were not recorded in full — privacy-reduced or compacted — so there
     /// is nothing to replay it with (plan-self-reflective-layer § Call log).
     pub const NOT_REPLAYABLE: &str = "not-replayable";
+    /// The call carried an adverb the verb cannot honor (docs/grammar.md §
+    /// Adverbs): a call never proceeds as if one had been honored.
+    pub const UNSUPPORTED_ADVERB: &str = "unsupported-adverb";
+    /// A `within` deadline passed before the verb answered.
+    pub const TIMED_OUT: &str = "timed-out";
 }
 
 /// A refusal: a stable `code` and the prose `message` a person reads.
@@ -82,6 +87,14 @@ impl Refusal {
 
     pub fn conflict(message: impl Into<String>) -> Self {
         Self::new(codes::CONFLICT, message)
+    }
+
+    /// `"<verb> does not support the adverb '<adverb>'"`.
+    pub fn unsupported_adverb(adverb: crate::adverb::Adverb, verb: &str) -> Self {
+        Self::new(
+            codes::UNSUPPORTED_ADVERB,
+            format!("{verb} does not support the adverb '{adverb}'"),
+        )
     }
 
     pub fn store_unavailable(message: impl Into<String>) -> Self {
@@ -152,6 +165,8 @@ pub fn http_status(code: &str) -> u16 {
         codes::CONFLICT | "undo-conflict" => 409,
         codes::STORE_UNAVAILABLE | codes::HOST_UNAVAILABLE => 503,
         codes::VERB_FAILED => 502,
+        codes::UNSUPPORTED_ADVERB => 422,
+        codes::TIMED_OUT => 504,
         codes::STORE_ERROR | codes::INTERNAL => 500,
         _ => 422,
     }
@@ -185,6 +200,15 @@ mod tests {
         assert_eq!(http_status(codes::STORE_UNAVAILABLE), 503);
         assert_eq!(http_status("cannot-close-last-pane"), 422);
         assert_eq!(http_status("undo-conflict"), 409);
+        assert_eq!(http_status(codes::UNSUPPORTED_ADVERB), 422);
+        assert_eq!(http_status(codes::TIMED_OUT), 504);
+    }
+
+    #[test]
+    fn unsupported_adverb_names_both() {
+        let r = Refusal::unsupported_adverb(crate::adverb::Adverb::Reversibly, "x_y");
+        assert_eq!(r.code, codes::UNSUPPORTED_ADVERB);
+        assert_eq!(r.message, "x_y does not support the adverb 'reversibly'");
     }
 
     #[test]

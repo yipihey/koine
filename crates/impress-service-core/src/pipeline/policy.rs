@@ -443,6 +443,8 @@ mod tests {
             strict: false,
             budget_ms: None,
             replay_full: false,
+            supports: &[],
+            adjective: None,
             source: Source::Linked,
             handler,
         }
@@ -479,6 +481,8 @@ mod tests {
             strict: false,
             budget_ms: None,
             replay_full: false,
+            supports: &[],
+            adjective: None,
             source: Source::Linked,
             handler,
         }

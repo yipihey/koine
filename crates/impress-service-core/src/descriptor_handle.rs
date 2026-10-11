@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use crate::descriptor::{Effects, ExampleTier, Reach, Safety, VerbDescriptor};
+use crate::adverb::Adverb;
+use crate::descriptor::{AdjectiveDecl, Effects, ExampleTier, Reach, Safety, VerbDescriptor};
 use crate::provider::{ProviderStatus, ProviderVerb};
 
 const PROVIDER_EFFECTS: Effects = Effects {
@@ -113,6 +114,23 @@ impl VerbHandle {
     pub fn budget_ms(&self) -> Option<u64> {
         match self {
             Self::Linked(verb) => verb.budget_ms,
+            Self::Provider(_) => None,
+        }
+    }
+
+    /// Whether the verb honors `adverb`. A runtime provider declares no
+    /// adverb support, so only the universal three.
+    pub fn supports(&self, adverb: Adverb) -> bool {
+        match self {
+            Self::Linked(verb) => verb.supports(adverb),
+            Self::Provider(_) => adverb.is_universal(),
+        }
+    }
+
+    /// The derived adjective the verb defines; never a provider's.
+    pub fn adjective(&self) -> Option<AdjectiveDecl> {
+        match self {
+            Self::Linked(verb) => verb.adjective,
             Self::Provider(_) => None,
         }
     }

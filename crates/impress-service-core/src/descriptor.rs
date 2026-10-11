@@ -17,6 +17,7 @@
 
 use serde_json::{json, Value};
 
+use crate::adverb::Adverb;
 use crate::ServiceFuture;
 
 /// What a verb does to the world, in the vocabulary of the safety table
@@ -240,6 +241,29 @@ impl Effects {
     }
 }
 
+/// A derived adjective a verb defines (docs/grammar.md § Adjectives rule 5):
+/// the verb is read-only, takes `id` and answers `{holds: bool}`; the
+/// declaration lives on the verb, with `#[impress_method(adjective(name =
+/// "…", kinds = […]))]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdjectiveDecl {
+    /// The adjective's name (`stale`).
+    pub name: &'static str,
+    /// The record kinds it applies to; empty means every kind.
+    pub kinds: &'static [&'static str],
+}
+
+impl AdjectiveDecl {
+    /// The declaration spelling: `stale` or `stale[publication, …]`.
+    pub fn describe(&self) -> String {
+        if self.kinds.is_empty() {
+            self.name.to_string()
+        } else {
+            format!("{}[{}]", self.name, self.kinds.join(", "))
+        }
+    }
+}
+
 /// The safety facts a policy layer (ADR-0034 D3) and an MCP client read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Safety {
@@ -336,6 +360,12 @@ pub struct MethodMeta {
     pub budget_ms: Option<u64>,
     /// Store complete call arguments for replay when the audit privacy rule permits it.
     pub replay_full: bool,
+    /// `#[impress_method(supports(…))]`: the adverbs beyond the universal
+    /// three this method honors; replaces the service default.
+    pub supports: &'static [Adverb],
+    /// `#[impress_method(adjective(…))]`, when the verb defines a derived
+    /// adjective.
+    pub adjective: Option<AdjectiveDecl>,
 }
 
 /// Find a method's captured facts by identifier. `const` because
@@ -398,6 +428,30 @@ pub const fn resolve_effects(
             ..
         }) => *effects,
         _ => service_default,
+    }
+}
+
+/// The adverbs a method declares it honors: its own `supports(…)`, else the
+/// service's default. A method's declaration replaces the default.
+pub const fn resolve_supports(
+    table: &'static [MethodMeta],
+    method: &str,
+    service_default: &'static [Adverb],
+) -> &'static [Adverb] {
+    match method_meta(table, method) {
+        Some(meta) if !meta.supports.is_empty() => meta.supports,
+        _ => service_default,
+    }
+}
+
+/// The derived adjective a method defines, if any.
+pub const fn resolve_adjective(
+    table: &'static [MethodMeta],
+    method: &str,
+) -> Option<AdjectiveDecl> {
+    match method_meta(table, method) {
+        Some(meta) => meta.adjective,
+        None => None,
     }
 }
 
@@ -470,6 +524,11 @@ pub const fn resolve_aliases(
 /// - `replay_full`: `#[impress_method(replay = full)]` (declared; audit still
 ///   applies privacy and size limits);
 /// - `strict`: the service's `strict_args` (declared);
+/// - `supports`: the service's `supports = […]` default with the method's
+///   `#[impress_method(supports(…))]` replacing it (declared; the adverbs the
+///   verb honors beyond the universal `tentatively`, `with_review`, `once`);
+/// - `adjective`: `#[impress_method(adjective(name = "…", kinds = […]))]`
+///   (declared; marks the verb as a derived adjective);
 /// - `source`, `handler`: how the verb runs.
 pub struct VerbDescriptor {
     /// The qualified tool name, `<service>_<method>` in kebab case — the MCP
@@ -498,6 +557,10 @@ pub struct VerbDescriptor {
     pub budget_ms: Option<u64>,
     /// `#[impress_method(replay = full)]`; the audit layer still checks privacy and size.
     pub replay_full: bool,
+    /// The adverbs declared beyond the universal three.
+    pub supports: &'static [Adverb],
+    /// The derived adjective this verb defines, if any.
+    pub adjective: Option<AdjectiveDecl>,
     pub source: Source,
     pub handler: fn(Value) -> ServiceFuture,
 }
@@ -511,6 +574,11 @@ impl VerbDescriptor {
     /// Look one up by its qualified name.
     pub fn find(name: &str) -> Option<&'static VerbDescriptor> {
         Self::iter().find(|v| v.name == name)
+    }
+
+    /// Whether this verb honors `adverb`: universal, or declared.
+    pub fn supports(&self, adverb: Adverb) -> bool {
+        adverb.is_universal() || self.supports.contains(&adverb)
     }
 
     /// Whether an alias name resolves to this verb.
@@ -614,6 +682,8 @@ mod tests {
             aliases: &[],
             budget_ms: Some(5),
             replay_full: false,
+            supports: &[],
+            adjective: None,
         },
         MethodMeta {
             name: "set_flag",
@@ -630,6 +700,8 @@ mod tests {
             aliases: &["old_set_flag"],
             budget_ms: None,
             replay_full: false,
+            supports: &[],
+            adjective: None,
         },
     ];
 
@@ -652,6 +724,58 @@ mod tests {
             resolve_effects(&TABLE, "missing", SERVICE_EFFECTS),
             SERVICE_EFFECTS
         );
+    }
+
+    #[test]
+    fn supports_and_adjective_resolve_and_replace() {
+        static T: [MethodMeta; 2] = [
+            MethodMeta {
+                name: "a",
+                doc: "A.",
+                safety: None,
+                idempotent: None,
+                effects: None,
+                examples: &[],
+                deprecated: None,
+                aliases: &[],
+                budget_ms: None,
+                replay_full: false,
+                supports: &[Adverb::Within],
+                adjective: Some(AdjectiveDecl {
+                    name: "stale",
+                    kinds: &["publication"],
+                }),
+            },
+            MethodMeta {
+                name: "b",
+                doc: "B.",
+                safety: None,
+                idempotent: None,
+                effects: None,
+                examples: &[],
+                deprecated: None,
+                aliases: &[],
+                budget_ms: None,
+                replay_full: false,
+                supports: &[],
+                adjective: None,
+            },
+        ];
+        const DEFAULT: &[Adverb] = &[Adverb::Reversibly];
+        assert_eq!(resolve_supports(&T, "a", DEFAULT), &[Adverb::Within]);
+        assert_eq!(resolve_supports(&T, "b", DEFAULT), DEFAULT);
+        assert_eq!(resolve_supports(&T, "zz", DEFAULT), DEFAULT);
+        let decl = resolve_adjective(&T, "a").unwrap();
+        assert_eq!(decl.describe(), "stale[publication]");
+        assert_eq!(
+            AdjectiveDecl {
+                name: "x",
+                kinds: &[]
+            }
+            .describe(),
+            "x"
+        );
+        assert_eq!(resolve_adjective(&T, "b"), None);
     }
 
     #[test]
@@ -779,6 +903,8 @@ mod tests {
             strict: false,
             budget_ms: None,
             replay_full: false,
+            supports: &[],
+            adjective: None,
             source: Source::Linked,
             handler,
         };
@@ -833,6 +959,8 @@ mod tests {
             strict: false,
             budget_ms: None,
             replay_full: false,
+            supports: &[],
+            adjective: None,
             source: Source::Linked,
             handler,
         };
@@ -890,6 +1018,8 @@ mod tests {
             strict: false,
             budget_ms: None,
             replay_full: false,
+            supports: &[],
+            adjective: None,
             source: Source::Linked,
             handler,
         };

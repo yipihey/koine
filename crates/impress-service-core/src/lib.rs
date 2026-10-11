@@ -18,6 +18,7 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 
+pub mod adverb;
 pub mod call;
 pub mod descriptor;
 pub mod descriptor_handle;
@@ -33,11 +34,12 @@ pub mod runtime;
 pub mod strict;
 pub mod wire;
 
+pub use adverb::{Adverb, Adverbs, Within};
 pub use descriptor::{
-    method_meta, resolve_aliases, resolve_budget_ms, resolve_deprecated, resolve_effects,
-    resolve_examples, resolve_idempotent, resolve_replay_full, resolve_safety_class, Deprecation,
-    Effects, Example, ExampleTier, Kind, MethodMeta, Reach, Safety, SafetyClass, Source,
-    VerbDescriptor,
+    method_meta, resolve_adjective, resolve_aliases, resolve_budget_ms, resolve_deprecated,
+    resolve_effects, resolve_examples, resolve_idempotent, resolve_replay_full,
+    resolve_safety_class, resolve_supports, AdjectiveDecl, Deprecation, Effects, Example,
+    ExampleTier, Kind, MethodMeta, Reach, Safety, SafetyClass, Source, VerbDescriptor,
 };
 pub use descriptor_handle::{ExampleView, HandleSource, VerbHandle};
 pub use provider::{

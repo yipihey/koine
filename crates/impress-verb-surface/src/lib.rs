@@ -176,6 +176,7 @@ fn render_surface(
                 args: Value::Object(run_args),
                 into: Some("state.result".to_string()),
                 each: None,
+                adverbs: None,
             }],
         }))
         .with_id("run");
@@ -474,12 +475,14 @@ pub fn catalogue() -> SurfaceSpec {
                 args: json!({ "verb": "{{state.selected}}" }),
                 into: Some("state.generated_spec".to_string()),
                 each: None,
+                adverbs: None,
             },
             Action::Call {
                 verb: "impress-surface-service_surface-create".to_string(),
                 args: json!({ "spec": "{{state.generated_spec}}", "name": "{{state.selected}}" }),
                 into: Some("state.created".to_string()),
                 each: None,
+                adverbs: None,
             },
             Action::Call {
                 verb: "impress-surface-service_surface-show".to_string(),
@@ -490,6 +493,7 @@ pub fn catalogue() -> SurfaceSpec {
                 }),
                 into: Some("state.shown".to_string()),
                 each: None,
+                adverbs: None,
             },
         ],
     }))
@@ -584,6 +588,8 @@ mod tests {
             strict: false,
             budget_ms: None,
             replay_full: false,
+            supports: &[],
+            adjective: None,
             source: Source::Linked,
             handler: |_| Box::pin(async { Ok(Value::Null) }),
         }

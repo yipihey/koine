@@ -80,6 +80,14 @@
 //! is marked `#[impress_private]` in `methods = […]`, which sets
 //! `"x-private": true` on its input-schema property.
 //!
+//! Adverbs and adjectives (docs/grammar.md): `impress_service_impl! { supports
+//! = [tentatively, reversibly], … }` sets the adverbs beyond the universal
+//! three (`tentatively`, `with_review`, `once`) the service's verbs honor, and
+//! `#[impress_method(supports(reversibly, within))]` replaces that set for one
+//! method; the vocabulary is `tentatively | with_review | once | reversibly |
+//! within | in_background`. `#[impress_method(adjective(name = "stale", kinds
+//! = ["publication"]))]` declares the verb a derived adjective.
+//!
 //! Anything more elaborate (custom DTOs, error mapping nuances) is deferred to
 //! Phase 1+.
 
@@ -214,6 +222,16 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                     None => quote! { ::core::option::Option::None },
                 };
                 let replay_full = overrides.replay_full;
+                let supports = adverb_slice(&overrides.supports);
+                let adjective = match &overrides.adjective {
+                    Some((name, kinds)) => quote! {
+                        ::core::option::Option::Some(::impress_service_core::AdjectiveDecl {
+                            name: #name,
+                            kinds: &[#(#kinds),*],
+                        })
+                    },
+                    None => quote! { ::core::option::Option::None },
+                };
                 metas.push(quote! {
                     ::impress_service_core::MethodMeta {
                         name: #method_name,
@@ -226,6 +244,8 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                         aliases: &[#(#aliases),*],
                         budget_ms: #budget_ms,
                         replay_full: #replay_full,
+                        supports: #supports,
+                        adjective: #adjective,
                     }
                 });
             }
@@ -270,7 +290,8 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
 }
 
 /// What `#[impress_method(safety = …, idempotent = …, effects(…),
-/// deprecated(…), aliases = […], replay = full]` declares.
+/// deprecated(…), aliases = […], replay = full, supports(…), adjective(…)]`
+/// declares.
 #[derive(Default)]
 struct MethodOverrides {
     /// The `SafetyClass` variant name (`ReadOnly`, …), validated.
@@ -289,6 +310,108 @@ struct MethodOverrides {
     budget_ms: Option<syn::LitInt>,
     /// `replay = full`: opt into complete arguments when the audit privacy rule permits.
     replay_full: bool,
+    /// `supports(tentatively, reversibly, …)`: adverbs beyond the universal
+    /// three this method honors (docs/grammar.md § Adverbs). Validated.
+    supports: Vec<Ident>,
+    /// `adjective(name = "…", kinds = […])`: this verb defines a derived
+    /// adjective (docs/grammar.md § Adjectives).
+    adjective: Option<(syn::LitStr, Vec<syn::LitStr>)>,
+}
+
+const ADVERB_VOCABULARY: &str =
+    "`tentatively`, `with_review`, `once`, `reversibly`, `within` or `in_background`";
+
+/// The `Adverb` variant for a wire spelling.
+fn adverb_variant(spelling: &str) -> Option<&'static str> {
+    match spelling {
+        "tentatively" => Some("Tentatively"),
+        "with_review" => Some("WithReview"),
+        "once" => Some("Once"),
+        "reversibly" => Some("Reversibly"),
+        "within" => Some("Within"),
+        "in_background" => Some("InBackground"),
+        _ => None,
+    }
+}
+
+fn validate_adverb(ident: &Ident) -> syn::Result<()> {
+    let spelling = ident.to_string();
+    if adverb_variant(&spelling).is_some() {
+        Ok(())
+    } else {
+        Err(syn::Error::new(
+            ident.span(),
+            format!("unknown adverb `{spelling}`; one of {ADVERB_VOCABULARY}"),
+        ))
+    }
+}
+
+/// `&[::impress_service_core::Adverb::X, …]` for validated idents.
+fn adverb_slice(idents: &[Ident]) -> TokenStream2 {
+    let variants = idents.iter().map(|i| {
+        let v = format_ident!(
+            "{}",
+            adverb_variant(&i.to_string()).unwrap_or("Tentatively")
+        );
+        quote! { ::impress_service_core::Adverb::#v }
+    });
+    quote! { &[#(#variants),*] }
+}
+
+/// A parenthesised or bracketed list of adverb names.
+fn parse_adverb_list(content: syn::parse::ParseStream) -> syn::Result<Vec<Ident>> {
+    let mut out = Vec::new();
+    while !content.is_empty() {
+        let ident: Ident = content.parse()?;
+        validate_adverb(&ident)?;
+        out.push(ident);
+        if content.peek(syn::Token![,]) {
+            content.parse::<syn::Token![,]>()?;
+        }
+    }
+    Ok(out)
+}
+
+/// `adjective(name = "stale", kinds = ["publication"])` inside `#[impress_method(…)]`.
+fn parse_adjective_attr(
+    meta: &syn::meta::ParseNestedMeta<'_>,
+) -> syn::Result<(syn::LitStr, Vec<syn::LitStr>)> {
+    let content;
+    syn::parenthesized!(content in meta.input);
+    let mut name: Option<syn::LitStr> = None;
+    let mut kinds: Vec<syn::LitStr> = Vec::new();
+    while !content.is_empty() {
+        let key: Ident = content.parse()?;
+        content.parse::<syn::Token![=]>()?;
+        if key == "name" {
+            name = Some(content.parse()?);
+        } else if key == "kinds" {
+            let inner;
+            syn::bracketed!(inner in content);
+            while !inner.is_empty() {
+                kinds.push(inner.parse()?);
+                if inner.peek(syn::Token![,]) {
+                    inner.parse::<syn::Token![,]>()?;
+                }
+            }
+        } else {
+            return Err(syn::Error::new(
+                key.span(),
+                "unknown adjective key; `name` or `kinds`",
+            ));
+        }
+        if content.peek(syn::Token![,]) {
+            content.parse::<syn::Token![,]>()?;
+        }
+    }
+    let name = name.ok_or_else(|| meta.error("adjective(…) needs `name = \"…\"`"))?;
+    if name.value().trim().is_empty() {
+        return Err(syn::Error::new(
+            name.span(),
+            "adjective `name` must not be empty",
+        ));
+    }
+    Ok((name, kinds))
 }
 
 /// `deprecated(since = "…", note = "…")` as written on `#[impress_method]`.
@@ -554,6 +677,14 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
                 let lit: syn::LitInt = meta.value()?.parse()?;
                 out.budget_ms = Some(lit);
                 Ok(())
+            } else if meta.path.is_ident("supports") {
+                let content;
+                syn::parenthesized!(content in meta.input);
+                out.supports = parse_adverb_list(&content)?;
+                Ok(())
+            } else if meta.path.is_ident("adjective") {
+                out.adjective = Some(parse_adjective_attr(&meta)?);
+                Ok(())
             } else if meta.path.is_ident("replay") {
                 let mode: Ident = meta.value()?.parse()?;
                 if mode != "full" {
@@ -564,7 +695,8 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
             } else {
                 Err(meta.error(
                     "unknown #[impress_method] key; `safety = …`, `idempotent = …`, \
-                     `effects(…)`, `deprecated(…)`, `aliases = […]`, `budget_ms = …` or `replay = full`",
+                     `effects(…)`, `deprecated(…)`, `aliases = […]`, `budget_ms = …`, \
+                     `replay = full`, `supports(…)` or `adjective(…)`",
                 ))
             }
         })?;
@@ -749,6 +881,9 @@ struct ImplMacroInput {
     /// default effect set; a method departs from it with
     /// `#[impress_method(effects(…))]` on the trait (ADR-0036 D1).
     effects: EffectsDecl,
+    /// `supports = [reversibly, …]`: the service's default adverb set; a
+    /// method's `supports(…)` replaces it.
+    supports: Vec<Ident>,
 }
 
 struct MethodDecl {
@@ -790,6 +925,7 @@ impl syn::parse::Parse for ImplMacroInput {
         let mut safety: Option<String> = None;
         let mut since: Option<syn::LitStr> = None;
         let mut effects: Option<EffectsDecl> = None;
+        let mut supports: Vec<Ident> = Vec::new();
 
         while !input.is_empty() {
             // Accept both regular identifiers and keywords-as-identifiers
@@ -837,6 +973,11 @@ impl syn::parse::Parse for ImplMacroInput {
                     since = Some(version);
                 }
                 "effects" => effects = Some(parse_effects_block(input)?),
+                "supports" => {
+                    let content;
+                    syn::bracketed!(content in input);
+                    supports = parse_adverb_list(&content)?;
+                }
                 "methods" => {
                     let content;
                     syn::bracketed!(content in input);
@@ -852,7 +993,11 @@ impl syn::parse::Parse for ImplMacroInput {
                 other => {
                     return Err(syn::Error::new(
                         input.span(),
-                        format!("unknown impress_service_impl! key `{other}`"),
+                        format!(
+                            "unknown impress_service_impl! key `{other}`; `service`, `impl`, \
+                             `instance`, `strict_args`, `safety`, `since`, `effects`, `supports` \
+                             or `methods`"
+                        ),
                     ));
                 }
             }
@@ -886,6 +1031,7 @@ impl syn::parse::Parse for ImplMacroInput {
                      default effect set, ADR-0036 D1; `{}` for a service that touches nothing)",
                 )
             })?,
+            supports,
         })
     }
 }
@@ -1078,6 +1224,7 @@ fn expand_method(
     let default_safety = format_ident!("{}", input.safety);
     let since = &input.since;
     let default_effects = input.effects.literal();
+    let default_supports = adverb_slice(&input.supports);
     let private_args = &method.private_args;
 
     let args_struct = format_ident!("__Impress_{}_{}_Args", service, name);
@@ -1243,6 +1390,12 @@ fn expand_method(
                     #method_name_str,
                     #default_effects,
                 ),
+                supports: ::impress_service_core::resolve_supports(
+                    &#meta_table,
+                    #method_name_str,
+                    #default_supports,
+                ),
+                adjective: ::impress_service_core::resolve_adjective(&#meta_table, #method_name_str),
                 since: #since,
                 deprecated: ::impress_service_core::resolve_deprecated(&#meta_table, #method_name_str),
                 aliases: ::impress_service_core::resolve_aliases(&#meta_table, #method_name_str),
@@ -1333,6 +1486,86 @@ mod tests {
             !lenient_tokens.contains("strict :: parse_refusal"),
             "{lenient_tokens}"
         );
+    }
+
+    #[test]
+    fn supports_parses_to_adverb_variants() {
+        let ts = expand(
+            r#"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Echo.
+                #[impress_method(supports(reversibly, within), adjective(name = "stale", kinds = ["publication"]))]
+                async fn echo(&self, message: String) -> String;
+            }
+            "#,
+        )
+        .expect("expands")
+        .to_string()
+        .replace(' ', "");
+        assert!(
+            ts.contains("Adverb::Reversibly,::impress_service_core::Adverb::Within"),
+            "{ts}"
+        );
+        assert!(ts.contains("name:\"stale\""), "{ts}");
+        assert!(ts.contains("kinds:&[\"publication\"]"), "{ts}");
+    }
+
+    #[test]
+    fn an_unknown_adverb_is_an_error_naming_it() {
+        let err = expand(
+            r#"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Echo.
+                #[impress_method(supports(backwards))]
+                async fn echo(&self, message: String) -> String;
+            }
+            "#,
+        )
+        .expect_err("backwards is not an adverb");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("backwards") && msg.contains("in_background"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn an_adjective_needs_a_name() {
+        let err = expand(
+            r#"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Echo.
+                #[impress_method(adjective(kinds = ["x"]))]
+                async fn echo(&self, message: String) -> String;
+            }
+            "#,
+        )
+        .expect_err("name is required");
+        assert!(err.to_string().contains("name"), "{err}");
+    }
+
+    #[test]
+    fn service_level_supports_is_the_descriptor_default() {
+        let input: ImplMacroInput = syn::parse_str(
+            "service = EchoService, instance = || Echo, safety = read_only, since = \"0.1.0\", \
+             effects = {}, supports = [tentatively, reversibly], \
+             methods = [echo(message: String) -> String]",
+        )
+        .expect("parses");
+        let text = expand_impl(input)
+            .expect("expands")
+            .to_string()
+            .replace(' ', "");
+        assert!(text.contains("resolve_supports"), "{text}");
+        assert!(
+            text.contains("&[::impress_service_core::Adverb::Tentatively,::impress_service_core::Adverb::Reversibly]"),
+            "{text}"
+        );
+        assert!(syn::parse_str::<ImplMacroInput>(
+            "service = E, instance = || E, safety = read_only, since = \"0.1.0\", effects = {}, \
+             supports = [backwards], methods = [e() -> String]"
+        )
+        .is_err());
     }
 
     #[test]
