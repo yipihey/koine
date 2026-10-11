@@ -22,7 +22,7 @@
 //! the focused `data-koine-id` back afterwards ([`KeyAction::ReadBack`]).
 
 use impress_layout::Verb;
-use impress_surface::{Event, RenderTree};
+use impress_surface::{Event, RenderKind, RenderNode, RenderTree};
 use koine::cursor::{Cursor, Key};
 
 /// What the page does about one `keydown`.
@@ -86,6 +86,49 @@ pub fn decide(
         // The menu key names a widget, and the web has no menu yet.
         Key::Secondary => KeyAction::Ignored,
     }
+}
+
+/// A tree with nothing in it: what a page without a surface asks [`decide`]
+/// about, and what the surface page holds before its first render answers.
+pub fn empty_tree() -> RenderTree {
+    RenderTree {
+        root: RenderNode {
+            id: String::new(),
+            label: None,
+            help: None,
+            node: RenderKind::Column { items: Vec::new() },
+        },
+        focus_order: Vec::new(),
+    }
+}
+
+/// The layout verb one key names on a page of panes: `h` and `l`, and the left
+/// and right arrows. The rule is [`decide`]'s; every other key is `None`.
+pub fn layout_verb_for_key(name: &str, shift: bool) -> Option<Verb> {
+    match decide(&empty_tree(), &mut Cursor::new(), name, shift, true) {
+        KeyAction::Layout(verb) => Some(*verb),
+        _ => None,
+    }
+}
+
+/// [`on_keydown`] for a page with panes and no surface of its own (the layout
+/// page): the same guards, and only a layout verb is claimed. `j`, `k` and the
+/// vertical arrows stay with the browser (they scroll), or with a surface pane
+/// inside, which handled them before the event bubbled here.
+pub fn on_layout_keydown(event: &dioxus::events::KeyboardEvent) -> Option<Verb> {
+    use dioxus::prelude::{Modifiers, ModifiersInteraction};
+    let modifiers = event.modifiers();
+    if modifiers.intersects(Modifiers::CONTROL | Modifiers::ALT | Modifiers::META)
+        || active_element_is_editable()
+    {
+        return None;
+    }
+    let verb = layout_verb_for_key(
+        &event.key().to_string(),
+        modifiers.contains(Modifiers::SHIFT),
+    )?;
+    event.prevent_default();
+    Some(verb)
 }
 
 /// What one `keydown` on a page root means, with the DOM guard applied.
@@ -263,6 +306,18 @@ mod tests {
             serde_json::json!({"verb": "focus-direction", "direction": "right"})
         );
         assert_eq!(cursor.focused_id(&tree), Some("a"));
+    }
+
+    #[test]
+    fn the_layout_page_claims_h_and_l_and_nothing_else() {
+        assert_eq!(
+            layout_verb_for_key("l", false).map(|verb| serde_json::to_value(verb).unwrap()),
+            Some(serde_json::json!({"verb": "focus-direction", "direction": "right"}))
+        );
+        assert!(layout_verb_for_key("ArrowLeft", false).is_some());
+        for other in ["j", "k", "ArrowDown", "Enter", "Tab", "x"] {
+            assert!(layout_verb_for_key(other, false).is_none(), "{other}");
+        }
     }
 
     #[test]

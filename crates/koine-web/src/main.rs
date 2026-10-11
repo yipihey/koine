@@ -3,14 +3,16 @@
 //! It draws any surface of a running impress app, live, and the style editor
 //! for its own sheet. The mapping from a `RenderTree` to elements is
 //! `koine-dioxus`; this crate is the transport ([`api`]), the token
-//! ([`token`]), the keys ([`keys`]), the router, and the two pages that use
+//! ([`token`]), the keys ([`keys`]), the router, and the pages that use
 //! them. It talks to the app on the page's own origin: there are no CORS
 //! headers, so the page is served by the app at `/ui/` or by `dx serve` with
 //! its proxy. See `README.md` and `docs/plan-koine-web.md` D6 to D9.
 
 mod api;
 mod dom;
+mod frame;
 mod keys;
+mod layout_page;
 mod session;
 mod style_page;
 mod surface_page;
@@ -18,6 +20,7 @@ mod token;
 
 use dioxus::prelude::*;
 
+use crate::layout_page::LayoutPage;
 use crate::session::Session;
 use crate::style_page::StylePage;
 use crate::surface_page::SurfacePage;
@@ -168,10 +171,4 @@ fn Home() -> Element {
             Link { to: Route::StylePage {}, "style" }
         }
     }
-}
-
-/// `/layout`: the window tree (plan D7), a later package.
-#[component]
-fn LayoutPage() -> Element {
-    rsx! { p { "layout: not yet" } }
 }

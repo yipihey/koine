@@ -11,7 +11,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use impress_surface::{Event, RenderKind, RenderNode, RenderTree};
+use impress_surface::{Event, RenderTree};
 use koine::cursor::Cursor;
 use koine_dioxus::Surface;
 
@@ -32,19 +32,6 @@ pub fn SurfacePage(id: String) -> Element {
     }
 }
 
-/// The tree before the first render answers: nothing to draw.
-fn empty_tree() -> RenderTree {
-    RenderTree {
-        root: RenderNode {
-            id: String::new(),
-            label: None,
-            help: None,
-            node: RenderKind::Column { items: Vec::new() },
-        },
-        focus_order: Vec::new(),
-    }
-}
-
 /// Everything one page instance reads and writes. All signals, so it is
 /// `Copy` and a handler or a task takes it by value.
 #[derive(Clone, Copy)]
@@ -54,6 +41,10 @@ struct Live {
     cursor: Signal<Cursor>,
     focused: Signal<Option<String>>,
     session: Session,
+    /// Whether `h` and `l` mean a layout verb here. A surface that fills a
+    /// page says yes; one inside a layout pane says no, and the key bubbles to
+    /// the layout page, which posts it once.
+    layout_keys: bool,
 }
 
 impl Live {
@@ -136,7 +127,7 @@ impl Live {
             let tree = self.tree.peek();
             let Some(tree) = tree.as_ref() else { return };
             let mut cursor = self.cursor.write();
-            keys::on_keydown(&event, tree, &mut cursor, true)
+            keys::on_keydown(&event, tree, &mut cursor, self.layout_keys)
         };
         match action {
             KeyAction::Ignored => {}
@@ -178,8 +169,10 @@ impl Live {
     }
 }
 
+/// One surface, live. `embedded` is a surface inside a layout pane: no
+/// breadcrumb, and `h`/`l` are left to the layout page around it.
 #[component]
-fn SurfaceView(id: String) -> Element {
+pub fn SurfaceView(id: String, #[props(default)] embedded: bool) -> Element {
     let session = use_context::<Session>();
     let live = Live {
         id: use_signal(|| id.clone()),
@@ -187,6 +180,7 @@ fn SurfaceView(id: String) -> Element {
         cursor: use_signal(Cursor::new),
         focused: use_signal(|| None),
         session,
+        layout_keys: !embedded,
     };
     // The wait loop's flag. A task owned by this scope is dropped with it;
     // the flag is the explicit stop, checked before every write. A `Cell`,
@@ -230,13 +224,15 @@ fn SurfaceView(id: String) -> Element {
         }
     });
 
-    let current = use_memo(move || live.tree.read().clone().unwrap_or_else(empty_tree));
+    let current = use_memo(move || live.tree.read().clone().unwrap_or_else(keys::empty_tree));
     let sheet = use_memo(move || session.style.read().sheet().clone());
     let loaded = live.tree.read().is_some();
     rsx! {
-        p { class: "kw-note",
-            Link { to: Route::Home {}, "surfaces" }
-            " / {id}"
+        if !embedded {
+            p { class: "kw-note",
+                Link { to: Route::Home {}, "surfaces" }
+                " / {id}"
+            }
         }
         div {
             class: "kw-surface",

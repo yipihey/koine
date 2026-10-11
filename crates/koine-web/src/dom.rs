@@ -43,3 +43,53 @@ pub async fn sleep(ms: u32) {
     ))
     .await;
 }
+
+/// Whether the tab is in the background. The layout page's poll skips a tick
+/// then. A page that cannot tell is treated as visible.
+pub async fn page_hidden() -> bool {
+    eval_string("return document.hidden ? 'hidden' : 'visible';")
+        .await
+        .is_some_and(|state| state == "hidden")
+}
+
+/// The on-screen lengths along the container's axis of the two cells the
+/// divider `index` of `container` sits between: the child before it and the
+/// child after it. The page cannot compute these; the browser laid them out.
+pub async fn measure_neighbours(
+    container: u64,
+    index: usize,
+    horizontal: bool,
+) -> Option<(f32, f32)> {
+    let axis = if horizontal { "width" } else { "height" };
+    let script = format!(
+        r#"const d = document.querySelector('[data-koine-container="{container}"][data-koine-divider="{index}"]');
+        if (!d || !d.previousElementSibling || !d.nextElementSibling) {{ return ''; }}
+        const a = d.previousElementSibling.getBoundingClientRect();
+        const b = d.nextElementSibling.getBoundingClientRect();
+        return a.{axis} + ',' + b.{axis};"#
+    );
+    parse_lengths(&eval_string(&script).await?)
+}
+
+/// `"120.5,80"` as two positive lengths.
+pub fn parse_lengths(raw: &str) -> Option<(f32, f32)> {
+    let (before, after) = raw.split_once(',')?;
+    let before: f32 = before.trim().parse().ok()?;
+    let after: f32 = after.trim().parse().ok()?;
+    (before > 0.0 && after > 0.0 && before.is_finite() && after.is_finite())
+        .then_some((before, after))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn two_lengths_parse_and_anything_else_is_none() {
+        assert_eq!(parse_lengths("120.5,80"), Some((120.5, 80.0)));
+        assert_eq!(parse_lengths(" 3 , 4 "), Some((3.0, 4.0)));
+        for bad in ["", "5", "0,4", "4,-1", "a,b", "NaN,3", "inf,3"] {
+            assert_eq!(parse_lengths(bad), None, "{bad:?}");
+        }
+    }
+}

@@ -16,7 +16,7 @@
 //! A refusal is [`ApiError`]: `{code, message}`, the words the app answered
 //! with. The page draws it in the status line and invents no other error UI.
 
-use impress_layout::Verb;
+use impress_layout::{Layout, Verb};
 use impress_surface::{Event, RenderTree};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -183,6 +183,49 @@ impl LayoutVerbResult {
     }
 }
 
+/// `GET /api/layout/tree`: the window tree a host snapshots.
+///
+/// `layout` is `impress_layout::Layout`, deserialized as it is: the host writes
+/// `Layout`'s own serde form, and `Layout` reads it through its `LayoutWire`
+/// (so a tree written before `next_window` existed still loads). `revision` and
+/// `app` are the host's and are optional on the wire. `focused` is the focused
+/// tile (a leaf).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayoutTree {
+    pub version: u64,
+    pub revision: Option<u64>,
+    pub focused: Option<u64>,
+    pub layout: Layout,
+    pub app: Option<String>,
+}
+
+/// The wire shape of [`LayoutTree`], with the two refusal shapes the route
+/// has: a failed snapshot (`snapshot_error`, `snapshot_code`) and the layout
+/// routes' own `{ok: false, code, message}`.
+#[derive(Deserialize)]
+struct LayoutTreeWire {
+    #[serde(default)]
+    ok: Option<bool>,
+    #[serde(default)]
+    code: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    version: u64,
+    #[serde(default)]
+    revision: Option<u64>,
+    #[serde(default)]
+    focused: Option<u64>,
+    #[serde(default)]
+    layout: Option<Layout>,
+    #[serde(default)]
+    app: Option<String>,
+    #[serde(default)]
+    snapshot_error: Option<String>,
+    #[serde(default)]
+    snapshot_code: Option<String>,
+}
+
 fn parse<T: for<'de> Deserialize<'de>>(value: &Value, what: &str) -> Result<T, ApiError> {
     serde_json::from_value(value.clone())
         .map_err(|error| ApiError::new("bad-response", format!("{what}: {error}")))
@@ -202,6 +245,32 @@ pub fn parse_wait(value: &Value) -> Result<WaitResult, ApiError> {
 
 pub fn parse_list(value: &Value) -> Result<SurfaceListResult, ApiError> {
     parse(value, "surface list")
+}
+
+pub fn parse_layout_tree(value: &Value) -> Result<LayoutTree, ApiError> {
+    let wire: LayoutTreeWire = parse(value, "layout tree")?;
+    if let Some(message) = wire.snapshot_error {
+        return Err(ApiError::new(
+            wire.snapshot_code.as_deref().unwrap_or("snapshot-error"),
+            message,
+        ));
+    }
+    if wire.ok == Some(false) {
+        return Err(ApiError::new(
+            wire.code.as_deref().unwrap_or("refused"),
+            wire.message.unwrap_or_default(),
+        ));
+    }
+    let layout = wire
+        .layout
+        .ok_or_else(|| ApiError::new("bad-response", "layout tree: no `layout` in the answer"))?;
+    Ok(LayoutTree {
+        version: wire.version,
+        revision: wire.revision,
+        focused: wire.focused,
+        layout,
+        app: wire.app,
+    })
 }
 
 pub fn parse_layout_verb(value: &Value) -> Result<LayoutVerbResult, ApiError> {
@@ -260,6 +329,10 @@ pub fn wait_url(origin: &str, id: &str, after_seq: u64, timeout_ms: u64) -> Stri
         list_url(origin),
         encode(id)
     )
+}
+
+pub fn layout_tree_url(origin: &str) -> String {
+    format!("{}/api/layout/tree", origin.trim_end_matches('/'))
 }
 
 pub fn layout_verb_url(origin: &str) -> String {
@@ -362,6 +435,12 @@ pub async fn wait(id: &str, after_seq: u64, timeout_ms: u64) -> Result<WaitResul
         Some(refusal) => Err(refusal),
         None => Ok(result),
     }
+}
+
+/// The app's window tree. A refusal, or a snapshot that failed, is the `Err`.
+/// There is no wait route for the layout, so the layout page polls this.
+pub async fn layout_tree() -> Result<LayoutTree, ApiError> {
+    parse_layout_tree(&get(&layout_tree_url(&origin())).await?)
 }
 
 /// Send one layout verb. Needs the token.
@@ -518,6 +597,10 @@ mod tests {
             layout_verb_url(origin),
             "http://localhost:23125/api/layout/verb"
         );
+        assert_eq!(
+            layout_tree_url(origin),
+            "http://localhost:23125/api/layout/tree"
+        );
     }
 
     #[test]
@@ -551,5 +634,71 @@ mod tests {
         )
         .unwrap();
         assert_eq!(refused.refusal().unwrap().code, "conflict");
+    }
+
+    /// The layout `impress-layout`'s golden test pins: three panes in a
+    /// horizontal split, shares 1:2:3.
+    const THREE_COLUMN: &str = include_str!("../../impress-layout/tests/golden/three_column.json");
+
+    #[test]
+    fn a_layout_tree_answer_carries_the_layout_the_focus_and_the_revision() {
+        let layout: Value = serde_json::from_str(THREE_COLUMN).unwrap();
+        let body = json!({
+            "version": 7, "revision": 12, "focused": 2, "app": "imbib",
+            "layout": layout, "wire_version": 1
+        });
+        let tree = parse_layout_tree(&body).unwrap();
+        assert_eq!(tree.version, 7);
+        assert_eq!(tree.revision, Some(12));
+        assert_eq!(tree.focused, Some(2));
+        assert_eq!(tree.app.as_deref(), Some("imbib"));
+        assert_eq!(tree.layout.windows.len(), 1);
+        assert_eq!(tree.layout.tiles.len(), 4);
+        assert_eq!(tree.layout.windows[0].root.raw(), 4);
+    }
+
+    #[test]
+    fn the_hosts_minimal_answer_needs_no_revision_or_app() {
+        let body = json!({
+            "version": 1,
+            "layout": {"windows": [{"id": 1, "root": 1, "focused": 1}], "tiles": {
+                "1": {"pane": {"view_kind": "placeholder"}}
+            }}
+        });
+        let tree = parse_layout_tree(&body).unwrap();
+        assert_eq!(tree.revision, None);
+        assert_eq!(tree.focused, None);
+        assert_eq!(tree.layout.windows[0].id.raw(), 1);
+    }
+
+    #[test]
+    fn a_failed_snapshot_is_the_apps_code_and_message() {
+        let body = json!({
+            "version": 7, "snapshot_error": "store: disk I/O error",
+            "snapshot_code": "store-error"
+        });
+        assert_eq!(
+            parse_layout_tree(&body).unwrap_err(),
+            ApiError::new("store-error", "store: disk I/O error")
+        );
+        let uncoded = json!({"version": 7, "snapshot_error": "locked"});
+        assert_eq!(
+            parse_layout_tree(&uncoded).unwrap_err().code,
+            "snapshot-error"
+        );
+    }
+
+    #[test]
+    fn a_route_refusal_and_a_body_with_no_layout_are_errors() {
+        let refused = json!({"ok": false, "code": "unavailable", "message": "no window"});
+        assert_eq!(
+            parse_layout_tree(&refused).unwrap_err(),
+            ApiError::new("unavailable", "no window")
+        );
+        let empty = parse_layout_tree(&json!({"version": 1})).unwrap_err();
+        assert_eq!(empty.code, "bad-response");
+        // A pane with no view kind is not a `PaneSpec`: say so, do not guess.
+        let broken = json!({"version": 1, "layout": {"tiles": {"1": {"pane": {}}}}});
+        assert_eq!(parse_layout_tree(&broken).unwrap_err().code, "bad-response");
     }
 }

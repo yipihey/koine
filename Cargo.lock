@@ -3293,10 +3293,12 @@ name = "koine-web"
 version = "0.1.0"
 dependencies = [
  "dioxus",
+ "dioxus-ssr",
  "impress-layout",
  "impress-surface",
  "koine",
  "koine-dioxus",
+ "koine-tui",
  "koine-workspace-hack",
  "reqwest",
  "serde",

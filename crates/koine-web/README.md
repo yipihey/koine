@@ -11,11 +11,38 @@ keys, the router and the pages. The plan is
 |---|---|
 | `/` | the app's surfaces (`GET /api/surface`), as links |
 | `/surface/:id` | one surface, live: render, then a long-poll on `…/wait` that re-renders on any change; events are posted to `…/dispatch` |
-| `/layout` | a placeholder (`layout: not yet`); the window tree is plan D7, a later package |
+| `/layout` | the window tree with pane frames (below) |
 | `/style` | the style editor, drawn by the web frontend and applied to the same sheet the surface page reads |
 
 Every page has a status line: the app origin, whether a token is held
 ("read-only: no token" when not), and the last refusal as `code: message`.
+
+## The layout page
+
+`/layout` fetches `GET /api/layout/tree` and draws every window of the layout,
+the current one first, each titled by its id, as its tile tree. A `Linear` is a
+flex row or column whose children grow by their share, with a divider between
+siblings; a `Tabs` container is a strip on the top edge of the pane it shows
+(one button per child, the active one marked, only the active child drawn); a
+`Grid` is a CSS grid. Every pane has the frame `koine-tui` draws as cells: a
+`≡` grip and the title (`role · view kind`) on the top edge, and four edges.
+The focused tile is outlined in the sheet's `focus` colour. A pane whose view
+kind is `surface` draws that surface live, with its own wait loop; any other
+kind is a "View Kind Unavailable" placeholder naming its query kinds, role and
+tile, because imbib's list and detail are Swift views and another tool's
+domain is that tool's surface (ADR-0032).
+
+Pointer events become the shared gestures; the page decides none of them. A
+click on a pane or a tab is a focus. Pressing the grip (or the title) and
+releasing over another pane's edge moves it there, over its middle makes it a
+tab (`koine::gesture::layout_verb` names the verb). Pressing a divider and
+releasing resizes (`koine::gesture::resize_verb`, over the lengths the browser
+measured; the verb is posted on release only). `h` and `l` post
+`focus-direction`. A refusal goes to the status line; a success fetches the
+tree again. The layout has no wait route, so the page also fetches every five
+seconds while the tab is visible. Dragging a tab out of its strip, reordering
+tabs, and the secondary-click menu are not drawn; touch screens keep the
+pointer on the element they pressed, so drag-and-drop is for a mouse or a pen.
 
 ## The page is same-origin with the app
 
@@ -91,7 +118,10 @@ focus, and nothing with Control, Alt or Meta held.
 
 ## Not done
 
-- The layout page and pane frames (`/layout`; plan D7, W4).
+- Tab drags (reorder, split out) and the pane menu on `/layout`.
+- `koine-tui`'s frame decisions in `koine::gesture`: `src/frame.rs` restates
+  them for the browser, because `koine-tui` cannot link into a wasm build, and
+  a native test pins the copy to the original.
 - Persisting a style edit. The sheet lives in the page and a reload returns to
   the defaults (plan D12); the style file is written natively by
   `koine-style-file`.
