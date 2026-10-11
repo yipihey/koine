@@ -11,6 +11,9 @@ impress-item = { workspace = true }
 koine-store-memory = { workspace = true }
 koine-store-dir = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+uuid = { workspace = true }
 koine-workspace-hack.workspace = true
 
 [lints]

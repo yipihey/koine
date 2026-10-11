@@ -3275,6 +3275,7 @@ dependencies = [
  "koine-store-memory",
  "koine-workspace-hack",
  "thiserror 2.0.21",
+ "uuid",
 ]
 
 [[package]]
@@ -3295,6 +3296,8 @@ dependencies = [
  "chrono",
  "impress-fs-lock",
  "impress-item",
+ "koine-store-conformance",
+ "koine-store-memory",
  "koine-workspace-hack",
  "serde",
  "serde_json",
