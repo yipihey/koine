@@ -182,6 +182,21 @@ policy decision into `Review` before it is acted on. `in_background`
 replaces invoke with the runner. `within` wraps invoke. `reversibly`
 reads the inverse the handler recorded, in the envelope layer.
 
+### Known limits (2026-10-11)
+
+- The generated form offers only the boolean adverbs. `once` and `within`
+  wait on a reduce-time rule that drops an empty adverb, because the form
+  sends every template it offers and the pipeline refuses an empty key or a
+  zero deadline.
+- Two concurrent first calls with the same `once` key can both run; the
+  table does not lock across the call. A durable `IdempotencyStore` may.
+- A tentative call on an app that is not running is answered unavailable,
+  not tentatively: reachability is checked before policy.
+- A method cannot declare `supports()` to clear a non-empty service
+  default; an empty declaration inherits it.
+- A runtime provider declares no adverb support; it honors the universal
+  three only.
+
 ## What pins this
 
 | Rule | Test |
