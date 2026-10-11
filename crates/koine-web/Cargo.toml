@@ -1,0 +1,46 @@
+[package]
+name = "koine-web"
+description = "The koine web frontend: a Dioxus page that draws any surface of a running impress app, live, and the style editor. The mapping is koine-dioxus; this crate is the transport, the router and the keys."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "koine-web"
+path = "src/main.rs"
+
+[dependencies]
+dioxus = { version = "0.7", features = ["router"] }
+koine-dioxus = { workspace = true }
+# By path, not `workspace = true`: a member cannot turn off a workspace
+# dependency's default features, and `koine`'s default `verbs` feature links
+# tokio and `inventory`, which a browser cannot build (plan D5).
+koine = { path = "../koine", default-features = false }
+impress-surface = { workspace = true }
+impress-layout = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# The browser's `fetch` on wasm32 under the crate name the native transport
+# uses. No TLS feature: the page is same-origin with the app that serves it.
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+koine-workspace-hack.workspace = true
+
+# uuid (a dependency of the grammar) refuses to build for wasm32 without `js`.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+uuid = { version = "1", features = ["js"] }
+# The synchronous DOM reads the page cannot do through `document::eval`: the
+# page origin, and the focused element (a keydown handler must decide
+# `prevent_default` before it returns).
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlElement", "HtmlInputElement", "Location"] }
+
+[features]
+default = ["web"]
+# The page in a browser: `dx serve`, `dx build --platform web`.
+web = ["dioxus/web"]
+# The same binary in a native window (wry). Mac only; not built in CI.
+desktop = ["dioxus/desktop"]
+
+[lints]
+workspace = true

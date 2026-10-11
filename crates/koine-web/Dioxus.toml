@@ -1,0 +1,21 @@
+# `dx serve` / `dx build --platform web` for the koine web page.
+# docs/plan-koine-web.md D9; README.md for the loop.
+
+[application]
+name = "koine-web"
+
+[web.app]
+title = "koine"
+# The app serves the bundle under /ui/ (GET /ui/*), and the router reads this
+# as its prefix, so /ui/surface/<id> is a route.
+base_path = "ui"
+
+# `dx serve` serves the page and forwards /api to a running impress app, so
+# the page is same-origin with it (the app sends no CORS headers). The backend
+# URL must carry a path: it is the prefix that is forwarded. impress is 23125;
+# imbib is 23120 (SiblingApp.descriptors is the table).
+[[web.proxy]]
+backend = "http://localhost:23125/api"
+
+# No [web.resource]: koine.css is not a file. The page puts
+# koine_dioxus::STYLESHEET in a <style> element, so there is nothing to list.
