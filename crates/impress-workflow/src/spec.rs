@@ -104,6 +104,26 @@ pub enum Trigger {
     Manual {},
 }
 
+impl Trigger {
+    /// Whether a change to a record of `kind` (a pane-query kind id or a
+    /// schema ref, spelled the way the trigger spells it) is what starts
+    /// this workflow: a `store` trigger naming the kind, or a `message`
+    /// trigger on it. A schedule, a job, a call or a manual trigger names no
+    /// kind. This is the pure half of "what will touch this record" —
+    /// docs/grammar.md § Tense; the host reads the record's kind and lists
+    /// the workflows whose trigger answers true.
+    pub fn names_kind(&self, kind: &str) -> bool {
+        match self {
+            Trigger::Store { kinds, .. } => kinds.iter().any(|k| k == kind),
+            Trigger::Message { kind: named, .. } => named == kind,
+            Trigger::Schedule { .. }
+            | Trigger::Job { .. }
+            | Trigger::Call { .. }
+            | Trigger::Manual {} => false,
+        }
+    }
+}
+
 /// Guards a trigger's firing (plan § Workflows). `not_before_startup_s`
 /// mirrors `SchedulerConfig::start_delay` (W2 wires the runtime that reads
 /// it); `requires` is a list of free-text capability tags (`"app:imbib"`)
@@ -208,6 +228,37 @@ mod tests {
         let json = serde_json::to_value(&spec).unwrap();
         let back: WorkflowSpec = serde_json::from_value(json).unwrap();
         assert_eq!(back, spec);
+    }
+
+    #[test]
+    fn a_store_or_message_trigger_names_its_kind_and_nothing_else_does() {
+        let store = Trigger::Store {
+            kinds: vec!["publication".into(), "manuscript".into()],
+            ops: vec![],
+            debounce_ms: None,
+        };
+        assert!(store.names_kind("manuscript"));
+        assert!(!store.names_kind("figure"));
+        let message = Trigger::Message {
+            kind: "email-message".into(),
+            folder: None,
+        };
+        assert!(message.names_kind("email-message"));
+        assert!(!message.names_kind("publication"));
+        for trigger in [
+            Trigger::Schedule {
+                every: "24h".into(),
+                at: None,
+            },
+            Trigger::Job {
+                verb: "x".into(),
+                state: "done".into(),
+            },
+            Trigger::Call { verb: "x".into() },
+            Trigger::Manual {},
+        ] {
+            assert!(!trigger.names_kind("publication"));
+        }
     }
 
     #[test]

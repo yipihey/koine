@@ -182,6 +182,37 @@ policy decision into `Review` before it is acted on. `in_background`
 replaces invoke with the runner. `within` wraps invoke. `reversibly`
 reads the inverse the handler recorded, in the envelope layer.
 
+## Tense
+
+The past is the call log and the operation log. The present is the store.
+The future is the workflows and their triggers. All three are records in
+the same store, so tense is not a new part of speech and the algebra gains
+no temporal operator: it is one noun space, and three questions about one
+record.
+
+| Tense | The question | How it is asked |
+|---|---|---|
+| Past | What touched this? | `history-service_why {id}`; or a query over the kind `verb-call` with a relation walk `OperatesOn`, incoming, from the record |
+| Present | What is this? | the record's own verb, or a query over its kind |
+| Future | What will touch this? | `history-service_will {id}`: the workflows whose trigger names the record's kind (`Trigger::names_kind`), with their state |
+
+### Rules
+
+1. **The logs are nouns.** `verb-call`, `operation`, `workflow` and
+   `scenario` are pane-query kinds in the host's manifest, so any pane,
+   surface source or store query can show them with the same filters and
+   adjectives as any other record.
+2. **A call points at what it touched.** The call-log row carries
+   `OperatesOn` references to the records it inserted or deleted, so the
+   past of a record is a relation walk, not a scan.
+3. **The future is declared, never predicted.** `will` answers the
+   automations on record whose trigger matches, and says their state
+   (`enabled`, `proposed`, `disabled`, `broken`); it does not run a dry run
+   and it does not guess what a scheduled or manual workflow would touch.
+4. **No time travel in a query.** A query reads the present. The
+   operation log's replay (`EffectiveState`) stays a verb, not a query
+   operator; growing the algebra is still an ADR amendment.
+
 ### Known limits (2026-10-11)
 
 - The generated form offers only the boolean adverbs. `once` and `within`
