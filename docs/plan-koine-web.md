@@ -265,6 +265,35 @@ to publish the bundle as an artifact.
 | W5 | The conformance suite and goldens (D10); CI (D11) | `crates/koine/tests`, `.github/workflows/ci.yml` | W1, W2 |
 | W6 | impress-apps: `scripts/build-koine-web.sh`, the `GET /ui/*` route in `ImpressAutomation`, the token meta (D8, D9); a Mac brief | impress-apps | W3 |
 
+## Status (2026-10-11)
+
+W0–W6 are built. What landed differs from the text above in these ways,
+each on purpose:
+
+- **A selection is an array of ids.** A table or list row click sends
+  `select` with `[row.id]` (`[index]` when the row has none), the suite's
+  convention, not the row index D2 first said.
+- **Tab is the browser's.** The DOM tab order equals `focus_order`, so Tab
+  and Shift+Tab move focus natively and the page reads the focused id back
+  into the cursor; `j`/`k`/Enter/`h`/`l` go through `koine::cursor`.
+- **The frame decisions are `koine::frame`.** `Hit`, `pointer_gesture`,
+  `drag_gesture`, `verb_for_pointer` and `verb_for_drag` moved up from
+  `koine-tui`; the terminal keeps only the cells. A first draft of the web
+  restated them, and the restatement is gone.
+- **The layout page polls** every five seconds while the tab is visible,
+  since the layout has no wait route; a drag posts on release with no live
+  preview; drag-to-move is mouse or pen (touch keeps the pointer on the
+  element it pressed); no `expected_revision` is sent yet.
+- **Release bundle**: `index.html` plus `assets/koine-web-<hash>.js` and
+  `assets/koine-web_bg-<hash>.wasm`, 2.9 MB; a debug build writes `wasm/`.
+  `dx` fetches esbuild, wasm-bindgen and binaryen itself on first use; a
+  machine whose TLS it does not trust seeds `$DX_HOME/tools/` by hand.
+- **Not run in a browser yet.** Every handler is compiled, SSR-rendered and
+  unit-tested; the first live run is the Mac's, against a running app
+  through `dx serve --hotpatch` (the token pasted) and then through
+  `GET /ui/` once `scripts/build-koine-web.sh` has put the bundle in
+  `ImpressAutomation`.
+
 ## Known limits at the end of this plan
 
 - Field kinds the browser has no native control for render as text inputs
