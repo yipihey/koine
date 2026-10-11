@@ -1,0 +1,3 @@
+[[exclude]]
+item = "describe"
+reason = "a constant string; an agent has no use for it"
