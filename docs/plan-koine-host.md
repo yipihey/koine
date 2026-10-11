@@ -32,7 +32,7 @@ with its tables:
 ```rust
 // on AttributedStore
 fn operations_for(&self, target: ItemId, limit: Option<usize>) -> Result<Vec<Item>, StoreError>;
-    // default: query schema `core/operation`, Eq("op_target_id", target), by logical_clock desc
+    // default: query schema `core/operation`, Eq("op_target_id", target), oldest first (logical_clock asc, as SQLite answers)
 fn metadata_get(&self, key: &str) -> Result<Option<String>, StoreError>;
 fn metadata_set(&self, key: &str, value: &str) -> Result<(), StoreError>;
     // default: one `core/store-metadata` item per key, payload {key, value}

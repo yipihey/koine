@@ -276,10 +276,17 @@ impl ItemStore for MemoryStore {
         inner.state.validate_new(&items)?;
         let env = self.env();
         let ids = items.iter().map(|i| i.id).collect();
+        let before = inner.state.clock_now();
+        let wrote = !items.is_empty();
         for item in items {
             let stored = inner.state.insert_validated(item, &env);
             let schema = stored.schema.as_str().to_owned();
             inner.emit(Some(&schema), ItemEvent::Created(Box::new(stored)));
+        }
+        // Rows that arrived with clocks of their own stamp nothing; the write
+        // still has to move the change token.
+        if wrote && inner.state.clock_now() == before {
+            inner.state.next_clock(&env);
         }
         Ok(ids)
     }
@@ -345,6 +352,9 @@ impl ItemStore for MemoryStore {
         let mut guard = self.write()?;
         let inner = &mut *guard;
         let schema = inner.state.delete(id)?;
+        // A delete stamps no row, but it is a write: tick the clock so the
+        // change token moves.
+        inner.state.next_clock(&self.env());
         inner.blobs.retain(|(item, _), _| *item != id);
         inner.emit(Some(&schema), ItemEvent::Deleted(id));
         Ok(())
@@ -430,6 +440,13 @@ impl ItemStore for MemoryStore {
             tx,
         });
         Ok(rx)
+    }
+
+    /// The packed clock. Every committed write moves it: inserts and
+    /// operations stamp it, and a delete (which stamps no row) and an insert
+    /// of rows that brought their own clocks tick it. A read leaves it be.
+    fn change_token(&self) -> Result<u64, StoreError> {
+        Ok(self.read()?.state.clock_now())
     }
 }
 

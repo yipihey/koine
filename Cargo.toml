@@ -4,6 +4,7 @@ members = [
     "crates/impress-service-core",
     "crates/impress-service-macros",
     "crates/impress-pane-query",
+    "crates/impress-pane-query-compile",
     "crates/impress-item",
     "crates/impress-schema-ref-codegen",
     "crates/impress-layout",
@@ -86,6 +87,7 @@ impress-item = { path = "crates/impress-item" }
 impress-schema-ref-codegen = { path = "crates/impress-schema-ref-codegen" }
 impress-layout = { path = "crates/impress-layout" }
 impress-pane-query = { path = "crates/impress-pane-query" }
+impress-pane-query-compile = { path = "crates/impress-pane-query-compile" }
 impress-surface = { path = "crates/impress-surface" }
 impress-workflow = { path = "crates/impress-workflow" }
 impress-verb-surface = { path = "crates/impress-verb-surface" }

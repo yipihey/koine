@@ -19,7 +19,11 @@
 //!   half-applied while it runs; the journal is crash atomicity, not
 //!   isolation.
 //! - **D4.3** events are in-process; [`DirStore::clock_file`] is the cheap
-//!   "did another process write" probe (SQLite's `data_version`).
+//!   "did another process write" probe (SQLite's `data_version`), and what
+//!   `ItemStore::change_token` answers. Every commit that writes or removes a
+//!   document moves it, including a delete. `metadata_get`/`metadata_set` and
+//!   `operations_for` keep the port's defaults (one `core/store-metadata` item
+//!   per key; a query over `op_target_id`).
 //! - **D4.4** two roots synced by a file tool are two stores with the same
 //!   ids. A `<id>.conflict-<n>.json` copy that carries a higher clock than
 //!   the file it sits beside is reported by [`DirStore::conflicts`]; both
@@ -1066,6 +1070,12 @@ impl Txn<'_> {
             }
         }
         ids.extend(self.blob_removals.iter().copied());
+        // A commit that wrote or removed a document must move the clock file
+        // (it is `change_token`), even when nothing stamped a clock: a delete,
+        // or rows that arrived with clocks of their own.
+        if self.hlc == self.hlc_before && (!writes.is_empty() || !self.removes.is_empty()) {
+            self.hlc.next();
+        }
         if self.hlc != self.hlc_before {
             // Before the journal: a clock that is ahead of the documents is a
             // harmless gap; one that is behind them would repeat a value.
@@ -1384,6 +1394,10 @@ impl ItemStore for DirStore {
             frontier = next;
         }
         Ok(out)
+    }
+
+    fn change_token(&self) -> Result<u64, StoreError> {
+        self.clock_file()
     }
 
     fn subscribe(&self, q: ItemQuery) -> Result<Receiver<ItemEvent>, StoreError> {

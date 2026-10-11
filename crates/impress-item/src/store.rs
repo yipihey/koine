@@ -1,12 +1,25 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::mpsc::Receiver;
 
 use crate::event::ItemEvent;
-use crate::item::{FlagState, Item, ItemId, Value};
+use crate::item::{ActorKind, FlagState, Item, ItemId, Priority, Value, Visibility};
 use crate::operation::OperationSpec;
-use crate::query::ItemQuery;
+use crate::query::{ItemQuery, Predicate, SortDescriptor};
 use crate::reference::{EdgeType, TypedReference};
-use crate::schema::SchemaRef;
+use crate::schema::{refs::CORE_OPERATION, SchemaRef};
+
+/// The schema of the rows [`AttributedStore::metadata_get`] and
+/// [`AttributedStore::metadata_set`] keep by default: one item per key,
+/// payload `{ "key": <key>, "value": <value> }`, authored by `system:local`.
+///
+/// SQLite keeps the same pairs in its `store_metadata` table instead and
+/// overrides the two methods, so this spelling is a default's, not a wire
+/// format.
+pub const STORE_METADATA_SCHEMA: &str = "core/store-metadata";
+
+/// The author of the rows the metadata defaults write.
+const METADATA_AUTHOR: &str = "system:local";
 
 /// Mutation to apply to an item's fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -98,6 +111,22 @@ pub trait ItemStore: Send + Sync {
 
     /// Subscribe to changes matching a query. Returns a channel of events.
     fn subscribe(&self, q: ItemQuery) -> Result<Receiver<ItemEvent>, StoreError>;
+
+    /// A value that changes whenever a write committed through any handle
+    /// this backend can see: SQLite's `PRAGMA data_version` (plus its own
+    /// writes), the directory store's `clock` file, the memory store's clock.
+    ///
+    /// A reader that remembers the last value knows whether to look again
+    /// without re-querying anything; a host polls it to learn that another
+    /// process wrote. Rules: monotonic within one handle (never goes back),
+    /// *not* comparable across backends or across two stores of one backend,
+    /// and the number itself means nothing. The only supported questions are
+    /// "is it the value I saw" and "is it larger". Cheap: no I/O beyond one
+    /// read of the backend's own marker.
+    ///
+    /// No default: a backend that cannot answer cannot tell a host whether
+    /// anything changed, and a guessed constant would say "never".
+    fn change_token(&self) -> Result<u64, StoreError>;
 }
 
 /// What [`AttributedStore::apply_operation_if_clock`] did.
@@ -162,6 +191,123 @@ pub trait AttributedStore: ItemStore {
 
     /// The row's `logical_clock`, or `None` when the row does not exist.
     fn logical_clock_of(&self, id: ItemId) -> Result<Option<u64>, StoreError>;
+
+    /// The operation rows (schema `core/operation`) that targeted `target`,
+    /// oldest first: ordered by `logical_clock` ascending, as the oracle's
+    /// `SqliteItemStore::operations_for` does, so `limit` keeps the *first*
+    /// `limit` operations. `None` returns them all. An item with no history
+    /// (or that does not exist) answers an empty list.
+    ///
+    /// The default is a query over `op_target_id`; SQLite overrides it with
+    /// its indexed column (and breaks ties on `created`, then `id`).
+    fn operations_for(
+        &self,
+        target: ItemId,
+        limit: Option<usize>,
+    ) -> Result<Vec<Item>, StoreError> {
+        self.query(&ItemQuery {
+            schema: Some(CORE_OPERATION),
+            predicates: vec![Predicate::Eq(
+                "op_target_id".into(),
+                Value::String(target.to_string()),
+            )],
+            sort: vec![SortDescriptor {
+                field: "logical_clock".into(),
+                ascending: true,
+            }],
+            limit,
+            ..Default::default()
+        })
+    }
+
+    /// One durable string per key for the store itself (a migration marker,
+    /// an applied rename-table version): the value last written by
+    /// [`metadata_set`](Self::metadata_set), or `None` for a key never set.
+    ///
+    /// The default keeps one item per key, schema [`STORE_METADATA_SCHEMA`],
+    /// payload `{ "key", "value" }`. SQLite overrides it with its
+    /// `store_metadata` table.
+    fn metadata_get(&self, key: &str) -> Result<Option<String>, StoreError> {
+        let hits = self.query(&metadata_query(key))?;
+        Ok(hits
+            .into_iter()
+            .next()
+            .and_then(|item| match item.payload.get("value") {
+                Some(Value::String(v)) => Some(v.clone()),
+                _ => None,
+            }))
+    }
+
+    /// Write one metadata value, replacing the key's previous one.
+    ///
+    /// The default updates the key's item or inserts it. Two handles setting
+    /// a key that has never been set at the same instant may each insert a
+    /// row; reads then answer the older one. (SQLite's `INSERT OR REPLACE`
+    /// has no such window and overrides this.)
+    fn metadata_set(&self, key: &str, value: &str) -> Result<(), StoreError> {
+        match self.query(&metadata_query(key))?.into_iter().next() {
+            Some(existing) => self.update(
+                existing.id,
+                vec![FieldMutation::SetPayload(
+                    "value".into(),
+                    Value::String(value.to_owned()),
+                )],
+            ),
+            None => {
+                let now = chrono::Utc::now();
+                self.insert(Item {
+                    id: ItemId::new_v4(),
+                    schema: SchemaRef::from_stored(STORE_METADATA_SCHEMA.to_owned()),
+                    payload: BTreeMap::from([
+                        ("key".to_owned(), Value::String(key.to_owned())),
+                        ("value".to_owned(), Value::String(value.to_owned())),
+                    ]),
+                    created: now,
+                    modified: now,
+                    author: METADATA_AUTHOR.into(),
+                    author_kind: ActorKind::System,
+                    logical_clock: 0,
+                    origin: None,
+                    canonical_id: None,
+                    tags: Vec::new(),
+                    flag: None,
+                    is_read: false,
+                    is_starred: false,
+                    priority: Priority::Normal,
+                    visibility: Visibility::Private,
+                    message_type: None,
+                    produced_by: None,
+                    version: None,
+                    batch_id: None,
+                    references: Vec::new(),
+                    parent: None,
+                })
+                .map(|_| ())
+            }
+        }
+    }
+}
+
+/// The rows holding `key`, oldest first.
+fn metadata_query(key: &str) -> ItemQuery {
+    ItemQuery {
+        schema: Some(SchemaRef::from_stored(STORE_METADATA_SCHEMA.to_owned())),
+        predicates: vec![Predicate::Eq("key".into(), Value::String(key.to_owned()))],
+        sort: vec![
+            SortDescriptor {
+                field: "created".into(),
+                ascending: true,
+            },
+            SortDescriptor {
+                field: "id".into(),
+                ascending: true,
+            },
+        ],
+        limit: Some(1),
+        include_tags: false,
+        include_references: false,
+        ..Default::default()
+    }
 }
 
 /// Errors from the item store.

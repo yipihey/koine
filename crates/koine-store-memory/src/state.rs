@@ -97,6 +97,12 @@ impl State {
         (wall << 16) | counter
     }
 
+    /// The clock as it stands: the last value `next_clock` answered, or what
+    /// `observe_clock` raised it to. `0` before the first tick.
+    pub fn clock_now(&self) -> u64 {
+        (self.wall_ms << 16) | self.counter
+    }
+
     /// Raise the clock so every later answer sorts after `remote` (the
     /// oracle's `hlc_observe_remote`): component-wise maximum, a no-op for a
     /// clock that is behind.

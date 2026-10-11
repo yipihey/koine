@@ -62,6 +62,7 @@ pub mod events;
 pub mod fixture;
 pub mod graph;
 pub mod ops;
+pub mod port;
 pub mod query;
 
 pub use blobs::*;
@@ -70,6 +71,7 @@ pub use durable::*;
 pub use events::*;
 pub use graph::*;
 pub use ops::*;
+pub use port::*;
 pub use query::*;
 
 use impress_item::{AttributedStore, BlobStore};
@@ -159,6 +161,11 @@ macro_rules! __cases {
                 clocks_increase_strictly_across_inserts_and_operations,
                 clocks_pack_wall_milliseconds,
                 a_row_inserted_with_a_clock_keeps_it_until_written,
+                // the port additions the host runtimes take (plan-koine-host H-D1)
+                change_token_moves_on_every_write,
+                operations_for_lists_a_rows_history_oldest_first_with_limit,
+                metadata_round_trips_and_overwrites,
+                metadata_missing_is_none,
                 // capabilities
                 capabilities_are_coherent,
             ],

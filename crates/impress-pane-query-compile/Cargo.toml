@@ -1,0 +1,27 @@
+[package]
+name = "impress-pane-query-compile"
+description = "The pane-query compiler (ADR-0031 D2): the one place the algebra becomes an ItemQuery, plus the incremental-invalidation module (docs/plan-koine-host.md H-D2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The algebra: PaneQuery, KindManifest, Bindings, ParamDecl, PaneQueryError.
+impress-pane-query = { workspace = true }
+# The target of the compilation: ItemQuery, Predicate, EdgeType, StoreMutation.
+# (impress-item depends on impress-pane-query for the edge conversion, so the
+# compiler cannot live in impress-pane-query: that would be a cycle.)
+impress-item = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+chrono = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+# The tests run compiled queries on a real store.
+koine-store-memory = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
