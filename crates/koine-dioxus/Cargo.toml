@@ -1,0 +1,35 @@
+[package]
+name = "koine-dioxus"
+description = "A Dioxus performance of a koine RenderTree: the DOM in a browser, a string on the server, a window on the desktop. The mapping holds no logic."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dioxus = { version = "0.7", default-features = false, features = ["macro", "html", "signals", "hooks"] }
+dioxus-ssr = { version = "0.7", optional = true }
+# By path, not `workspace = true`: a member cannot turn off a workspace
+# dependency's default features, and `koine`'s default `verbs` feature links
+# tokio and `inventory`, which a browser cannot build (plan D5).
+koine = { path = "../koine", default-features = false }
+impress-surface = { workspace = true }
+serde_json = { workspace = true }
+koine-workspace-hack.workspace = true
+
+# uuid (a dependency of the grammar) refuses to build for wasm32 without `js`.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+uuid = { version = "1", features = ["js"] }
+
+# The SSR tests run in the workspace's plain `cargo test --all-targets`
+# (CI's one job), so the string renderer is always there under test.
+[dev-dependencies]
+dioxus-ssr = "0.7"
+
+[features]
+# `render_html`: the same mapping as a string, for the conformance suite and
+# for a first paint served before the wasm loads.
+ssr = ["dep:dioxus-ssr"]
+
+[lints]
+workspace = true

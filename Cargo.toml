@@ -12,6 +12,7 @@ members = [
     "crates/koine",
     "crates/koine-style-file",
     "crates/koine-tui",
+    "crates/koine-dioxus",
     "crates/impress-fs-lock",
     "crates/impress-settings",
     "crates/surface-demo-service",
@@ -86,6 +87,7 @@ impress-verb-surface = { path = "crates/impress-verb-surface" }
 koine = { path = "crates/koine" }
 koine-style-file = { path = "crates/koine-style-file" }
 koine-tui = { path = "crates/koine-tui" }
+koine-dioxus = { path = "crates/koine-dioxus" }
 impress-scenario = { path = "crates/impress-scenario" }
 surface-demo-service = { path = "crates/surface-demo-service" }
 # default-features = false HERE, not at the call site: a member inheriting a

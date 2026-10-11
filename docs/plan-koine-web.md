@@ -94,9 +94,9 @@ the SSR goldens:
 | `column`, `row` | `div.koine-column` / `div.koine-row` | flex column / row; gap from the `column` / `row` slot |
 | `grid{columns}` | `div.koine-grid` with `grid-template-columns: repeat(N, …)` | |
 | `section{title,collapsed,body}` | `section` + `h2` + `details`-like body | collapsed is `hidden` on the body, not a DOM removal, so ids stay addressable |
-| `tabs{tabs}` | `div[role=tablist]` + `button[role=tab]` + `div[role=tabpanel]` | active tab is a `select` event on the tabs widget |
+| `tabs{tabs}` | `div[role=tablist]` + `button[role=tab]` + `div[role=tabpanel]` | the active tab is the page's memory of a gesture (the grammar's `tabs` has no handler); a tab click still sends `select` with the tab index |
 | `text{text}` | `p` | font class from the `text` slot |
-| `table{rows,columns}` | `table` with `thead`/`tbody` | one `tr` per row, `data-koine-row` index; a row click is `select` with the row index |
+| `table{rows,columns}` | `table` with `thead`/`tbody` | one `tr` per row; a row click is `select` with `[row.id]` (the suite's convention: a selection is an array of ids, `[index]` when a row has none) |
 | `list{rows}` | `ul` + `li` | same `select` rule |
 | `field{field,bind,value}` | `input`/`select`/`textarea`/`input[type=date]`/`input[type=range]`/`input[type=checkbox]` by `FieldKind` | `change` carries the value in the field's JSON type |
 | `button{label}` | `button` | `click` |

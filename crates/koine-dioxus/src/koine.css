@@ -1,0 +1,244 @@
+/*
+ * The web performance of a koine surface (docs/plan-koine-web.md D3).
+ *
+ * `koine_dioxus::css_variables` writes the style sheet on the root element as
+ * custom properties (--koine-column, --koine-button, ...). This file reads
+ * them. A changed slot is one attribute and a style pass, never a render.
+ * Every value has a fallback here, so a root with no variables looks right.
+ */
+
+.koine {
+  /* The palette a colour token names. A host may override any of these. */
+  --koine-color-accent: #2563eb;
+  --koine-color-primary: #111827;
+  --koine-color-secondary: #6b7280;
+  --koine-color-error: #dc2626;
+  --koine-color-warning: #d97706;
+  --koine-color-info: #0891b2;
+
+  color: var(--koine-color-primary);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.4;
+}
+
+@media (prefers-color-scheme: dark) {
+  .koine {
+    --koine-color-accent: #60a5fa;
+    --koine-color-primary: #f3f4f6;
+    --koine-color-secondary: #9ca3af;
+    --koine-color-error: #f87171;
+    --koine-color-warning: #fbbf24;
+    --koine-color-info: #22d3ee;
+  }
+}
+
+/* Layout */
+
+.koine-column,
+.koine-row,
+.koine-grid {
+  display: flex;
+  min-width: 0;
+}
+
+.koine-column {
+  flex-direction: column;
+  gap: var(--koine-column, 8px);
+}
+
+.koine-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--koine-row, 8px);
+}
+
+.koine-grid {
+  display: grid;
+  gap: var(--koine-row, 8px) var(--koine-column, 8px);
+}
+
+.koine-spacer {
+  flex: 1 1 auto;
+  min-height: 1em;
+}
+
+.koine-divider {
+  width: 100%;
+  border: 0;
+  border-top: 1px solid var(--koine-color-secondary);
+  opacity: 0.4;
+}
+
+/* Fonts: the `text`, `section` and `field` slots. `automatic` has no class. */
+
+.koine-font-body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.koine-font-title { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-weight: 600; font-size: 1.25em; }
+.koine-font-mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+/* Sections and tabs */
+
+.koine-section > h2 {
+  margin: 0 0 var(--koine-column, 8px);
+  font-size: 1.1em;
+}
+
+.koine-section-body[hidden],
+.koine-tabpanel[hidden] {
+  display: none;
+}
+
+.koine-tablist {
+  display: flex;
+  gap: var(--koine-row, 8px);
+  border-bottom: 1px solid var(--koine-color-secondary);
+  margin-bottom: var(--koine-column, 8px);
+}
+
+.koine-tab {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.koine-tab[aria-selected="true"] {
+  border-bottom-color: var(--koine-color-accent);
+  font-weight: 600;
+}
+
+/* Text */
+
+.koine-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* Lists and tables: row spacing is the `list` and `table` slots. */
+
+.koine-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.koine-list > li {
+  padding: var(--koine-list, 0px) 4px;
+  cursor: pointer;
+}
+
+.koine-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.koine-table th,
+.koine-table td {
+  text-align: left;
+  padding: calc(var(--koine-table, 0px) + 2px) 8px;
+}
+
+.koine-table thead th {
+  border-bottom: 1px solid var(--koine-color-secondary);
+  color: var(--koine-color-secondary);
+  font-weight: 600;
+}
+
+.koine-table tbody tr {
+  cursor: pointer;
+}
+
+.koine-list > li:hover,
+.koine-table tbody tr:hover {
+  background: color-mix(in srgb, var(--koine-color-accent) 12%, transparent);
+}
+
+/* Widgets */
+
+.koine-button {
+  font: inherit;
+  padding: 4px 12px;
+  border: 1px solid var(--koine-button, var(--koine-color-secondary));
+  border-radius: 4px;
+  background: transparent;
+  color: var(--koine-button, inherit);
+  cursor: pointer;
+}
+
+.koine-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.koine-field > label {
+  color: var(--koine-color-secondary);
+  font-size: 0.85em;
+}
+
+.koine-field > input[type="text"],
+.koine-field > input[type="number"],
+.koine-field > input[type="date"],
+.koine-field > select {
+  font: inherit;
+  padding: 4px 6px;
+}
+
+/* Status: the `status.<level>` slots */
+
+.koine-status {
+  padding: 4px 8px;
+  border-left: 3px solid currentColor;
+}
+
+.koine-status-error { color: var(--koine-status-error, var(--koine-color-error)); }
+.koine-status-warning { color: var(--koine-status-warning, var(--koine-color-warning)); }
+.koine-status-info { color: var(--koine-status-info, var(--koine-color-info)); }
+
+/* Data */
+
+.koine-log {
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: color-mix(in srgb, var(--koine-color-secondary) 12%, transparent);
+}
+
+.koine-kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px var(--koine-row, 8px);
+  margin: 0;
+}
+
+.koine-kv > dt { color: var(--koine-color-secondary); }
+.koine-kv > dd { margin: 0; }
+
+.koine-plot {
+  min-height: 120px;
+  border: 1px dashed var(--koine-color-secondary);
+}
+
+.koine-image { max-width: 100%; }
+
+/* A kind this build cannot draw keeps its slot and says so. */
+
+.koine-placeholder {
+  padding: 4px 8px;
+  border: 1px dashed var(--koine-color-secondary);
+  color: var(--koine-color-secondary);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+/* Focus: the `focus` slot. With `automatic` the outline is the text colour. */
+
+.koine-focused {
+  outline: 2px solid var(--koine-focus, currentColor);
+  outline-offset: 2px;
+}
