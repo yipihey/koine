@@ -1,7 +1,8 @@
 //! A text performance of a [`koine::surface::RenderTree`].
 //!
 //! [`render`] walks the tree and writes one line per node. [`TextFrontend::key`]
-//! turns j/k/Enter into an [`koine::surface::Event`] for the focused widget.
+//! turns j/k/Enter into an [`koine::surface::Event`] for the focused widget;
+//! the rule is [`koine::cursor::Cursor`], shared with the web frontend.
 //! [`TextFrontend::gesture_key`] turns those keys, and h/l and the menu key,
 //! into a [`koine::gesture::Gesture`]. [`TextFrontend::layout_verb`] is that
 //! gesture through [`koine::gesture::layout_verb`]. [`koine::surface::reduce`]
@@ -21,36 +22,17 @@
 pub mod frame;
 pub mod host;
 
-use koine::style::{editor_apply, editor_spec, StyleError, StyleHost};
-use koine::surface::{Event, EventKind, RenderKind, RenderNode, RenderTree, SurfaceSpec};
-use serde_json::Value;
+pub use koine::cursor::Key;
 
-/// A key this frontend understands. Anything else is ignored.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Key {
-    /// Next focusable widget (`j`).
-    Down,
-    /// Previous focusable widget (`k`).
-    Up,
-    /// The pane to the left (`h`). Does not walk the surface focus order.
-    Left,
-    /// The pane to the right (`l`). Does not walk the surface focus order.
-    Right,
-    /// Next leaf, in tree order.
-    Next,
-    /// Previous leaf, in tree order.
-    Prev,
-    /// Activate the focused widget (`Enter`).
-    Activate,
-    /// The menu for the focused widget.
-    Secondary,
-}
+use koine::cursor::Cursor;
+use koine::style::{editor_apply, editor_spec, StyleError, StyleHost};
+use koine::surface::{Event, RenderKind, RenderNode, RenderTree, SurfaceSpec};
 
 /// One text performance of a tree: a cursor into [`RenderTree::focus_order`]
 /// and the tui style sheet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextFrontend {
-    focus: usize,
+    cursor: Cursor,
     style: StyleHost,
 }
 
@@ -63,7 +45,7 @@ impl Default for TextFrontend {
 impl TextFrontend {
     pub fn new() -> Self {
         Self {
-            focus: 0,
+            cursor: Cursor::new(),
             style: StyleHost::new("tui").expect("tui is a koine frontend"),
         }
     }
@@ -93,7 +75,7 @@ impl TextFrontend {
 
     /// The focused widget id, when the tree has a focus order.
     pub fn focused_id<'a>(&self, tree: &'a RenderTree) -> Option<&'a str> {
-        tree.focus_order.get(self.focus).map(String::as_str)
+        self.cursor.focused_id(tree)
     }
 
     /// The tree as lines. The focused widget's line starts with the `focus` slot.
@@ -112,29 +94,7 @@ impl TextFrontend {
     /// or menu key that is only a [`koine::gesture::Gesture`] returns `None`
     /// here; [`Self::gesture_key`] is the one that reports it.
     pub fn key(&mut self, tree: &RenderTree, key: Key) -> Option<Event> {
-        match key {
-            Key::Down => {
-                self.step_focus(tree, true);
-                None
-            }
-            Key::Up => {
-                self.step_focus(tree, false);
-                None
-            }
-            Key::Activate => {
-                let n = tree.focus_order.len();
-                if n == 0 {
-                    return None;
-                }
-                self.focus = self.focus.min(n - 1);
-                Some(Event {
-                    widget: tree.focus_order[self.focus].clone(),
-                    kind: EventKind::Click,
-                    value: Value::Null,
-                })
-            }
-            Key::Left | Key::Right | Key::Next | Key::Prev | Key::Secondary => None,
-        }
+        self.cursor.event_for(tree, key)
     }
 
     /// The same keys as [`Self::key`], as a [`koine::gesture::Gesture`].
@@ -144,62 +104,14 @@ impl TextFrontend {
     /// `Activate` and `Secondary` name the focused widget. An empty focus
     /// order still moves, and activates nothing.
     pub fn gesture_key(&mut self, tree: &RenderTree, key: Key) -> Option<koine::gesture::Gesture> {
-        use koine::gesture::{Element, Gesture};
-
-        if let Some(direction) = direction_of(key) {
-            if matches!(key, Key::Down | Key::Up | Key::Next | Key::Prev) {
-                self.step_focus(tree, matches!(key, Key::Down | Key::Next));
-            }
-            return Some(Gesture::Move { direction });
-        }
-        let n = tree.focus_order.len();
-        if n == 0 {
-            return None;
-        }
-        self.focus = self.focus.min(n - 1);
-        let element = Element::Widget {
-            id: tree.focus_order[self.focus].clone(),
-        };
-        match key {
-            Key::Activate => Some(Gesture::Activate { element }),
-            Key::Secondary => Some(Gesture::Secondary { element }),
-            Key::Down | Key::Up | Key::Left | Key::Right | Key::Next | Key::Prev => None,
-        }
+        self.cursor.gesture_for(tree, key)
     }
 
     /// [`Self::gesture_key`] as the layout verb it determines. A direction is
     /// `focus-direction`. Activate and the menu key are not layout verbs:
     /// this frontend's cursor is a surface widget, and no pane was named.
     pub fn layout_verb(&mut self, tree: &RenderTree, key: Key) -> Option<koine::layout::Verb> {
-        self.gesture_key(tree, key)
-            .as_ref()
-            .and_then(|gesture| koine::gesture::layout_verb(gesture, None))
-    }
-
-    fn step_focus(&mut self, tree: &RenderTree, forward: bool) {
-        let n = tree.focus_order.len();
-        if n == 0 {
-            return;
-        }
-        self.focus = self.focus.min(n - 1);
-        self.focus = if forward {
-            (self.focus + 1) % n
-        } else {
-            (self.focus + n - 1) % n
-        };
-    }
-}
-
-fn direction_of(key: Key) -> Option<koine::layout::Direction> {
-    use koine::layout::Direction;
-    match key {
-        Key::Left => Some(Direction::Left),
-        Key::Right => Some(Direction::Right),
-        Key::Up => Some(Direction::Up),
-        Key::Down => Some(Direction::Down),
-        Key::Prev => Some(Direction::Prev),
-        Key::Next => Some(Direction::Next),
-        Key::Activate | Key::Secondary => None,
+        self.cursor.layout_verb_for(tree, key)
     }
 }
 
@@ -362,7 +274,8 @@ fn fill(template: &str, vars: &[(&str, &str)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use koine::surface::{resolve, RenderKind, RenderNode};
+    use koine::surface::{resolve, EventKind, RenderKind, RenderNode};
+    use serde_json::Value;
 
     #[test]
     fn a_resolved_surface_renders_as_text_and_enter_names_the_focused_widget() {
@@ -401,71 +314,32 @@ mod tests {
     }
 
     #[test]
-    fn a_direction_key_is_a_move_and_only_the_vertical_ones_walk_the_widgets() {
-        use koine::gesture::{Element, Gesture};
-        use koine::layout::Direction;
+    fn the_gesture_and_layout_keys_delegate_to_the_shared_cursor() {
+        use koine::cursor::Cursor;
 
         let tree = two_buttons();
         let mut frontend = TextFrontend::new();
+        let mut cursor = Cursor::new();
+        for key in [
+            Key::Down,
+            Key::Left,
+            Key::Next,
+            Key::Activate,
+            Key::Secondary,
+        ] {
+            assert_eq!(
+                frontend.gesture_key(&tree, key),
+                cursor.gesture_for(&tree, key)
+            );
+            assert_eq!(frontend.focused_id(&tree), cursor.focused_id(&tree));
+        }
         assert_eq!(
-            frontend.gesture_key(&tree, Key::Down),
-            Some(Gesture::Move {
-                direction: Direction::Down
-            })
-        );
-        assert_eq!(frontend.focused_id(&tree), Some("b"));
-        assert_eq!(
-            frontend.gesture_key(&tree, Key::Left),
-            Some(Gesture::Move {
-                direction: Direction::Left
-            })
-        );
-        assert_eq!(frontend.focused_id(&tree), Some("b"));
-        assert!(frontend.key(&tree, Key::Left).is_none());
-        assert_eq!(frontend.focused_id(&tree), Some("b"));
-
-        assert_eq!(
-            frontend.gesture_key(&tree, Key::Next),
-            Some(Gesture::Move {
-                direction: Direction::Next
-            })
-        );
-        assert_eq!(frontend.focused_id(&tree), Some("a"));
-
-        assert_eq!(
-            frontend.gesture_key(&tree, Key::Activate),
-            Some(Gesture::Activate {
-                element: Element::Widget { id: "a".into() }
-            })
-        );
-        assert_eq!(
-            frontend.gesture_key(&tree, Key::Secondary),
-            Some(Gesture::Secondary {
-                element: Element::Widget { id: "a".into() }
-            })
-        );
-
-        let mut verbs = TextFrontend::new();
-        assert_eq!(
-            verbs
+            TextFrontend::new()
                 .layout_verb(&tree, Key::Down)
                 .map(|verb| serde_json::to_value(verb).unwrap()),
             Some(serde_json::json!({"verb": "focus-direction", "direction": "down"}))
         );
-        assert!(verbs.layout_verb(&tree, Key::Activate).is_none());
-
-        let empty = RenderTree {
-            root: two_buttons().root,
-            focus_order: Vec::new(),
-        };
-        assert_eq!(
-            frontend.gesture_key(&empty, Key::Up),
-            Some(Gesture::Move {
-                direction: Direction::Up
-            })
-        );
-        assert!(frontend.gesture_key(&empty, Key::Activate).is_none());
-        assert!(frontend.gesture_key(&empty, Key::Secondary).is_none());
+        assert!(frontend.key(&tree, Key::Left).is_none());
     }
 
     #[test]

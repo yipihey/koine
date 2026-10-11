@@ -12,6 +12,9 @@
 //! a known view kind stays an event for [`surface::reduce`]. A sheet does
 //! not decide which gesture a click is. [`style_file`] is the style
 //! document. The native writer that locks it is the `koine-style-file` crate.
+//! [`cursor`] is the focus cursor and the key vocabulary every frontend
+//! shares: the same keys move the same focus and send the same events on the
+//! text frontend and the web one.
 //!
 //! Two parts sit beside the document. Adjectives (`pane_query::adjective`)
 //! are the named, typed filters a pane query is written in, each lowering to
@@ -26,6 +29,7 @@
 //! crates it re-exports, so existing callers keep their paths. The repository
 //! cut that would publish koine on its own is `docs/plan-koine-separation.md`.
 
+pub mod cursor;
 pub mod gesture;
 pub mod style;
 pub mod style_file;
