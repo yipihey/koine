@@ -13,6 +13,11 @@
 //! not decide which gesture a click is. [`style_file`] is the style
 //! document. The native writer that locks it is the `koine-style-file` crate.
 //!
+//! Two parts sit beside the document. Adjectives (`pane_query::adjective`)
+//! are the named, typed filters a pane query is written in, each lowering to
+//! the same query. Adverbs (`verbs::adverb`) are the six modifiers every
+//! verb call may carry, under one reserved `adverbs` key.
+//!
 //! This crate is the name and the public face. The grammar still lives in the
 //! crates it re-exports, so existing callers keep their paths. The repository
 //! cut that would publish koine on its own is `docs/plan-koine-separation.md`.
@@ -23,6 +28,7 @@ pub mod style_file;
 
 pub use impress_layout as layout;
 pub use impress_pane_query as pane_query;
+pub use impress_service_core as verbs;
 pub use impress_surface as surface;
 pub use impress_verb_surface as verb_surface;
 

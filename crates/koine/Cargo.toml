@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 impress-layout = { workspace = true }
 impress-pane-query = { workspace = true }
+impress-service-core = { workspace = true }
 impress-surface = { workspace = true }
 impress-verb-surface = { workspace = true }
 serde = { workspace = true }

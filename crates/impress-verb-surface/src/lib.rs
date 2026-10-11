@@ -51,11 +51,24 @@
 //! rather than adding a "render this spec inline" node kind).
 
 use impress_service_core::descriptor::SafetyClass;
-use impress_service_core::{ProviderStatus, VerbDescriptor, VerbHandle};
+use impress_service_core::{Adverb, ProviderStatus, VerbDescriptor, VerbHandle};
 use impress_surface::spec::{
-    Action, Button, FieldKind, Node, NodeKind, SurfaceSpec, When, SURFACE_VERSION,
+    Action, Button, FieldKind, Node, NodeKind, Section, SurfaceSpec, When, SURFACE_VERSION,
 };
 use serde_json::{json, Map, Value};
+
+/// The adverbs a verb accepts, in vocabulary order (docs/grammar.md § Adverbs
+/// rules 1 and 5): the universal ones, the declared ones, and `within` on any
+/// read-only verb (the pipeline drops the future at the deadline, so no
+/// declaration is needed). `supports` answers the declaration question.
+pub fn accepted_adverbs(class: SafetyClass, supports: impl Fn(Adverb) -> bool) -> Vec<Adverb> {
+    Adverb::ALL
+        .into_iter()
+        .filter(|a| {
+            supports(*a) || (*a == Adverb::Within && matches!(class, SafetyClass::ReadOnly))
+        })
+        .collect()
+}
 
 /// Build the generated form for one verb.
 pub fn verb_surface(desc: &VerbDescriptor) -> SurfaceSpec {
@@ -74,6 +87,7 @@ pub fn verb_surface(desc: &VerbDescriptor) -> SurfaceSpec {
         &output_schema,
         &example_args,
         true,
+        &accepted_adverbs(desc.safety.class, |a| desc.supports(a)),
     )
 }
 
@@ -96,9 +110,11 @@ pub fn verb_surface_handle(desc: &VerbHandle) -> SurfaceSpec {
         !matches!(desc, VerbHandle::Provider(_))
             || (desc.provider_status() == Some(ProviderStatus::Available)
                 && desc.deprecation_notice().is_none()),
+        &accepted_adverbs(desc.safety().class, |a| desc.supports(a)),
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_surface(
     name: &str,
     description: &str,
@@ -107,6 +123,7 @@ fn render_surface(
     output_schema: &Value,
     example_args: &Value,
     available: bool,
+    adverbs: &[Adverb],
 ) -> SurfaceSpec {
     let mut form_fields: Vec<Node> = Vec::new();
     let required = required_names(input_schema);
@@ -161,12 +178,38 @@ fn render_surface(
 
     column.extend(form_fields);
 
+    let adverb_fields: Vec<Node> = adverbs.iter().filter_map(|a| adverb_field(*a)).collect();
+    if !adverb_fields.is_empty() {
+        column.push(
+            Node::leaf(NodeKind::Section(Section {
+                title: "How to run".to_string(),
+                collapsed: true,
+                body: Box::new(Node::leaf(NodeKind::Column(adverb_fields))),
+            }))
+            .with_id("adverbs"),
+        );
+    }
+
     let mut run_args = Map::new();
     if let Some(props) = input_schema.get("properties").and_then(|p| p.as_object()) {
         for name in props.keys() {
             run_args.insert(name.clone(), Value::String(format!("{{{{state.{name}}}}}")));
         }
     }
+
+    let run_adverbs = {
+        let templates: Map<String, Value> = adverbs
+            .iter()
+            .filter(|a| adverb_field(**a).is_some())
+            .map(|a| {
+                (
+                    a.as_str().to_string(),
+                    Value::String(format!("{{{{state.adverbs.{}}}}}", a.as_str())),
+                )
+            })
+            .collect();
+        (!templates.is_empty()).then_some(Value::Object(templates))
+    };
 
     let run_button = {
         let button = Node::leaf(NodeKind::Button(Button {
@@ -176,7 +219,7 @@ fn render_surface(
                 args: Value::Object(run_args),
                 into: Some("state.result".to_string()),
                 each: None,
-                adverbs: None,
+                adverbs: run_adverbs,
             }],
         }))
         .with_id("run");
@@ -208,6 +251,14 @@ fn render_surface(
     if review {
         state.insert("confirmed".to_string(), Value::Bool(false));
     }
+    let adverb_state: Map<String, Value> = adverbs
+        .iter()
+        .filter(|a| adverb_field(**a).is_some())
+        .map(|a| (a.as_str().to_string(), Value::Bool(false)))
+        .collect();
+    if !adverb_state.is_empty() {
+        state.insert("adverbs".to_string(), Value::Object(adverb_state));
+    }
     state.insert("result".to_string(), Value::Null);
 
     SurfaceSpec {
@@ -218,6 +269,42 @@ fn render_surface(
         sources: Default::default(),
         root: Node::leaf(NodeKind::Column(column)).with_id("root"),
     }
+}
+
+/// The "How to run" field for one adverb, or `None` when the form does not
+/// offer it.
+///
+/// Only the boolean adverbs are offered. `once` and `within` are omitted on
+/// purpose: the pipeline refuses `once` of `""` (`'once' key must not be
+/// empty`) and a `within` of `0`, and a form has no way yet to leave an
+/// adverb out of the Run action, so a pre-filled `once`/`within` template
+/// would make every default Run fail `invalid-argument`. The first follow-up
+/// is a reduce-time "drop empty adverb" rule (or a `when` per adverb); once
+/// that exists, `once` becomes a `text` field (`adverb-once`, "Once
+/// (idempotency key)") and `within` a `number` field (`adverb-within_ms`,
+/// "Within (ms)", templated as `{"ms": "{{state.adverbs.within_ms}}"}`).
+fn adverb_field(adverb: Adverb) -> Option<Node> {
+    let (label, help) = match adverb {
+        Adverb::Tentatively => ("Tentatively", "Do not run; answer what would happen."),
+        Adverb::WithReview => (
+            "With review",
+            "Queue for a person's confirmation, whatever the policy says.",
+        ),
+        Adverb::Reversibly => (
+            "Reversibly",
+            "Record an undo step; the result names the inverse call.",
+        ),
+        Adverb::InBackground => ("In background", "Start as a job and answer the handle."),
+        Adverb::Once | Adverb::Within => return None,
+    };
+    let name = adverb.as_str();
+    Some(
+        Node::leaf(NodeKind::Field(FieldKind::Toggle(json!({}))))
+            .with_id(format!("adverb-{name}"))
+            .with_label(label)
+            .with_help(help)
+            .with_bind(format!("state.adverbs.{name}")),
+    )
 }
 
 /// The set of required property names, from the schema's `"required"` array.
@@ -623,6 +710,85 @@ mod tests {
         assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
         let text = serde_json::to_string(&spec).unwrap();
         assert!(text.contains("\"table\""));
+    }
+
+    fn form_adverb_keys(spec: &SurfaceSpec) -> Vec<String> {
+        let mut ids: Vec<String> = impress_surface::spec::walk_with_pointers(&spec.root)
+            .into_iter()
+            .filter_map(|(_, n)| n.id.clone())
+            .filter_map(|id| id.strip_prefix("adverb-").map(str::to_string))
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    fn run_adverb_keys(spec: &SurfaceSpec) -> Vec<String> {
+        let mut keys = Vec::new();
+        for (_, node) in impress_surface::spec::walk_with_pointers(&spec.root) {
+            if let NodeKind::Button(b) = &node.kind {
+                for a in &b.on_click {
+                    if let Action::Call {
+                        adverbs: Some(Value::Object(m)),
+                        ..
+                    } = a
+                    {
+                        keys.extend(m.keys().cloned());
+                    }
+                }
+            }
+        }
+        keys.sort();
+        keys
+    }
+
+    #[test]
+    fn a_read_only_verb_accepts_within_but_the_form_offers_only_the_toggles() {
+        let d = desc("t-service_x", SafetyClass::ReadOnly, schema_output_flat);
+        let accepted = accepted_adverbs(d.safety.class, |a| d.supports(a));
+        assert_eq!(
+            accepted,
+            vec![
+                Adverb::Tentatively,
+                Adverb::WithReview,
+                Adverb::Once,
+                Adverb::Within
+            ]
+        );
+        let spec = verb_surface(&d);
+        assert!(validate::validate(&spec).iter().all(|p| !p.is_error()));
+        assert_eq!(form_adverb_keys(&spec), vec!["tentatively", "with_review"]);
+        assert_eq!(run_adverb_keys(&spec), vec!["tentatively", "with_review"]);
+        assert_eq!(
+            spec.state["adverbs"],
+            json!({"tentatively": false, "with_review": false})
+        );
+    }
+
+    #[test]
+    fn a_mutating_verb_offers_reversibly_when_declared_and_never_within() {
+        let mut d = desc("t-service_x", SafetyClass::Mutating, schema_output_flat);
+        d.supports = &[Adverb::Reversibly];
+        let accepted = accepted_adverbs(d.safety.class, |a| d.supports(a));
+        assert!(!accepted.contains(&Adverb::Within));
+        let spec = verb_surface(&d);
+        let problems = validate::validate(&spec);
+        assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
+        let keys = form_adverb_keys(&spec);
+        assert_eq!(keys, vec!["reversibly", "tentatively", "with_review"]);
+        assert_eq!(run_adverb_keys(&spec), keys);
+        assert!(spec.state["adverbs"].get("reversibly").is_some());
+    }
+
+    #[test]
+    fn the_run_action_adverbs_equal_the_form_fields_for_every_declaration() {
+        for class in [SafetyClass::ReadOnly, SafetyClass::Destructive] {
+            let mut d = desc("t-service_x", class, schema_output_flat);
+            d.supports = &[Adverb::Reversibly, Adverb::Within, Adverb::InBackground];
+            let spec = verb_surface(&d);
+            let problems = validate::validate(&spec);
+            assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
+            assert_eq!(form_adverb_keys(&spec), run_adverb_keys(&spec));
+        }
     }
 
     #[test]
