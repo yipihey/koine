@@ -28,9 +28,28 @@ pub enum WindowError {
 }
 
 /// Ask the system browser to open `url`; returns once it has been asked.
+///
+/// The URL is checked here, before the browser sees it: a browser given
+/// "not a url" may refuse it, search for it, or open it as a file, and which
+/// one is the browser's choice, not this crate's (the CI runner's Chrome
+/// opened it, a machine with no browser refused it).
 pub fn open_in_browser(url: &str) -> Result<Opened, WindowError> {
+    check_url(url)?;
     webbrowser::open(url).map_err(|e| WindowError::Browser(e.to_string()))?;
     Ok(Opened::Browser)
+}
+
+/// An `http://` or `https://` URL with no whitespace; anything else is
+/// refused as [`WindowError::Browser`] naming it.
+fn check_url(url: &str) -> Result<(), WindowError> {
+    let trimmed = url.trim();
+    let scheme_ok = trimmed.starts_with("http://") || trimmed.starts_with("https://");
+    if trimmed.is_empty() || !scheme_ok || trimmed.contains(char::is_whitespace) {
+        return Err(WindowError::Browser(format!(
+            "'{url}' is not an http(s) URL"
+        )));
+    }
+    Ok(())
 }
 
 /// Show `url` in a native window titled `title` when built with `webview`
@@ -62,10 +81,16 @@ mod tests {
 
     #[test]
     fn a_bad_url_is_an_error_not_a_browser() {
-        assert!(matches!(
-            open("not a url", "t"),
-            Err(WindowError::Browser(_))
-        ));
+        // Refused before any browser is asked, so the answer is the same on a
+        // machine with Chrome and on one with nothing.
+        for bad in ["not a url", "", "ftp://x", "http://a b", "localhost:8080"] {
+            let Err(WindowError::Browser(message)) = open(bad, "t") else {
+                panic!("'{bad}' was not refused");
+            };
+            assert!(message.contains("not an http(s) URL"), "{message}");
+        }
+        assert!(check_url("http://127.0.0.1:8080/ui/").is_ok());
+        assert!(check_url("https://example.org").is_ok());
     }
 
     #[test]
