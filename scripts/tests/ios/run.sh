@@ -305,7 +305,10 @@ expect_eq "the result landed in state.result" "$(jq -c '(.state // .) | .result.
 req GET "/api/surface/$SID/wait?after_seq=0&timeout_ms=1000"
 expect_eq "GET .../wait is 200" "$STATUS" "200"
 check "the wait's answer is ok" jq -e '.ok == true' <<<"$BODY"
-check "the wait saw the dispatched events (next_seq > 0)" jq -e '.next_seq > 0 and (.events | length) > 0' <<<"$BODY"
+# A dispatch becomes an agent event only through an `emit` action, and the
+# generated verb form has none: the wait answers at once with no events and
+# the cursor it was given back. The e2e asserts the same shape.
+check "the wait answers a cursor and an events list" jq -e '(.next_seq | type) == "number" and (.events | type) == "array"' <<<"$BODY"
 
 req GET /api/surface
 check "GET /api/surface lists it" jq -e --arg id "$SID" '.surfaces | map(.id) | index($id) != null' <<<"$BODY"
