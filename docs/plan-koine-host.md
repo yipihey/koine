@@ -149,3 +149,67 @@ synced directory stores, S3, mobile, moving impress's domain services
 | K5 | `docs/capability.md`, compile-fail tests, `scripts/new-app.sh` (H-D6) | koine | — |
 | K6 | `returns_kind` (H-D8); `scripts/check-verb-coverage.sh --lib` (H-D7) | koine | — |
 | K7 | End to end: an agent-shaped run of `new-app.sh` over a small library, served by `koine-host`, driven by a scenario over HTTP | koine | K4, K5, K6 |
+
+## Status (2026-10-12)
+
+K4 is built: `koine-host` (library and binary) and `koine-mcp-host`.
+
+**What it answers.** `koine_host::serve(Config)` opens the store from its URL,
+installs the store, the kind manifest and a default background runner as the
+process's, writes the loopback token to
+`<workspace>/automation/loopback-<port>.token`, and serves on axum:
+`GET /api/status`; `/api/surface/*` through `impress_surface_service::http::route`
+(the query string, id and body become arguments, this host's device fills
+`host`, `app_id` and `device`, the verb runs by name through the pipeline as
+`Agent("http")`, 200 when `ok` and else the status of the refusal's code);
+`GET /api/layout/{tree,layouts}` and `POST /api/layout/{verb,op}` as the
+layout verbs (`layout-service_get-layout`, `_list-layouts`, `_undo`, `_redo`,
+`_save-layout`, `_apply-layout`, `_delete-layout`, and `Verb` JSON through
+`apply_verb_as` under a host-local `layout-service_apply` descriptor, because
+no inventory verb takes a raw `Verb`); `POST /api/verb/<name>` through
+`dispatch_async`; `GET /ui/*` from `Config::web_dir` as `KoineWebRoutes` does
+(files by extension, else `index.html`, the token meta for a loopback peer
+only, 503 naming `dx build --platform web --release` without a bundle);
+`GET/PUT/DELETE /api/blob/<item>/<name>` (`memory:` and `dir:`, through the new
+`koine_store::open_with_blobs`); `POST /mcp`. Before any route: a `Host` that
+is not this machine is 400, a non-GET from loopback needs the token (401
+`{"status":"error","reason":"unauthorized"}`), a non-loopback peer needs
+`allow_network` and the network bearer, and no response carries an
+`Access-Control-*` header (a test asserts it). The default runner
+(`koine_host::runner::JobRunner`) writes a `task@1.0.0` row per job and runs
+the call on a tokio task; `GET /api/job/<id>` and `POST /api/job/<id>/cancel`
+read and stop it. `koine_host::manifest::minimal()` is the seven ui kinds
+(layout, preset, surface, surface-state, surface-event, scenario, settings).
+`koine-mcp-host` is `impress-mcp-host` with every public item and test kept,
+`_meta.returns_kind` on a verb that declares one, and `handle_message` as the
+public triage `/mcp` uses.
+
+**Where it stops.**
+
+- *No liveness between the host and a Swift app.* The host is its own process
+  with its own store handle. A `dir:` store is shared on disk, but nothing
+  tells an app that the host wrote, or the host that the app did
+  (`cross_process_events` is false for `dir:`); each sees the other's rows when
+  it next reads.
+- *The layout is the stored row, not a window.* `GET /api/layout/tree` writes
+  the stock three-column layout on a cold start (collection, library and
+  publication kinds, imbib's), and the minimal manifest does not name those
+  kinds, so the page draws its panes as unavailable until a bespoke app
+  applies its own preset or `surface_show`s a surface into a pane. `version` in
+  the tree is the row's `revision`; there is no controller counter.
+- *Events do not cross processes.* A surface's `wait` long-polls the event ring
+  of the host that holds the surface's runtime; a write another process makes
+  to the same store does not wake it.
+- *Plots are placed, not drawn* (H-D9): a `plot` node reaches the page as a
+  spec and the page still does not draw it.
+- *The runner reports no progress.* A verb has no channel to; a job is
+  running, completed, failed, cancelled, or `interrupted` (its row says
+  running and no task in this process is running it). Cancelling aborts at the
+  next await point.
+- *Registered store schemes get no blob route.* `open_with_blobs` knows
+  `memory:` and `dir:`; another scheme opens without the blob view.
+- *No settings service* is linked: `settings-service` is impress-apps'.
+- *The token is not where `client_token` looks.* The host writes
+  `<workspace>/automation/…`, as the plan says; the suite's Rust clients look
+  under `<container>/workspace/automation/` and otherwise take
+  `IMPRESS_APP_TOKEN`. The binary prints the token path.

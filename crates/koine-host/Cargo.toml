@@ -1,0 +1,46 @@
+[package]
+name = "koine-host"
+description = "The koine host: serves the verb inventory, generated surfaces, the layout, the page and MCP from one process, over a store opened from a URL"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "koine_host"
+path = "src/lib.rs"
+
+[[bin]]
+name = "koine-host"
+path = "src/main.rs"
+
+[dependencies]
+axum = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+impress-service-core = { workspace = true }
+impress-item = { workspace = true }
+impress-pane-query = { workspace = true }
+impress-layout = { workspace = true, features = ["schema"] }
+impress-layout-service = { workspace = true }
+impress-surface-service = { workspace = true }
+koine-store = { workspace = true }
+koine-mcp-host = { workspace = true }
+# The demo verbs the binary links (the library itself names no domain).
+surface-demo-service = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+reqwest = { workspace = true }
+tempfile = { workspace = true }
+impress-surface = { workspace = true, features = ["schema"] }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

@@ -27,6 +27,8 @@ members = [
     "crates/koine-store-dir",
     "crates/koine-store-conformance",
     "crates/koine-store",
+    "crates/koine-mcp-host",
+    "crates/koine-host",
     "crates/koine-workspace-hack",
 ]
 
@@ -116,6 +118,8 @@ koine-store-memory = { path = "crates/koine-store-memory" }
 koine-store-dir = { path = "crates/koine-store-dir" }
 koine-store-conformance = { path = "crates/koine-store-conformance" }
 koine-store = { path = "crates/koine-store" }
+koine-mcp-host = { path = "crates/koine-mcp-host" }
+koine-host = { path = "crates/koine-host" }
 impress-settings = { path = "crates/impress-settings" }
 
 # implore crates

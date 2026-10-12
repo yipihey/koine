@@ -18,6 +18,8 @@ cargo check -p koine-dioxus -p koine-web --target wasm32-unknown-unknown
 cd crates/koine-web && dx serve --hotpatch     # the page, live against a running app
 ```
 
+`koine-host` runs it: one process that serves every linked `#[impress_service]` verb (`POST /api/verb/<name>`), the surface and layout runtimes (`/api/surface/*`, `/api/layout/*`), the `koine-web` bundle (`/ui/`), the store's blobs and MCP (`/mcp`, the `koine-mcp-host` crate) over a store opened from a URL, behind the suite's Host, loopback-token and no-CORS checks, with a default job runner for `in_background`. `cargo run -p koine-host -- --store dir:~/koine-demo --port 23130 --web-dir <bundle>` is a working app with the demo verbs linked; the design is [docs/plan-koine-host.md](docs/plan-koine-host.md).
+
 To give a Rust library verbs, generated surfaces and a page, follow [docs/capability.md](docs/capability.md); `scripts/new-app.sh <name> --lib <crate>` writes the crate it describes.
 
 `schema-refs.json` is the snapshot this workspace builds against. An impress-apps build sets `IMPRESS_SCHEMA_REFS` to the live manifest, so suite schema names are generated from the suite, not from this snapshot.

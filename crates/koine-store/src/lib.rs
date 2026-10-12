@@ -22,7 +22,8 @@ use std::collections::BTreeMap;
 use std::sync::RwLock;
 
 pub use impress_item as port;
-use impress_item::{AttributedStore, StoreError};
+use impress_item::{AttributedStore, BlobStore, StoreError};
+use std::sync::Arc;
 
 /// A function that opens a backend from the part of the URL after its
 /// scheme (`dir:/a/b` hands `/a/b`; `memory:` hands `""`).
@@ -111,9 +112,95 @@ pub fn open(url: &str) -> Result<Box<dyn AttributedStore>, OpenError> {
     })
 }
 
+/// A store opened for a host that serves blobs: the same store as two views.
+///
+/// [`open`] answers `Box<dyn AttributedStore>`, and a trait object cannot be
+/// downcast to another trait, so a host that wants to reach
+/// [`BlobStore`] could not. `blobs` is `Some` exactly when the backend holds
+/// blobs and this crate knows how to hand them out (`memory:` and `dir:`);
+/// `store` and `blobs` are the same allocation.
+#[derive(Clone)]
+pub struct Opened {
+    pub store: Arc<dyn AttributedStore>,
+    pub blobs: Option<Arc<dyn BlobStore>>,
+}
+
+/// [`open`], keeping the blob view. `memory:` and `dir:<path>` open here with
+/// both views over one handle; any other registered scheme opens through its
+/// [`Opener`] with `blobs: None` (an opener returns a `Box<dyn
+/// AttributedStore>`, which has no blob view to recover), so a host asking a
+/// registered backend for blobs gets `None` even when the backend's
+/// capabilities say `blobs`.
+pub fn open_with_blobs(url: &str) -> Result<Opened, OpenError> {
+    let backend = |source| OpenError::Backend {
+        url: url.to_string(),
+        source,
+    };
+    match url.split_once(':') {
+        Some(("memory", _)) => {
+            let store = Arc::new(koine_store_memory::MemoryStore::new());
+            Ok(Opened {
+                store: store.clone(),
+                blobs: Some(store),
+            })
+        }
+        Some(("dir", rest)) => {
+            if rest.is_empty() {
+                return Err(backend(StoreError::Validation(
+                    "dir: needs a path, as in dir:/path/to/root".into(),
+                )));
+            }
+            let store = Arc::new(koine_store_dir::DirStore::open(rest).map_err(backend)?);
+            Ok(Opened {
+                store: store.clone(),
+                blobs: Some(store),
+            })
+        }
+        _ => {
+            let store: Box<dyn AttributedStore> = open(url)?;
+            Ok(Opened {
+                store: Arc::from(store),
+                blobs: None,
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_with_blobs_keeps_the_blob_view_of_memory_and_dir() {
+        let memory = open_with_blobs("memory:").unwrap();
+        let blobs = memory.blobs.clone().expect("memory holds blobs");
+        assert!(memory.store.capabilities().blobs);
+        // One allocation, two views: a blob is for a row of this store, and
+        // a row that is not there is refused by the store, not by the view.
+        assert_eq!(
+            Arc::as_ptr(&memory.store) as *const (),
+            Arc::as_ptr(&blobs) as *const ()
+        );
+        assert!(matches!(
+            blobs.put_blob(uuid::Uuid::new_v4(), "a.txt", b"hi"),
+            Err(StoreError::NotFound(_))
+        ));
+
+        let root = std::env::temp_dir().join(format!("koine-store-b-{}", uuid::Uuid::new_v4()));
+        let dir = open_with_blobs(&format!("dir:{}", root.display())).unwrap();
+        assert!(dir.blobs.is_some());
+        drop(dir);
+        let _ = std::fs::remove_dir_all(root);
+
+        assert!(matches!(
+            open_with_blobs("dir:"),
+            Err(OpenError::Backend { .. })
+        ));
+        assert!(matches!(
+            open_with_blobs("s3:b"),
+            Err(OpenError::UnknownScheme { .. })
+        ));
+    }
 
     #[test]
     fn memory_and_dir_are_known_and_open() {
