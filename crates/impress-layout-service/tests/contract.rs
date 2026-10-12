@@ -560,3 +560,68 @@ async fn a_verb_answers_with_its_tree_only_for_the_host_that_asked() {
     assert!(quiet.ok, "{}", quiet.message);
     assert_eq!(quiet.tree_json, None);
 }
+
+/// The outline verbs (L8 sidebar surface), through the same invoker MCP and
+/// the CLI call: strict arguments, snake_case results with `wire_version`,
+/// refusals as `{ok:false, code, message}`, and the seam rule — a forward to
+/// a verb nobody linked says so instead of reporting success.
+#[tokio::test]
+async fn the_outline_verbs_keep_the_contract_through_the_mcp_invoker() {
+    global_store();
+
+    let rows = call("layout-service_outline-rows", json!({"app_id": "imbib"})).await;
+    assert_eq!(rows["ok"], true, "{rows}");
+    assert_eq!(rows["wire_version"], WIRE_VERSION);
+    let ids: Vec<&str> = rows["rows"]
+        .as_array()
+        .expect("rows is a list")
+        .iter()
+        .map(|row| row["id"].as_str().expect("every row has an id"))
+        .collect();
+    assert!(ids.contains(&"section:inbox"), "{ids:?}");
+
+    let select = call(
+        "layout-service_outline-select",
+        json!({"app_id": APP, "device": "outline", "key": "not a key"}),
+    )
+    .await;
+    assert_eq!(select["ok"], false, "{select}");
+    assert_eq!(select["code"], "not-found", "{select}");
+    assert_eq!(select["applied"], 0, "{select}");
+    assert_eq!(select["wire_version"], WIRE_VERSION);
+
+    let typo = call(
+        "layout-service_outline-delete",
+        json!({"app_id": APP, "keys": [], "key": "collection:x"}),
+    )
+    .await;
+    assert_eq!(typo["code"], "invalid-argument", "{typo}");
+    assert!(
+        typo["message"]
+            .as_str()
+            .unwrap()
+            .contains("unknown field 'key'"),
+        "{typo}"
+    );
+
+    let library = call(
+        "layout-service_outline-rename",
+        json!({"app_id": APP, "key": "library:00000000-0000-0000-0000-000000000001", "name": "x"}),
+    )
+    .await;
+    assert_eq!(library["ok"], false, "{library}");
+    assert_eq!(library["code"], "invalid-argument", "{library}");
+    assert_eq!(library["forwarded"], json!([]));
+
+    let unlinked = call(
+        "layout-service_outline-create",
+        json!({"app_id": APP, "name": "Notes"}),
+    )
+    .await;
+    assert_eq!(unlinked["ok"], false, "{unlinked}");
+    assert_eq!(unlinked["code"], "not-found", "{unlinked}");
+    assert_eq!(
+        unlinked["message"], "collection-service_create is not linked in this process",
+        "{unlinked}"
+    );
+}

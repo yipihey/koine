@@ -128,9 +128,30 @@ beside it.
 
 ## 5. How impress uses it
 
-The Swift renderer that draws a `tree` (rows, the active row, inline rename,
-drag and drop, the menu, counts) and the imbib sidebar leaf that calls
-`example_collection_sidebar` with imbib's own verbs are impress-apps' work.
-The checklist for that work is the matrix: a node kind is done when each of
-its cells is either wired to the field above or marked not applicable, and
-the row for it in `docs/chassis-capability-matrix.md` says which.
+The imbib sidebar is this tree. Its spec is
+`impress_layout_service::outline_surface_spec(app_id, bindings)`: one `tree`
+(id `outline`) over a `verb` source `rows`, `rows` read at
+`{{source.rows.rows}}`, `parent_field: parent`, `label_field: label`,
+`count_field: count`, `bind: state.open` seeded with the section keys. A
+row's id is a node key (`section:inbox`, `library:<uuid>`,
+`collection:<uuid>`, …), so every event carries a string an agent can also
+type. The rows and the verbs are the layout service's, not the app's:
+
+| Verb | Arguments | Called by |
+|---|---|---|
+| `layout-service_outline-rows` | `app_id`, `bindings` | the `rows` source |
+| `layout-service_outline-select` | `app_id`, `key`, `bindings` | `on_select` (`{{event.value.0}}`) |
+| `layout-service_outline-rename` | `app_id`, `key`, `name` | `on_rename` |
+| `layout-service_outline-delete` | `app_id`, `keys` | `on_delete`, the menu's Delete |
+| `layout-service_outline-move` | `app_id`, `keys`, `to`, `index` | `on_move` |
+| `layout-service_outline-create` | `app_id`, `parent_key`, `name` | the menu's New Collection |
+
+`bindings` is a map of parameter name to uuid string (`dismissed_library`,
+`exploration_library`): the ids only the host knows. Rename, delete, move
+and create forward to the collection kernel; every call is followed by a
+`refresh` of `rows`. The Swift renderer that draws a `tree` is
+impress-apps', and a host draws the surface only when the
+`impress.outline.surface` setting is on. The checklist for a node kind is the
+matrix: a kind is done when each of its cells is either wired to the field
+above or marked not applicable, and the row for it in
+`docs/chassis-capability-matrix.md` says which.

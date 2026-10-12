@@ -302,6 +302,13 @@ fn build_sections() -> Vec<SectionDef> {
             title: "Documents".into(),
             doc: "Imprint's document validation and migration backup preferences.".into(),
         },
+        SectionDef {
+            id: "impress.layout".into(),
+            title: "Layout".into(),
+            doc: "How the impress shell draws its panes: the navigator pane as the chassis \
+                  sidebar or as a koine tree surface."
+                .into(),
+        },
     ]);
     sections
 }
@@ -471,6 +478,13 @@ fn build_registry() -> Vec<SettingDef> {
             legacy = ["httpAutomationNetworkBindAddress"]
         });
     }
+    // The navigator pane as a surface (docs/plan-l8-sidebar-surface.md SB-D6).
+    // No legacy key: there was no setting before it.
+    out.push(setting! {
+        key = "impress.outline.surface", ty = Bool, default = false,
+        scope = Scope::Device, section = "impress.layout", label = "Sidebar as a surface",
+        doc = "Draw the navigator pane as a koine tree surface (Rust rows, counts and verbs) instead of the chassis sidebar. Off until the surface's rows are verified; the legacy sidebar is unaffected when off."
+    });
     out
 }
 
@@ -548,12 +562,24 @@ mod tests {
             }
             assert_eq!(def.since, SETTINGS_SINCE);
         }
-        assert_eq!(registry().len(), 4 + 5 * APP_PORTS.len() + 13);
+        assert_eq!(registry().len(), 4 + 5 * APP_PORTS.len() + 13 + 1);
         assert!(lookup("imbib.retention.inbox_days").is_some());
         assert!(lookup("imbib.retention.inboxDays").is_none());
         assert!(
             lookup("imbib.internal.exploration_library_id").is_some_and(|setting| setting.internal)
         );
+    }
+
+    #[test]
+    fn the_outline_surface_setting_is_a_device_bool_off_by_default() {
+        let def = lookup("impress.outline.surface").expect("declared");
+        assert_eq!(def.ty, SettingType::Bool);
+        assert_eq!(def.default, DefaultValue::Bool(false));
+        assert_eq!(def.scope, Scope::Device);
+        assert_eq!(def.section, "impress.layout");
+        assert!(def.legacy.is_empty());
+        assert!(!def.internal);
+        assert!(section("impress.layout").is_some());
     }
 
     #[test]

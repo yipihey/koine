@@ -33,6 +33,9 @@ impress-service-macros = { workspace = true }
 # as stored `impress/scenario@1.0.0` documents through the one interpreter,
 # instead of a hand-written call sequence per entry (`src/scenario_caller.rs`).
 impress-scenario = { workspace = true }
+# L8 leaf 4b (docs/plan-l8-sidebar-surface.md SB-D5): `outline_surface_spec`
+# builds the sidebar's `SurfaceSpec` — the grammar only, pure and kit-tier.
+impress-surface = { workspace = true }
 # Tier B only: the seven loopback requests that drive the running app's
 # `/api/layout/*` and `/api/surface/*`. Deliberately raw `reqwest` rather than
 # `impress-app-client`, whose typed clients are built on `imbib-service` and

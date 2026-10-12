@@ -45,6 +45,9 @@ pub mod authorship;
 pub mod device;
 pub mod dto;
 pub mod outline;
+pub mod outline_actions;
+pub mod outline_rows;
+pub mod outline_surface;
 pub mod presets;
 pub mod rename;
 /// The self-test report types: one copy, in `impress-service-core` (RS-S21).
@@ -67,9 +70,15 @@ pub use dto::{
     PresetResult, ReferenceResult, SavedLayoutDto,
 };
 pub use outline::{
-    initial_selection_applies, outline_cleared_verbs, outline_sections, outline_target,
-    outline_verbs, OutlineNode, OutlinePanes, OutlineSection, OutlineTarget, RecordScope,
+    initial_selection_applies, node_key, outline_cleared_verbs, outline_sections, outline_target,
+    outline_verbs, parse_node_key, OutlineNode, OutlinePanes, OutlineSection, OutlineTarget,
+    RecordScope,
 };
+pub use outline_actions::{
+    collection_binding, create_action, delete_action, move_action, rename_action, ForwardCall,
+};
+pub use outline_rows::{outline_rows, section_keys, OutlineRow};
+pub use outline_surface::outline_surface_spec;
 pub use presets::{
     is_superseded_list_query, named_queries, ordinal_targets, preset_id, previous_revision,
     section_bindings, shipped_list_queries, shipped_preset, shipped_presets, shipped_presets_for,
@@ -188,7 +197,7 @@ mod inventory_tests {
     /// The list is written out rather than derived: a test that asks the
     /// inventory what it contains and then asserts it contains that proves
     /// nothing. This is the closed vocabulary of ADR-0031 D8, spelled once.
-    const EXPECTED: [&str; 35] = [
+    const EXPECTED: [&str; 41] = [
         // arrangement
         "layout-service_split",
         "layout-service_move-tile",
@@ -229,6 +238,13 @@ mod inventory_tests {
         "layout-service_apply-preset",
         "layout-service_save-preset",
         "layout-service_reset-preset",
+        // the outline sidebar (L8 sidebar surface)
+        "layout-service_outline-rows",
+        "layout-service_outline-select",
+        "layout-service_outline-rename",
+        "layout-service_outline-delete",
+        "layout-service_outline-move",
+        "layout-service_outline-create",
         // the catalogue
         "layout-selftest-service_run-selftest",
     ];

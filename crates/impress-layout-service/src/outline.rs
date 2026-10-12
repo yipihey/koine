@@ -59,7 +59,7 @@ use crate::presets::{
 /// collapsed fourteen cases into one. Section names are the
 /// `SidebarSectionType` CASE names (`manuscripts`, not its raw value
 /// `journal`), which is how [`named_queries`] spells them.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "node", rename_all = "kebab-case")]
 pub enum OutlineNode {
     /// A section row (the Inbox header, or a leaf that IS its section:
@@ -110,7 +110,7 @@ pub enum OutlineNode {
 /// The subset of a record kind a `record` row names — the chassis'
 /// `RecordSidebarScope`, minus the `section` case (a section is a
 /// [`OutlineNode::Section`]).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "scope", rename_all = "kebab-case")]
 pub enum RecordScope {
     /// Every record of the kind.
@@ -136,7 +136,7 @@ pub enum RecordScope {
 // ---------------------------------------------------------------------------
 
 /// What an outline row selects.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "target", rename_all = "kebab-case")]
 pub enum OutlineTarget {
     /// The row is this query. The list pane shows it.
@@ -684,6 +684,371 @@ pub fn outline_sections(app_id: &str) -> Vec<OutlineSection> {
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// Node keys (SB-D2)
+// ---------------------------------------------------------------------------
+
+/// A row's id: its [`OutlineNode`] written as one compact string.
+///
+/// The key is what a tree sends in every event, what `state.open` holds and
+/// what an agent passes to the outline verbs, so "select `section:inbox`"
+/// needs no node object. [`parse_node_key`] is its inverse for every variant.
+///
+/// # Grammar
+///
+/// Colon-separated; the first segment names the variant. Free text (a tag
+/// path, a host key, a route, an id, a form) is always the LAST segment, so
+/// it may contain anything including `:` and `/`; parsing splits only the
+/// fixed segments before it.
+///
+/// | node | key |
+/// |---|---|
+/// | `Section` | `section:<section>` |
+/// | `Library` / `Collection` / `SharedLibrary` / `ScixLibrary` | `library:<uuid>` … |
+/// | `SmartSearch` | `smart-search:<section>:<uuid>` |
+/// | `SearchForm` | `search-form:<form>` |
+/// | `FeedForm` | `feed-form`, `feed-form:feed:<uuid>`, `feed-form:library:<uuid>`, `feed-form:feed:<uuid>:library:<uuid>` |
+/// | `Recent` | `recent` |
+/// | `ArtifactType` | `artifact-type:<type>` |
+/// | `CustomSurface` | `custom-surface:<id>` |
+/// | `Record` | `record:<kind>:all`, `…:status:<status>`, `…:folder:<uuid>`, `…:flagged[:<color>]`, `…:tag:<path>`, `…:host:<key>` |
+/// | `RecordDetail` | `record-detail:<kind>:<id>` |
+/// | `Auxiliary` | `auxiliary:<route>` |
+///
+/// Uuids are written lowercase and hyphenated. A record `kind` sits BEFORE
+/// other segments, so `%` and `:` in it are written `%25` and `%3A` (a kind
+/// is a short id and never needs it; the escape keeps the key lossless for
+/// the one that does).
+pub fn node_key(node: &OutlineNode) -> String {
+    match node {
+        OutlineNode::Section { section } => format!("section:{section}"),
+        OutlineNode::Library { id } => format!("library:{id}"),
+        OutlineNode::Collection { id } => format!("collection:{id}"),
+        OutlineNode::SmartSearch { id, section } => format!("smart-search:{section}:{id}"),
+        OutlineNode::SharedLibrary { id } => format!("shared-library:{id}"),
+        OutlineNode::ScixLibrary { id } => format!("scix-library:{id}"),
+        OutlineNode::SearchForm { form } => format!("search-form:{form}"),
+        OutlineNode::FeedForm { feed, library } => match (feed, library) {
+            (None, None) => "feed-form".to_string(),
+            (Some(feed), None) => format!("feed-form:feed:{feed}"),
+            (None, Some(library)) => format!("feed-form:library:{library}"),
+            (Some(feed), Some(library)) => format!("feed-form:feed:{feed}:library:{library}"),
+        },
+        OutlineNode::Recent => "recent".to_string(),
+        OutlineNode::ArtifactType { artifact_type } => format!("artifact-type:{artifact_type}"),
+        OutlineNode::CustomSurface { id } => format!("custom-surface:{id}"),
+        OutlineNode::Record { kind, scope } => {
+            let kind = escape_segment(kind);
+            match scope {
+                RecordScope::All => format!("record:{kind}:all"),
+                RecordScope::Status { status } => format!("record:{kind}:status:{status}"),
+                RecordScope::Folder { id } => format!("record:{kind}:folder:{id}"),
+                RecordScope::Flagged { color: None } => format!("record:{kind}:flagged"),
+                RecordScope::Flagged { color: Some(color) } => {
+                    format!("record:{kind}:flagged:{color}")
+                }
+                RecordScope::Tag { path } => format!("record:{kind}:tag:{path}"),
+                RecordScope::Host { key } => format!("record:{kind}:host:{key}"),
+            }
+        }
+        OutlineNode::RecordDetail { kind, id } => {
+            format!("record-detail:{}:{id}", escape_segment(kind))
+        }
+        OutlineNode::Auxiliary { route } => format!("auxiliary:{route}"),
+    }
+}
+
+/// The node a [`node_key`] names, or `None` for an unknown prefix, a missing
+/// segment or a malformed uuid. Never a guess: a key that does not parse
+/// selects nothing.
+pub fn parse_node_key(key: &str) -> Option<OutlineNode> {
+    let (head, rest) = match key.split_once(':') {
+        Some((head, rest)) => (head, Some(rest)),
+        None => (key, None),
+    };
+    let uuid = |s: &str| Uuid::parse_str(s).ok();
+    match (head, rest) {
+        ("recent", None) => Some(OutlineNode::Recent),
+        ("feed-form", None) => Some(OutlineNode::FeedForm {
+            feed: None,
+            library: None,
+        }),
+        ("feed-form", Some(rest)) => {
+            if let Some(both) = rest.strip_prefix("feed:") {
+                match both.split_once(":library:") {
+                    Some((feed, library)) => Some(OutlineNode::FeedForm {
+                        feed: Some(uuid(feed)?),
+                        library: Some(uuid(library)?),
+                    }),
+                    None => Some(OutlineNode::FeedForm {
+                        feed: Some(uuid(both)?),
+                        library: None,
+                    }),
+                }
+            } else {
+                Some(OutlineNode::FeedForm {
+                    feed: None,
+                    library: Some(uuid(rest.strip_prefix("library:")?)?),
+                })
+            }
+        }
+        ("section", Some(section)) => Some(OutlineNode::Section {
+            section: section.to_string(),
+        }),
+        ("library", Some(id)) => Some(OutlineNode::Library { id: uuid(id)? }),
+        ("collection", Some(id)) => Some(OutlineNode::Collection { id: uuid(id)? }),
+        ("shared-library", Some(id)) => Some(OutlineNode::SharedLibrary { id: uuid(id)? }),
+        ("scix-library", Some(id)) => Some(OutlineNode::ScixLibrary { id: uuid(id)? }),
+        // The uuid is the fixed-width tail, so the section (before it) may
+        // hold a `:`.
+        ("smart-search", Some(rest)) => {
+            let (section, id) = rest.rsplit_once(':')?;
+            Some(OutlineNode::SmartSearch {
+                id: uuid(id)?,
+                section: section.to_string(),
+            })
+        }
+        ("search-form", Some(form)) => Some(OutlineNode::SearchForm {
+            form: form.to_string(),
+        }),
+        ("artifact-type", Some(artifact_type)) => Some(OutlineNode::ArtifactType {
+            artifact_type: artifact_type.to_string(),
+        }),
+        ("custom-surface", Some(id)) => Some(OutlineNode::CustomSurface { id: id.to_string() }),
+        ("auxiliary", Some(route)) => Some(OutlineNode::Auxiliary {
+            route: route.to_string(),
+        }),
+        ("record-detail", Some(rest)) => {
+            let (kind, id) = rest.split_once(':')?;
+            Some(OutlineNode::RecordDetail {
+                kind: unescape_segment(kind)?,
+                id: id.to_string(),
+            })
+        }
+        ("record", Some(rest)) => {
+            let (kind, scope) = rest.split_once(':')?;
+            let kind = unescape_segment(kind)?;
+            let scope = match scope.split_once(':') {
+                None => match scope {
+                    "all" => RecordScope::All,
+                    "flagged" => RecordScope::Flagged { color: None },
+                    _ => return None,
+                },
+                Some(("status", status)) => RecordScope::Status {
+                    status: status.to_string(),
+                },
+                Some(("folder", id)) => RecordScope::Folder { id: uuid(id)? },
+                Some(("flagged", color)) => RecordScope::Flagged {
+                    color: Some(color.to_string()),
+                },
+                Some(("tag", path)) => RecordScope::Tag {
+                    path: path.to_string(),
+                },
+                Some(("host", key)) => RecordScope::Host {
+                    key: key.to_string(),
+                },
+                Some(_) => return None,
+            };
+            Some(OutlineNode::Record { kind, scope })
+        }
+        _ => None,
+    }
+}
+
+/// `%` and `:` in a segment that is followed by more segments.
+fn escape_segment(s: &str) -> String {
+    s.replace('%', "%25").replace(':', "%3A")
+}
+
+/// The inverse of [`escape_segment`]; `None` for a `%` that starts no escape
+/// this module writes.
+fn unescape_segment(s: &str) -> Option<String> {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(at) = rest.find('%') {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at..];
+        if let Some(t) = tail.strip_prefix("%25") {
+            out.push('%');
+            rest = t;
+        } else {
+            out.push(':');
+            rest = tail.strip_prefix("%3A")?;
+        }
+    }
+    out.push_str(rest);
+    Some(out)
+}
+
+#[cfg(test)]
+mod node_key_tests {
+    use super::*;
+
+    fn id(n: u128) -> Uuid {
+        Uuid::from_u128(n)
+    }
+
+    fn every_node() -> Vec<OutlineNode> {
+        let record = |kind: &str, scope| OutlineNode::Record {
+            kind: kind.into(),
+            scope,
+        };
+        vec![
+            OutlineNode::Section {
+                section: "inbox".into(),
+            },
+            OutlineNode::Library { id: id(1) },
+            OutlineNode::Collection { id: id(2) },
+            OutlineNode::SmartSearch {
+                id: id(3),
+                section: "libraries".into(),
+            },
+            OutlineNode::SharedLibrary { id: id(4) },
+            OutlineNode::ScixLibrary { id: id(5) },
+            OutlineNode::SearchForm {
+                form: "ads-modern".into(),
+            },
+            OutlineNode::FeedForm {
+                feed: None,
+                library: None,
+            },
+            OutlineNode::FeedForm {
+                feed: Some(id(6)),
+                library: None,
+            },
+            OutlineNode::FeedForm {
+                feed: None,
+                library: Some(id(7)),
+            },
+            OutlineNode::FeedForm {
+                feed: Some(id(6)),
+                library: Some(id(7)),
+            },
+            OutlineNode::Recent,
+            OutlineNode::ArtifactType {
+                artifact_type: "impress/artifact/code".into(),
+            },
+            OutlineNode::CustomSurface {
+                id: "inbox:triage/2".into(),
+            },
+            OutlineNode::RecordDetail {
+                kind: "figure".into(),
+                id: "a:b/c".into(),
+            },
+            OutlineNode::Auxiliary {
+                route: "submissions-inbox".into(),
+            },
+            record("publication", RecordScope::All),
+            record(
+                "manuscript",
+                RecordScope::Status {
+                    status: "in review".into(),
+                },
+            ),
+            record("figure", RecordScope::Folder { id: id(8) }),
+            record("publication", RecordScope::Flagged { color: None }),
+            record(
+                "publication",
+                RecordScope::Flagged {
+                    color: Some("red".into()),
+                },
+            ),
+            record(
+                "publication",
+                RecordScope::Tag {
+                    path: "methods/mcmc:nested sampling".into(),
+                },
+            ),
+            record(
+                "message",
+                RecordScope::Host {
+                    key: "unified:inbox".into(),
+                },
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_variant_round_trips_through_its_key() {
+        for node in every_node() {
+            let key = node_key(&node);
+            assert_eq!(
+                parse_node_key(&key).as_ref(),
+                Some(&node),
+                "{node:?} -> {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn keys_are_unique_and_read_the_way_the_plan_writes_them() {
+        let keys: Vec<String> = every_node().iter().map(node_key).collect();
+        let mut sorted = keys.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), keys.len(), "two nodes share a key: {keys:?}");
+        assert_eq!(keys[0], "section:inbox");
+        assert_eq!(keys[1], format!("library:{}", id(1)));
+        assert_eq!(keys[3], format!("smart-search:libraries:{}", id(3)));
+        assert_eq!(keys[7], "feed-form");
+        assert_eq!(keys[11], "recent");
+        assert_eq!(keys[16], "record:publication:all");
+        assert_eq!(keys[19], "record:publication:flagged");
+        assert_eq!(keys[20], "record:publication:flagged:red");
+    }
+
+    #[test]
+    fn free_text_keeps_its_colons_and_slashes() {
+        let node = OutlineNode::Record {
+            kind: "publication".into(),
+            scope: RecordScope::Tag {
+                path: "a:b/c:d".into(),
+            },
+        };
+        assert_eq!(node_key(&node), "record:publication:tag:a:b/c:d");
+        assert_eq!(parse_node_key(&node_key(&node)), Some(node));
+
+        let odd_kind = OutlineNode::Record {
+            kind: "we:ird%kind".into(),
+            scope: RecordScope::All,
+        };
+        assert_eq!(parse_node_key(&node_key(&odd_kind)), Some(odd_kind));
+
+        let odd_section = OutlineNode::SmartSearch {
+            id: id(9),
+            section: "a:b".into(),
+        };
+        assert_eq!(parse_node_key(&node_key(&odd_section)), Some(odd_section));
+    }
+
+    #[test]
+    fn garbage_is_none() {
+        for key in [
+            "",
+            "nonsense",
+            "section",
+            "library",
+            "library:not-a-uuid",
+            "collection:",
+            "smart-search:libraries",
+            "smart-search:libraries:nope",
+            "recent:extra",
+            "feed-form:feed:nope",
+            "feed-form:other:x",
+            "feed-form:library:nope",
+            "record",
+            "record:publication",
+            "record:publication:bogus",
+            "record:publication:folder:nope",
+            "record:publication:unknown:x",
+            "record:a%zz:all",
+            "record-detail:figure",
+        ] {
+            assert_eq!(parse_node_key(key), None, "{key:?} should not parse");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

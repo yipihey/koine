@@ -147,3 +147,25 @@ the decisions above:
   `example_collection_sidebar` with imbib's verbs are impress-apps' work;
   `docs/outline.md` is their brief. The web's drag and drop has no browser
   test: SSR structure and the pure helpers are tested, a real drag is not.
+
+**The chassis sidebar (impress-apps L8 leaf 4b).** The imbib sidebar became
+this tree. What that wave adds on koine's side, in `impress-layout-service`:
+a row's id is its `OutlineNode` written as one string (`node_key` /
+`parse_node_key`: `section:inbox`, `library:<uuid>`, `collection:<uuid>`, …),
+which is what every tree event carries and what `state.open` holds;
+`layout-service_outline-rows {app_id, bindings}` answers the rows as a flat
+`{id, parent, label, count, …}` list, each count being the count of the very
+query the row selects, so a badge is the list's row count by construction;
+`layout-service_outline-select` parses the key and applies the outline's
+verbs (`outline_target` + `outline_verbs`) as one all-or-none, one-undo step;
+`outline-rename`, `outline-delete`, `outline-move` and `outline-create`
+resolve the keys and forward to the collection kernel
+(`collection-service_{rename,delete,reparent,create}`); and
+`outline_surface_spec(app_id, bindings)` is the `SurfaceSpec` that wires all
+of it to a `tree` (`rows` read at `{{source.rows.rows}}`, `on_select` at
+`{{event.value.0}}`, every mutating call followed by a `refresh` of `rows`).
+The `impress.outline.surface` setting (bool, device scope, default off,
+section `impress.layout`, in `impress-settings`) is what turns the surface on
+in the host. The Swift host (the `outline` view kind drawing the surface, the
+installer and the FFI) and the Tier A proof over SQLite are impress-apps':
+`docs/plan-l8-sidebar-surface.md` there.

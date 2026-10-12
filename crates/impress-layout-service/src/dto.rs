@@ -801,3 +801,112 @@ impl PresetResult {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// The outline verbs (plan L8 sidebar surface, SB-D1 / SB-D3 / SB-D4)
+// ---------------------------------------------------------------------------
+
+/// The result of `outline_rows`: the sidebar's rows for an app, flat.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct OutlineRowsResult {
+    pub ok: bool,
+    /// The wire convention this answer is written in
+    /// (`impress_service_core::wire`).
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
+    pub message: String,
+    /// Why it was refused, machine-readable. Absent when `ok` is true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    /// The rows in display order, each naming its parent: the tree is built
+    /// by the reader, not nested here.
+    pub rows: Vec<crate::outline_rows::OutlineRow>,
+}
+
+impl OutlineRowsResult {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
+        Self {
+            ok: false,
+            wire_version: WIRE_VERSION,
+            message: refusal.message,
+            code: Some(refusal.code),
+            rows: Vec::new(),
+        }
+    }
+}
+
+/// The result of `outline_select`: everything a layout verb answers, plus
+/// what the row meant and how many verbs it took.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct OutlineSelectResult {
+    /// The applied step (`ok`, `message`, `code`, `focused`,
+    /// `affected_panes`, `revision`, …), flattened: an `outline_select`
+    /// answer reads as a `LayoutVerbResult` with two more fields.
+    #[serde(flatten)]
+    pub result: LayoutVerbResult,
+    /// What the row selects: a query, a legacy route or nothing. Absent when
+    /// the key did not parse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<crate::outline::OutlineTarget>,
+    /// How many layout verbs were applied, as one gesture. `0` when the row
+    /// was already showing, inert, or the initial selection did not apply.
+    pub applied: usize,
+}
+
+impl OutlineSelectResult {
+    /// A refusal: `ok: false`, the refusal's `code` and `message`.
+    pub fn refused(refusal: Refusal) -> Self {
+        Self {
+            result: LayoutVerbResult::refused(refusal),
+            target: None,
+            applied: 0,
+        }
+    }
+}
+
+/// One call an outline row verb forwarded, and what it answered.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ForwardedCall {
+    /// The verb called (`collection-service_rename`).
+    pub verb: String,
+    /// The arguments it was called with.
+    #[schemars(with = "serde_json::Value")]
+    pub args: serde_json::Value,
+    /// Its whole answer, passed through unchanged.
+    #[schemars(with = "serde_json::Value")]
+    pub result: serde_json::Value,
+}
+
+/// The result of `outline_rename`, `outline_delete`, `outline_move` and
+/// `outline_create`: what was forwarded to the collection kernel.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct OutlineActionResult {
+    pub ok: bool,
+    /// The wire convention this answer is written in
+    /// (`impress_service_core::wire`).
+    #[serde(default = "wire_version")]
+    pub wire_version: u32,
+    pub message: String,
+    /// Why it was refused, machine-readable: this verb's own
+    /// `invalid-argument` / `not-found`, or the forwarded verb's `code`.
+    /// Absent when `ok` is true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    /// The calls that ran, in order, with their answers — on a refusal part
+    /// way through, the ones that already happened plus the one that failed.
+    pub forwarded: Vec<ForwardedCall>,
+}
+
+impl OutlineActionResult {
+    /// A refusal before anything was forwarded.
+    pub fn refused(refusal: Refusal) -> Self {
+        Self {
+            ok: false,
+            wire_version: WIRE_VERSION,
+            message: refusal.message,
+            code: Some(refusal.code),
+            forwarded: Vec::new(),
+        }
+    }
+}

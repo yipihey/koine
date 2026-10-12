@@ -100,6 +100,8 @@ pub async fn run() -> Vec<CapabilityResult> {
         cap_every_shipped_preset_compiles().await,
         // session-bearing panes (W4 pass B, ADR-0031 D6)
         cap_source_pane_sessions().await,
+        // the outline sidebar as verbs (L8 sidebar surface, SB-D1 / SB-D3)
+        cap_outline_rows_and_select().await,
     ]
 }
 
@@ -2343,6 +2345,177 @@ async fn cap_source_pane_sessions() -> CapabilityResult {
                 "the assigned session must be persisted on load",
             )?;
             Ok(format!("editor {editor} kept; copies {a}, {b}"))
+        },
+    )
+    .await
+}
+
+// ---------------------------------------------------------------------------
+// The outline sidebar as verbs
+// ---------------------------------------------------------------------------
+
+/// One record, built the way the other writers build theirs: a private
+/// human-authored row with the given envelope parent and `Contains` edges.
+fn seeded_item(
+    schema: &str,
+    payload: Vec<(&str, impress_item::Value)>,
+    parent: Option<uuid::Uuid>,
+    members: &[uuid::Uuid],
+) -> impress_item::item::Item {
+    use impress_item::item::{ActorKind, Item, Priority, Visibility};
+    use impress_item::reference::{EdgeType, TypedReference};
+    use impress_item::schema::SchemaRef;
+
+    let now = chrono::Utc::now();
+    Item {
+        id: uuid::Uuid::new_v4(),
+        schema: SchemaRef::from_stored(schema.to_owned()),
+        payload: payload
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value))
+            .collect(),
+        created: now,
+        modified: now,
+        author: "selftest@example.com".into(),
+        author_kind: ActorKind::Human,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
+        tags: vec![],
+        flag: None,
+        is_read: false,
+        is_starred: false,
+        priority: Priority::None,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
+        references: members
+            .iter()
+            .map(|member| TypedReference {
+                target: *member,
+                edge_type: EdgeType::Contains,
+                metadata: None,
+            })
+            .collect(),
+        parent,
+    }
+}
+
+async fn cap_outline_rows_and_select() -> CapabilityResult {
+    check(
+        "layout.outline_rows_and_select",
+        "outline_rows lists a library's collection with its paper count, and outline_select of \
+         that row's key points the list pane at the publications of that collection",
+        Tier::A,
+        || async {
+            use impress_item::Value;
+            use impress_pane_query::ItemRef;
+
+            let w = World::open()?;
+            let library = w
+                .store
+                .insert(seeded_item(
+                    "imbib/library",
+                    vec![
+                        ("name", Value::String("Selftest library".into())),
+                        ("is_inbox", Value::Bool(false)),
+                    ],
+                    None,
+                    &[],
+                ))
+                .map_err(|e| e.to_string())?;
+            let paper = w
+                .store
+                .insert(seeded_item(
+                    "imbib/bibliography-entry",
+                    vec![("title", Value::String("A paper".into()))],
+                    Some(library),
+                    &[],
+                ))
+                .map_err(|e| e.to_string())?;
+            let collection = w
+                .store
+                .insert(seeded_item(
+                    "imbib/collection",
+                    vec![
+                        ("name", Value::String("Selftest collection".into())),
+                        ("sort_order", Value::Int(0)),
+                    ],
+                    Some(library),
+                    &[paper],
+                ))
+                .map_err(|e| e.to_string())?;
+
+            let rows = w.service.outline_rows(APP.into(), None).await;
+            want(rows.ok, rows.message.clone())?;
+            let key = format!("collection:{collection}");
+            let row = rows
+                .rows
+                .iter()
+                .find(|row| row.id == key)
+                .ok_or_else(|| format!("no row '{key}' among {} rows", rows.rows.len()))?;
+            want(
+                row.count == Some(1),
+                format!("the collection row counts {:?}, not 1", row.count),
+            )?;
+            want(
+                row.parent.as_deref() == Some(&format!("library:{library}")),
+                format!("the collection hangs under {:?}", row.parent),
+            )?;
+
+            let selected = w
+                .service
+                .outline_select(
+                    APP.into(),
+                    w.device(),
+                    key.clone(),
+                    None,
+                    None,
+                    Some("human".into()),
+                    None,
+                )
+                .await;
+            want(selected.result.ok, selected.result.message.clone())?;
+            want(
+                selected.applied > 0,
+                "a fresh list is not on the collection, so verbs must apply",
+            )?;
+            let list = w
+                .service
+                .compiled_pane(
+                    APP,
+                    w.device(),
+                    &impress_layout::PaneRef::role(Role::LIST),
+                    impress_item::item::ActorKind::Human,
+                )
+                .map_err(|r| r.message)?;
+            let query = &list.spec.query;
+            want(
+                query.kinds == ["publication".to_string()],
+                format!("the list queries {:?}", query.kinds),
+            )?;
+            want(
+                query.scope
+                    == Scope::Collection {
+                        id: ItemRef::Id { id: collection },
+                    },
+                format!("the list is scoped to {:?}", query.scope),
+            )?;
+            // The persisted tree agrees, not just the session.
+            let persisted = w.persisted()?;
+            let list_tile = persisted
+                .pane_with_role(&Role::LIST)
+                .ok_or("the persisted tree has a list pane")?;
+            want(
+                persisted.pane(list_tile).map(|p| &p.query) == Some(query),
+                "the stored list pane must hold the same query",
+            )?;
+            Ok(format!(
+                "{} rows; '{key}' counts 1 and selecting it scoped the list to it",
+                rows.rows.len()
+            ))
         },
     )
     .await

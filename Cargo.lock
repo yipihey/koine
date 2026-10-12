@@ -2517,6 +2517,7 @@ dependencies = [
  "impress-scenario",
  "impress-service-core",
  "impress-service-macros",
+ "impress-surface",
  "koine-store",
  "koine-store-dir",
  "koine-store-memory",

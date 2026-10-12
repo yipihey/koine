@@ -45,7 +45,7 @@ use std::sync::{Arc, OnceLock};
 use impress_item::item::{ActorKind, ItemId};
 use impress_item::store::AttributedStore;
 use impress_layout::{
-    ChannelId, Geometry, LayoutError, PaneSpec, ParamSource, Role, TileId, Verb, WindowId,
+    ChannelId, Geometry, LayoutError, PaneRef, PaneSpec, ParamSource, Role, TileId, Verb, WindowId,
 };
 use impress_pane_query::{
     process_manifest, Bindings, KindManifest, PaneQuery, PaneQueryError, ParamDecl,
@@ -63,8 +63,16 @@ use crate::device::resolve_device;
 use crate::dto::{
     parse_channel, parse_container_kind, parse_direction, parse_ids, parse_linear_dir,
     parse_placement, parse_stack, raw_tiles, view_kind, ChannelResult, CompiledQueryDto,
-    LayoutListResult, LayoutResult, LayoutVerbResult, MaterializeFirstDto, PaneRefDto, PaneResult,
-    PresetDto, PresetListResult, PresetResult, ReferenceResult, SavedLayoutDto,
+    ForwardedCall, LayoutListResult, LayoutResult, LayoutVerbResult, MaterializeFirstDto,
+    OutlineActionResult, OutlineRowsResult, OutlineSelectResult, PaneRefDto, PaneResult, PresetDto,
+    PresetListResult, PresetResult, ReferenceResult, SavedLayoutDto,
+};
+use crate::outline::{
+    initial_selection_applies, outline_target, outline_verbs, parse_node_key, OutlineNode,
+    OutlinePanes, OutlineTarget,
+};
+use crate::outline_actions::{
+    create_action, create_note, delete_action, move_action, move_note, rename_action, ForwardCall,
 };
 use crate::presets::{self, PresetRow, PresetStore};
 use crate::session::{LayoutSession, SessionRegistry, Stack, UndoTarget};
@@ -779,6 +787,160 @@ pub trait LayoutService: Send + Sync + 'static {
         name: String,
         actor: Option<String>,
     ) -> PresetResult;
+
+    // ----------------------------------------------------------- the outline
+
+    /// The sidebar's rows for an app, flat: `{id, parent, label, count, node,
+    /// legacy, kind}` in display order, each naming its parent so a reader
+    /// nests them. `id` is the row's node key (`section:inbox`,
+    /// `collection:<uuid>`, …) — the string every `outline_*` verb takes.
+    ///
+    /// A row's `count` is the count of the query the row selects, read from
+    /// the store through the kind manifest, so the badge is the list's row
+    /// count by construction. `bindings` are the ids only the host knows
+    /// (`dismissed_library`, `exploration_library`), uuid strings; a bad one
+    /// is `invalid-argument`.
+    #[impress_method(replay = full, safety = read_only, effects(reads = ["imbib/library", "imbib/collection", "collection", "manuscript-collection", "figure-collection", "imbib/bibliography-entry", "imbib/smart-search", "impress/artifact/code", "impress/artifact/dataset", "impress/artifact/general", "impress/artifact/media", "impress/artifact/note", "impress/artifact/poster", "impress/artifact/presentation", "impress/artifact/webpage"]))]
+    #[impress_example(
+        name = "imbib-sidebar",
+        args = r#"{"app_id":"imbib"}"#,
+        expect = r#"{"ok":true,"wire_version":1}"#
+    )]
+    #[impress_example(
+        name = "bad-binding",
+        args = r#"{"app_id":"imbib","bindings":{"dismissed_library":"not-a-uuid"}}"#,
+        expect = r#"{"ok":false,"code":"invalid-argument"}"#
+    )]
+    async fn outline_rows(
+        &self,
+        app_id: String,
+        bindings: Option<BTreeMap<String, String>>,
+    ) -> OutlineRowsResult;
+
+    /// Select a sidebar row: the list pane (and, when its kind changes, the
+    /// detail pane) is retargeted to what the row means, as ONE gesture —
+    /// all or none, one undo entry.
+    ///
+    /// `key` is a row's node key (`section:inbox`, `collection:<uuid>`; an
+    /// unparseable key is `not-found`). The answer is a layout verb result
+    /// plus `target` (a `query`, a `legacy` route or `inert`) and `applied`,
+    /// the number of layout verbs applied. A row the list already shows, or
+    /// one that navigates nowhere, applies nothing and answers `ok` with
+    /// `applied: 0`. `initial: true` marks the launch selection: it applies
+    /// only while the list still shows the preset's own query, so a layout
+    /// the user left elsewhere is never overwritten. `bindings` are as for
+    /// `outline_rows`. No focus verb is sent: selecting a row does not move
+    /// the keyboard.
+    #[impress_method(replay = full)]
+    #[impress_example(
+        name = "select-inbox",
+        args = r#"{"app_id":"imbib","device":"g3-outline-select","key":"section:inbox"}"#,
+        expect = r#"{"ok":true}"#
+    )]
+    #[impress_example(
+        name = "garbage-key",
+        args = r#"{"app_id":"imbib","device":"g3-outline-select","key":"not a key"}"#,
+        expect = r#"{"ok":false,"code":"not-found"}"#
+    )]
+    async fn outline_select(
+        &self,
+        app_id: String,
+        device: Option<String>,
+        key: String,
+        bindings: Option<BTreeMap<String, String>>,
+        initial: Option<bool>,
+        actor: Option<String>,
+        expected_revision: Option<u64>,
+    ) -> OutlineSelectResult;
+
+    /// Rename the collection a sidebar row names, through the collection
+    /// kernel (`collection-service_rename`, with the app's binding). Only a
+    /// `collection:<uuid>` row can be renamed here; a library, section, feed
+    /// or form row is refused `invalid-argument` naming what it is and that
+    /// the legacy sidebar still does it. The kernel's own refusal is passed
+    /// through as this verb's.
+    #[impress_method(safety = mutating, effects(reads = ["imbib/collection", "collection", "manuscript-collection", "figure-collection"], writes = ["imbib/collection", "collection", "manuscript-collection", "figure-collection"]))]
+    #[impress_example(
+        name = "missing-collection",
+        args = r#"{"app_id":"imbib","key":"collection:00000000-0000-0000-0000-000000000000","name":"renamed"}"#,
+        expect = r#"{"ok":false}"#
+    )]
+    #[impress_example(
+        name = "a-library-is-not-renamed-here",
+        args = r#"{"app_id":"imbib","key":"library:00000000-0000-0000-0000-000000000000","name":"renamed"}"#,
+        expect = r#"{"ok":false,"code":"invalid-argument"}"#
+    )]
+    async fn outline_rename(
+        &self,
+        app_id: String,
+        key: String,
+        name: String,
+    ) -> OutlineActionResult;
+
+    /// Delete the collections that sidebar rows name, through the collection
+    /// kernel (`collection-service_delete`). Members are never deleted. Every
+    /// key is checked before the first call, so a key that cannot be deleted
+    /// here (a library, a section) refuses the whole request; once calls
+    /// start, the first failure stops the rest and the answer lists what was
+    /// already forwarded.
+    #[impress_method(safety = destructive, effects(reads = ["imbib/collection", "collection", "manuscript-collection", "figure-collection"], writes = ["imbib/collection", "collection", "manuscript-collection", "figure-collection"]))]
+    #[impress_example(
+        name = "missing-collection",
+        args = r#"{"app_id":"imbib","keys":["collection:00000000-0000-0000-0000-000000000000"]}"#,
+        expect = r#"{"ok":false}"#
+    )]
+    #[impress_example(
+        name = "no-keys",
+        args = r#"{"app_id":"imbib","keys":[]}"#,
+        expect = r#"{"ok":false,"code":"invalid-argument"}"#
+    )]
+    async fn outline_delete(&self, app_id: String, keys: Vec<String>) -> OutlineActionResult;
+
+    /// Move the collections that sidebar rows name onto another row, through
+    /// the collection kernel (`collection-service_reparent`). `to` is the row
+    /// they were dropped on, as a node key: a collection nests them under it,
+    /// a library (or no `to`) makes them roots — a drop ON a library is a
+    /// move to its root. Any other target is refused. `index` is accepted and
+    /// ignored (the kernel orders siblings with `reorder`); a non-zero one is
+    /// noted in the message.
+    #[impress_method(safety = mutating, effects(reads = ["imbib/collection", "collection", "manuscript-collection", "figure-collection"], writes = ["imbib/collection", "collection", "manuscript-collection", "figure-collection"]))]
+    #[impress_example(
+        name = "missing-collection",
+        args = r#"{"app_id":"imbib","keys":["collection:00000000-0000-0000-0000-000000000000"],"to":"library:00000000-0000-0000-0000-000000000001"}"#,
+        expect = r#"{"ok":false}"#
+    )]
+    #[impress_example(
+        name = "not-onto-a-section",
+        args = r#"{"app_id":"imbib","keys":["collection:00000000-0000-0000-0000-000000000000"],"to":"section:inbox"}"#,
+        expect = r#"{"ok":false,"code":"invalid-argument"}"#
+    )]
+    async fn outline_move(
+        &self,
+        app_id: String,
+        keys: Vec<String>,
+        to: Option<String>,
+        index: Option<i64>,
+    ) -> OutlineActionResult;
+
+    /// Create a collection under the sidebar row the menu was opened on,
+    /// through the collection kernel (`collection-service_create`).
+    /// `parent_key` a `collection:<uuid>` row makes a child of it; none, or a
+    /// library row, makes a root collection (the kernel's `create` takes a
+    /// parent collection only, so for a library the kernel files the root by
+    /// the app's binding and the message says so). A section or other row is
+    /// refused. `name` defaults to "New Collection".
+    #[impress_method(safety = mutating, effects(reads = ["imbib/collection", "collection", "manuscript-collection", "figure-collection"], writes = ["imbib/collection", "collection", "manuscript-collection", "figure-collection"]))]
+    #[impress_example(
+        name = "under-a-section-is-refused",
+        args = r#"{"app_id":"imbib","parent_key":"section:inbox"}"#,
+        expect = r#"{"ok":false,"code":"invalid-argument"}"#
+    )]
+    async fn outline_create(
+        &self,
+        app_id: String,
+        parent_key: Option<String>,
+        name: Option<String>,
+    ) -> OutlineActionResult;
 }
 
 // ---------------------------------------------------------------------------
@@ -2780,6 +2942,335 @@ impl LayoutService for DefaultLayoutService {
             outcome,
         )
     }
+
+    async fn outline_rows(
+        &self,
+        app_id: String,
+        bindings: Option<BTreeMap<String, String>>,
+    ) -> OutlineRowsResult {
+        let bindings = match parse_outline_bindings(bindings) {
+            Ok(bindings) => bindings,
+            Err(refusal) => return OutlineRowsResult::refused(refusal),
+        };
+        let marker = self.store_marker();
+        let store = self.resolved_store();
+        match crate::outline_rows::outline_rows(
+            &app_id,
+            &bindings,
+            &*store,
+            &self.manifest,
+            &*self.subtrees,
+        ) {
+            Ok(rows) => OutlineRowsResult {
+                ok: true,
+                wire_version: WIRE_VERSION,
+                code: None,
+                message: self.read_message(&marker, format!("{} row(s) for {app_id}.", rows.len())),
+                rows,
+            },
+            Err(refusal) => OutlineRowsResult::refused(refusal),
+        }
+    }
+
+    async fn outline_select(
+        &self,
+        app_id: String,
+        device: Option<String>,
+        key: String,
+        bindings: Option<BTreeMap<String, String>>,
+        initial: Option<bool>,
+        actor: Option<String>,
+        expected_revision: Option<u64>,
+    ) -> OutlineSelectResult {
+        let actor_kind = actor_from(actor.as_deref());
+        let Some(node) = parse_node_key(&key) else {
+            return OutlineSelectResult::refused(unknown_node_key(&key));
+        };
+        let bindings = match parse_outline_bindings(bindings) {
+            Ok(bindings) => bindings,
+            Err(refusal) => return OutlineSelectResult::refused(refusal),
+        };
+        // The list and detail panes as they are now, read through the same
+        // session the verbs will apply to. A layout the user rearranged may
+        // have neither; absence is an answer, not an error.
+        let panes = match self.with_session(&app_id, device.clone(), actor_kind, |session, _| {
+            let window = session.layout.current_window().map_err(layout_refusal)?;
+            let by_role = |role: Role| {
+                session
+                    .layout
+                    .resolve(window, &PaneRef::role(role))
+                    .ok()
+                    .and_then(|tile| session.layout.pane(tile))
+                    .cloned()
+            };
+            Ok(OutlinePanes {
+                list: by_role(Role::LIST),
+                detail: by_role(Role::DETAIL),
+            })
+        }) {
+            Ok(panes) => panes,
+            Err(refusal) => return OutlineSelectResult::refused(refusal),
+        };
+        let target = outline_target(&app_id, &node, &bindings);
+        let skipped_initial = initial == Some(true) && !initial_selection_applies(&app_id, &panes);
+        let verbs = if skipped_initial {
+            Vec::new()
+        } else {
+            outline_verbs(&node, &target, &panes)
+        };
+        if verbs.is_empty() {
+            let message = if skipped_initial {
+                format!("the launch selection '{key}' was not applied: the list is not on the preset's own query")
+            } else if panes.list.is_none() {
+                format!("'{key}': this layout has no pane with the list role, so there is nothing to retarget")
+            } else if let OutlineTarget::Inert { reason } = &target {
+                format!("'{key}' navigates nowhere here: {reason}")
+            } else {
+                format!("'{key}' is already what the list shows")
+            };
+            return OutlineSelectResult {
+                result: LayoutVerbResult::done(message),
+                target: Some(target),
+                applied: 0,
+            };
+        }
+        let applied = verbs.len();
+        let result = self.apply_verbs_as(&app_id, device, actor_kind, expected_revision, verbs);
+        OutlineSelectResult {
+            result,
+            target: Some(target),
+            applied,
+        }
+    }
+
+    async fn outline_rename(
+        &self,
+        app_id: String,
+        key: String,
+        name: String,
+    ) -> OutlineActionResult {
+        let call = match node_of(&key).and_then(|node| rename_action(&app_id, &node, &name)) {
+            Ok(call) => call,
+            Err(refusal) => return OutlineActionResult::refused(refusal),
+        };
+        run_forwarded(
+            vec![call],
+            format!("Renamed '{key}' to '{}'.", name.trim()),
+            Vec::new(),
+        )
+        .await
+    }
+
+    async fn outline_delete(&self, app_id: String, keys: Vec<String>) -> OutlineActionResult {
+        let calls = match nodes_of(&keys).and_then(|nodes| {
+            nodes
+                .iter()
+                .map(|node| delete_action(&app_id, node))
+                .collect()
+        }) {
+            Ok(calls) => calls,
+            Err(refusal) => return OutlineActionResult::refused(refusal),
+        };
+        run_forwarded(
+            calls,
+            format!("Deleted {} collection(s).", keys.len()),
+            Vec::new(),
+        )
+        .await
+    }
+
+    async fn outline_move(
+        &self,
+        app_id: String,
+        keys: Vec<String>,
+        to: Option<String>,
+        index: Option<i64>,
+    ) -> OutlineActionResult {
+        let planned = (|| {
+            let nodes = nodes_of(&keys)?;
+            let target = to.as_deref().map(node_of).transpose()?;
+            nodes
+                .iter()
+                .map(|node| move_action(&app_id, node, target.as_ref(), index.unwrap_or(0)))
+                .collect::<Result<Vec<_>, Refusal>>()
+        })();
+        let calls = match planned {
+            Ok(calls) => calls,
+            Err(refusal) => return OutlineActionResult::refused(refusal),
+        };
+        run_forwarded(
+            calls,
+            format!(
+                "Moved {} collection(s) to {}.",
+                keys.len(),
+                to.as_deref().unwrap_or("the root")
+            ),
+            move_note(index).into_iter().collect(),
+        )
+        .await
+    }
+
+    async fn outline_create(
+        &self,
+        app_id: String,
+        parent_key: Option<String>,
+        name: Option<String>,
+    ) -> OutlineActionResult {
+        let planned = (|| {
+            let parent = parent_key.as_deref().map(node_of).transpose()?;
+            let call = create_action(&app_id, parent.as_ref(), name.as_deref())?;
+            Ok::<_, Refusal>((call, create_note(parent.as_ref())))
+        })();
+        let (call, note) = match planned {
+            Ok(planned) => planned,
+            Err(refusal) => return OutlineActionResult::refused(refusal),
+        };
+        let name = call.args["name"].as_str().unwrap_or_default().to_string();
+        run_forwarded(
+            vec![call],
+            format!("Created collection '{name}'."),
+            note.into_iter().collect(),
+        )
+        .await
+    }
+}
+
+/// `invalid-argument` for a `bindings` entry that is not a uuid.
+fn parse_outline_bindings(
+    bindings: Option<BTreeMap<String, String>>,
+) -> Result<BTreeMap<String, uuid::Uuid>, Refusal> {
+    bindings
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(name, raw)| {
+            uuid::Uuid::parse_str(raw.trim())
+                .map(|id| (name.clone(), id))
+                .map_err(|_| {
+                    Refusal::invalid_argument(format!(
+                        "binding '{name}' is '{raw}', which is not a uuid"
+                    ))
+                })
+        })
+        .collect()
+}
+
+/// `not-found` naming a key that is no row's.
+fn unknown_node_key(key: &str) -> Refusal {
+    Refusal::not_found(format!(
+        "'{key}' is not an outline node key (expected e.g. 'section:inbox', \
+         'library:<uuid>' or 'collection:<uuid>'; outline_rows lists them)"
+    ))
+}
+
+fn node_of(key: &str) -> Result<OutlineNode, Refusal> {
+    parse_node_key(key).ok_or_else(|| unknown_node_key(key))
+}
+
+/// Every key parsed, or the first that did not. At least one is required.
+fn nodes_of(keys: &[String]) -> Result<Vec<OutlineNode>, Refusal> {
+    if keys.is_empty() {
+        return Err(Refusal::invalid_argument(
+            "keys is empty: name at least one row",
+        ));
+    }
+    keys.iter().map(|key| node_of(key)).collect()
+}
+
+/// Run `calls` through the pipeline by name, in order, stopping at the first
+/// failure. A verb that is not linked into this process (koine's own tests;
+/// any host that did not link the collection kernel) is `not-found`, not a
+/// silent success — the seam rule: an answer must tell "done" from "nobody
+/// was listening".
+async fn run_forwarded(
+    calls: Vec<ForwardCall>,
+    done: String,
+    notes: Vec<String>,
+) -> OutlineActionResult {
+    use impress_service_core::call::{self, CallError};
+    use impress_service_core::pipeline::CallerIdentity;
+
+    let mut forwarded: Vec<ForwardedCall> = Vec::new();
+    // `before` is how many calls had already succeeded when this one failed;
+    // a failure part way through says so, because the earlier ones stand.
+    let failed = |forwarded: Vec<ForwardedCall>, before: usize, code: &str, message: String| {
+        OutlineActionResult {
+            ok: false,
+            wire_version: WIRE_VERSION,
+            message: if before == 0 {
+                message
+            } else {
+                format!("{message} ({before} earlier call(s) had already been applied)")
+            },
+            code: Some(code.to_string()),
+            forwarded,
+        }
+    };
+    for call in calls {
+        if call::find(&call.verb).is_none() {
+            let before = forwarded.len();
+            return failed(
+                forwarded,
+                before,
+                "not-found",
+                format!("{} is not linked in this process", call.verb),
+            );
+        }
+        let answer = call::call_async_as(
+            &call.verb,
+            CallerIdentity::agent("layout-service"),
+            call.args.clone(),
+        )
+        .await;
+        match answer {
+            Ok(result) => {
+                let refused = result.get("ok").and_then(serde_json::Value::as_bool) == Some(false);
+                let message = result
+                    .get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("{} refused", call.verb));
+                let code = result
+                    .get("code")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("verb-failed")
+                    .to_string();
+                let before = forwarded.len();
+                forwarded.push(ForwardedCall {
+                    verb: call.verb,
+                    args: call.args,
+                    result,
+                });
+                if refused {
+                    return failed(forwarded, before, &code, message);
+                }
+            }
+            Err(error) => {
+                let code = match error {
+                    CallError::Unavailable(_) => "host-unavailable",
+                    CallError::UnknownTool(_) => "not-found",
+                    CallError::Handler(_) => "verb-failed",
+                };
+                let before = forwarded.len();
+                forwarded.push(ForwardedCall {
+                    verb: call.verb,
+                    args: call.args,
+                    result: serde_json::Value::Null,
+                });
+                return failed(forwarded, before, code, error.to_string());
+            }
+        }
+    }
+    let message = std::iter::once(done)
+        .chain(notes)
+        .collect::<Vec<_>>()
+        .join(" ");
+    OutlineActionResult {
+        ok: true,
+        wire_version: WIRE_VERSION,
+        message,
+        code: None,
+        forwarded,
+    }
 }
 
 /// Where a preset sits in the ⌃⌘1–9 union, 1-based. `0` when it is somehow
@@ -3391,6 +3882,61 @@ impress_service_impl! {
             /// Optional attribution for the layout or preset change (for example `human`).
             actor: Option<String>
         ) -> PresetResult,
+        outline_rows(
+            /// The app whose sidebar rows to read (`imbib`, `imprint`, …).
+            app_id: String,
+            /// Ids only the host knows (`dismissed_library`, `exploration_library`), as uuid strings.
+            bindings: Option<BTreeMap<String, String>>
+        ) -> OutlineRowsResult,
+        outline_select(
+            /// The owning app/facet whose layouts and presets are scoped separately.
+            app_id: String,
+            /// Optional stable device identifier; omitted uses the host device.
+            device: Option<String>,
+            /// The row's node key: `section:inbox`, `library:<uuid>`, `collection:<uuid>`, …
+            key: String,
+            /// Ids only the host knows (`dismissed_library`, `exploration_library`), as uuid strings.
+            bindings: Option<BTreeMap<String, String>>,
+            /// True for the launch selection: applies only while the list still shows the preset's own query.
+            initial: Option<bool>,
+            /// Optional attribution for the layout change (for example `human`).
+            actor: Option<String>,
+            /// Refuse with `conflict`, changing nothing, unless the live
+            /// layout is still at this revision (a result's `revision`).
+            expected_revision: Option<u64>
+        ) -> OutlineSelectResult,
+        outline_rename(
+            /// The app whose collection binding the row belongs to.
+            app_id: String,
+            /// The collection row's node key: `collection:<uuid>`.
+            key: String,
+            /// The collection's new name; blank is refused.
+            name: String
+        ) -> OutlineActionResult,
+        outline_delete(
+            /// The app whose collection binding the rows belong to.
+            app_id: String,
+            /// The collection rows' node keys; at least one.
+            keys: Vec<String>
+        ) -> OutlineActionResult,
+        outline_move(
+            /// The app whose collection binding the rows belong to.
+            app_id: String,
+            /// The collection rows' node keys; at least one.
+            keys: Vec<String>,
+            /// The row they were dropped on, as a node key; omitted means the root.
+            to: Option<String>,
+            /// The position among the target's children; accepted and ignored.
+            index: Option<i64>
+        ) -> OutlineActionResult,
+        outline_create(
+            /// The app whose collection binding the new collection uses.
+            app_id: String,
+            /// The row the menu was opened on, as a node key; omitted makes a root collection.
+            parent_key: Option<String>,
+            /// The collection's name; defaults to "New Collection".
+            name: Option<String>
+        ) -> OutlineActionResult,
     ],
 }
 
@@ -3412,5 +3958,310 @@ mod open_list_fallback_tests {
             kinds: Some(vec!["manuscript".into()]),
         };
         assert_eq!(supply_open_list_fallback(kept.clone()), kept);
+    }
+}
+
+#[cfg(test)]
+mod outline_verb_tests {
+    use super::*;
+    use impress_pane_query_compile::test_support::builtin_manifest;
+    use koine_store_memory::MemoryStore;
+    use uuid::Uuid;
+
+    const APP: &str = "imbib";
+
+    fn service() -> DefaultLayoutService {
+        DefaultLayoutService::with_store(Arc::new(MemoryStore::new()), builtin_manifest())
+    }
+
+    fn device() -> Option<String> {
+        Some("outline-verb-tests".to_string())
+    }
+
+    /// The list and detail panes as the layout holds them now.
+    fn panes_of(svc: &DefaultLayoutService) -> OutlinePanes {
+        let spec = |role: Role| {
+            svc.compiled_pane(APP, device(), &PaneRef::role(role), ActorKind::Human)
+                .ok()
+                .map(|pane| pane.spec)
+        };
+        OutlinePanes {
+            list: spec(Role::LIST),
+            detail: spec(Role::DETAIL),
+        }
+    }
+
+    #[tokio::test]
+    async fn outline_rows_over_an_empty_store_answers_the_sections() {
+        let svc = service();
+        let rows = svc.outline_rows(APP.into(), None).await;
+        assert!(rows.ok, "{}", rows.message);
+        assert_eq!(rows.wire_version, WIRE_VERSION);
+        let ids: Vec<&str> = rows.rows.iter().map(|r| r.id.as_str()).collect();
+        for key in crate::outline_rows::section_keys(APP) {
+            assert!(ids.contains(&key.as_str()), "missing {key}; have {ids:?}");
+        }
+        assert!(
+            ids.contains(&"section:inbox"),
+            "imbib has an Inbox section: {ids:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn outline_rows_refuses_a_binding_that_is_not_a_uuid() {
+        let svc = service();
+        let bindings = BTreeMap::from([("dismissed_library".to_string(), "nope".to_string())]);
+        let rows = svc.outline_rows(APP.into(), Some(bindings)).await;
+        assert!(!rows.ok);
+        assert_eq!(rows.code.as_deref(), Some("invalid-argument"));
+        assert!(
+            rows.message.contains("dismissed_library"),
+            "{}",
+            rows.message
+        );
+    }
+
+    #[tokio::test]
+    async fn selecting_the_inbox_applies_what_the_outline_functions_say() {
+        let svc = service();
+        let inbox = Uuid::from_u128(0x1b0);
+        let bindings = BTreeMap::from([("library".to_string(), inbox.to_string())]);
+        let parsed = parse_outline_bindings(Some(bindings.clone())).unwrap();
+        let node = OutlineNode::Section {
+            section: "inbox".into(),
+        };
+        let target = outline_target(APP, &node, &parsed);
+        let OutlineTarget::Query { query } = &target else {
+            panic!("the inbox with its library bound is a query: {target:?}");
+        };
+
+        let before = panes_of(&svc);
+        let expected = outline_verbs(&node, &target, &before);
+        assert!(
+            !expected.is_empty(),
+            "a fresh layout is not on the inbox query"
+        );
+
+        let selected = svc
+            .outline_select(
+                APP.into(),
+                device(),
+                "section:inbox".into(),
+                Some(bindings.clone()),
+                None,
+                Some("human".into()),
+                None,
+            )
+            .await;
+        assert!(selected.result.ok, "{}", selected.result.message);
+        assert_eq!(selected.result.wire_version, WIRE_VERSION);
+        assert_eq!(selected.applied, expected.len());
+        assert_eq!(selected.target.as_ref(), Some(&target));
+        assert!(selected.result.revision.is_some());
+        assert_eq!(
+            panes_of(&svc).list.expect("a list pane").query,
+            *query,
+            "the list pane is on the inbox query"
+        );
+
+        // The same row again is no gesture at all.
+        let again = svc
+            .outline_select(
+                APP.into(),
+                device(),
+                "section:inbox".into(),
+                Some(bindings),
+                None,
+                Some("human".into()),
+                None,
+            )
+            .await;
+        assert!(again.result.ok, "{}", again.result.message);
+        assert_eq!(again.applied, 0);
+    }
+
+    #[tokio::test]
+    async fn the_initial_selection_leaves_a_list_the_user_moved() {
+        let svc = service();
+        let bindings = BTreeMap::from([("library".to_string(), Uuid::from_u128(1).to_string())]);
+        // Move the list somewhere that is not the preset's query.
+        let collection = Uuid::from_u128(0xc0);
+        let moved = svc
+            .outline_select(
+                APP.into(),
+                device(),
+                format!("collection:{collection}"),
+                None,
+                None,
+                Some("human".into()),
+                None,
+            )
+            .await;
+        assert!(moved.result.ok, "{}", moved.result.message);
+        let launch = svc
+            .outline_select(
+                APP.into(),
+                device(),
+                "section:inbox".into(),
+                Some(bindings),
+                Some(true),
+                Some("human".into()),
+                None,
+            )
+            .await;
+        assert!(launch.result.ok, "{}", launch.result.message);
+        assert_eq!(launch.applied, 0, "{}", launch.result.message);
+        assert!(
+            launch.result.message.contains("not applied"),
+            "{}",
+            launch.result.message
+        );
+    }
+
+    #[tokio::test]
+    async fn selecting_a_garbage_key_is_not_found() {
+        let svc = service();
+        let selected = svc
+            .outline_select(
+                APP.into(),
+                device(),
+                "not a key".into(),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+        assert!(!selected.result.ok);
+        assert_eq!(selected.result.code.as_deref(), Some("not-found"));
+        assert!(
+            selected.result.message.contains("not a key"),
+            "{}",
+            selected.result.message
+        );
+        assert_eq!(selected.applied, 0);
+    }
+
+    #[tokio::test]
+    async fn selecting_with_a_bad_binding_is_invalid_argument() {
+        let svc = service();
+        let bindings = BTreeMap::from([("library".to_string(), "x".to_string())]);
+        let selected = svc
+            .outline_select(
+                APP.into(),
+                device(),
+                "section:inbox".into(),
+                Some(bindings),
+                None,
+                None,
+                None,
+            )
+            .await;
+        assert_eq!(selected.result.code.as_deref(), Some("invalid-argument"));
+    }
+
+    #[tokio::test]
+    async fn renaming_a_library_row_is_refused_naming_the_legacy_sidebar() {
+        let svc = service();
+        let key = format!("library:{}", Uuid::from_u128(5));
+        let renamed = svc.outline_rename(APP.into(), key, "Renamed".into()).await;
+        assert!(!renamed.ok);
+        assert_eq!(renamed.code.as_deref(), Some("invalid-argument"));
+        assert!(
+            renamed.message.contains("chassis sidebar for now"),
+            "{}",
+            renamed.message
+        );
+        assert!(renamed.forwarded.is_empty());
+    }
+
+    /// koine links no collection kernel, so the forward has nobody to reach —
+    /// and the answer says that, rather than reporting success.
+    #[tokio::test]
+    async fn renaming_a_collection_without_the_kernel_linked_says_so() {
+        let svc = service();
+        let key = format!("collection:{}", Uuid::from_u128(6));
+        let renamed = svc.outline_rename(APP.into(), key, "Renamed".into()).await;
+        assert!(!renamed.ok);
+        assert_eq!(renamed.code.as_deref(), Some("not-found"));
+        assert_eq!(
+            renamed.message,
+            "collection-service_rename is not linked in this process"
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_checks_every_key_before_forwarding_any() {
+        let svc = service();
+        let keys = vec![
+            format!("collection:{}", Uuid::from_u128(7)),
+            format!("library:{}", Uuid::from_u128(8)),
+        ];
+        let deleted = svc.outline_delete(APP.into(), keys).await;
+        assert!(!deleted.ok);
+        assert_eq!(deleted.code.as_deref(), Some("invalid-argument"));
+        assert!(deleted.forwarded.is_empty());
+
+        let none = svc.outline_delete(APP.into(), Vec::new()).await;
+        assert_eq!(none.code.as_deref(), Some("invalid-argument"));
+    }
+
+    #[tokio::test]
+    async fn move_refuses_a_section_target_and_a_garbage_key() {
+        let svc = service();
+        let key = format!("collection:{}", Uuid::from_u128(9));
+        let onto_section = svc
+            .outline_move(
+                APP.into(),
+                vec![key.clone()],
+                Some("section:inbox".into()),
+                Some(0),
+            )
+            .await;
+        assert_eq!(onto_section.code.as_deref(), Some("invalid-argument"));
+
+        let garbage = svc
+            .outline_move(APP.into(), vec![key.clone()], Some("???".into()), None)
+            .await;
+        assert_eq!(garbage.code.as_deref(), Some("not-found"));
+
+        // A valid move gets as far as the missing kernel.
+        let onto_library = svc
+            .outline_move(
+                APP.into(),
+                vec![key],
+                Some(format!("library:{}", Uuid::from_u128(10))),
+                Some(2),
+            )
+            .await;
+        assert_eq!(onto_library.code.as_deref(), Some("not-found"));
+        assert!(
+            onto_library.message.contains("collection-service_reparent"),
+            "{}",
+            onto_library.message
+        );
+    }
+
+    #[tokio::test]
+    async fn create_under_a_section_is_refused_and_under_a_collection_reaches_the_kernel() {
+        let svc = service();
+        let refused = svc
+            .outline_create(APP.into(), Some("section:inbox".into()), None)
+            .await;
+        assert_eq!(refused.code.as_deref(), Some("invalid-argument"));
+
+        let child = svc
+            .outline_create(
+                APP.into(),
+                Some(format!("collection:{}", Uuid::from_u128(11))),
+                Some("Child".into()),
+            )
+            .await;
+        assert_eq!(child.code.as_deref(), Some("not-found"));
+        assert!(
+            child.message.contains("collection-service_create"),
+            "{}",
+            child.message
+        );
     }
 }
