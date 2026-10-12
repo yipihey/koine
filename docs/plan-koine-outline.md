@@ -114,4 +114,36 @@ The guide is [outline.md](outline.md).
 
 ## Status
 
-Filled in as the packages land.
+Q1–Q3 are built on koine main. What landed, and where it differs from
+the decisions above:
+
+- **O-D1.** As decided, with `Cursor::reply_for` answering `Event`,
+  `Moved` or `Unhandled` so a page knows whether to redraw or to hand the
+  key on; `event_for` is unchanged for every caller. `j`/`k` no longer
+  leave a table, list or tree: `Tab` and the next/previous keys do, and the
+  frontends suite walks with those. `h` on a collapsed branch or a leaf
+  moves to the nearest shallower node above. `d` deletes and `o` opens
+  without any renderer UI; `r`, `m`, `x`, `p` and `P` are spelled in the
+  cursor and answered by the renderers.
+- **O-D2 to O-D6.** As decided. A `move` with a non-object value is refused
+  only by a tree that declares `on_move`; a `menu` whose label the node
+  does not have is refused naming the labels; every other unhandled event
+  is ignored. `RenderKind::Tree` also says `movable` (the tree declared
+  `on_move`), so a renderer offers drag and cut/paste only where they can
+  land. The move arithmetic (drop on a row, drop in a gap, paste into,
+  paste beside, cycle and self-drop refusal) is one set of helpers in
+  `impress_surface::tree` that the web and the TUI both call, so a drop and
+  a paste send the same value. `P` places the row after the active row's
+  position among its siblings, counted before the move. The TUI shows an
+  active row and counts in trees only (it draws no table or list rows), and
+  its rename and menu are prompt lines the binary does not yet feed, so
+  they are proven at the `key()` level.
+- **O-D7.** As decided, plus a `refresh` of the query source after every
+  verb call, so a rename or a delete shows at once; the menu's Delete passes
+  `[event.value.id]` since a menu's value is `{id, action}`. The worked
+  sidebar is a golden of the frontends suite in both renderers.
+- **Not in koine.** The Swift renderer of a tree (the `tree` case of
+  `ImpressSurface`, with the matrix's cells) and the imbib leaf that uses
+  `example_collection_sidebar` with imbib's verbs are impress-apps' work;
+  `docs/outline.md` is their brief. The web's drag and drop has no browser
+  test: SSR structure and the pure helpers are tested, a real drag is not.
