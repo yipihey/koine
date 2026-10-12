@@ -1,0 +1,5 @@
+error: `strict_args` must be `true` or `false`: it is `true` unless written, and `false` lets a verb accept argument keys its input schema does not name
+  --> tests/ui/strict_args_not_a_bool.rs:35:19
+   |
+35 |     strict_args = "yes",
+   |                   ^^^^^

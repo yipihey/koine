@@ -1,0 +1,5 @@
+error: #[impress_method] `EchoService::echo` has no doc comment; write a `///` line saying what the verb does — it is the description agents read, and without it the tool would ship as `Invoke EchoService.echo`.
+  --> tests/ui/missing_doc.rs:17:14
+   |
+17 |     async fn echo(&self, message: String) -> EchoReply;
+   |              ^^^^

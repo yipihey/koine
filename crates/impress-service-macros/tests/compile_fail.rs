@@ -1,4 +1,20 @@
 //! Compile real downstream fixtures: these errors must reach rustc callers.
+//!
+//! Two harnesses live here:
+//!
+//! * `missing_construction_declarations_fail_in_downstream_crates` compiles
+//!   the four bare fixtures in `tests/ui/` with `rustc` and looks for a
+//!   phrase in each message.
+//! * `refusals_name_the_fix` (plan-koine-host H-D6) is the `trybuild` suite
+//!   for the refusals an agent meets first: each `tests/ui/<case>.rs` is the
+//!   smallest complete service that triggers one refusal, the `.stderr`
+//!   beside it is the whole message, and the message must say what to write.
+//!   `tests/ui/pass/` proves the happy path still compiles. After a message
+//!   change, regenerate and READ the result:
+//!
+//!   ```text
+//!   TRYBUILD=overwrite cargo test -p impress-service-macros --test compile_fail
+//!   ```
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -98,5 +114,29 @@ fn missing_construction_declarations_fail_in_downstream_crates() {
             stderr.contains(expected),
             "{fixture} missed its diagnostic:\n{stderr}"
         );
+    }
+}
+
+/// The refusals, one file each. An explicit list rather than a glob: the four
+/// bare fixtures beside these belong to the harness above.
+const REFUSALS: &[&str] = &[
+    "tests/ui/missing_effects.rs",
+    "tests/ui/unknown_adverb.rs",
+    "tests/ui/argument_without_json_schema.rs",
+    "tests/ui/result_without_json_schema.rs",
+    "tests/ui/sync_method.rs",
+    "tests/ui/generic_method.rs",
+    "tests/ui/reference_argument.rs",
+    "tests/ui/strict_args_not_a_bool.rs",
+    "tests/ui/missing_doc.rs",
+    "tests/ui/misspelt_schema_ref.rs",
+];
+
+#[test]
+fn refusals_name_the_fix() {
+    let cases = trybuild::TestCases::new();
+    cases.pass("tests/ui/pass/*.rs");
+    for case in REFUSALS {
+        cases.compile_fail(case);
     }
 }

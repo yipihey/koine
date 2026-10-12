@@ -1,0 +1,5 @@
+error: `bibliography-entries` is not a canonical schema ref in schema-refs.json; copy the spelling from the manifest (the store matches `schema_ref` by exact equality, so a misspelt ref reads zero rows forever)
+  --> tests/ui/misspelt_schema_ref.rs:38:25
+   |
+38 |     effects = { reads: ["bibliography-entries"] },
+   |                         ^^^^^^^^^^^^^^^^^^^^^^

@@ -18,4 +18,6 @@ cargo check -p koine-dioxus -p koine-web --target wasm32-unknown-unknown
 cd crates/koine-web && dx serve --hotpatch     # the page, live against a running app
 ```
 
+To give a Rust library verbs, generated surfaces and a page, follow [docs/capability.md](docs/capability.md); `scripts/new-app.sh <name> --lib <crate>` writes the crate it describes.
+
 `schema-refs.json` is the snapshot this workspace builds against. An impress-apps build sets `IMPRESS_SCHEMA_REFS` to the live manifest, so suite schema names are generated from the suite, not from this snapshot.

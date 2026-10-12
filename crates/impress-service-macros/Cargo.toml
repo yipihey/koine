@@ -23,5 +23,16 @@ koine-workspace-hack.workspace = true
 serde_json = { workspace = true }
 impress-schema-ref-codegen = { workspace = true }
 
+# The compile-fail harness (tests/compile_fail.rs) builds small crates against
+# the macros: they need what a service crate depends on.
+[dev-dependencies]
+trybuild = "1"
+impress-service-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+inventory = { workspace = true }
+
 [lints]
 workspace = true

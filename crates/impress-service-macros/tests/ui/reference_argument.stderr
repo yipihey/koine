@@ -1,0 +1,5 @@
+error: argument `message` borrows; a verb's arguments are read from a JSON object into owned fields — write the owned type (`String` for `&str`, `Vec<T>` for `&[T]`, `PathBuf` for `&Path`) and borrow inside the method
+  --> tests/ui/reference_argument.rs:39:23
+   |
+39 |         echo(message: &str) -> EchoReply,
+   |                       ^^^^

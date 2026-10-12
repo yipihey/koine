@@ -1,0 +1,13 @@
+error: missing `effects = { reads: […], writes: […], reach: […] }`: declare what the service's verbs read, write and reach, e.g. `effects = { reads: ["bibliography-entry"], writes: [], reach: [fs] }`, or `effects = {}` for a service that touches nothing; a verb that differs from the service says so with `#[impress_method(effects(reads = […], writes = […], reach = […]))]` on the trait (ADR-0036 D1)
+  --> tests/ui/missing_effects.rs:32:1
+   |
+32 | / impress_service_impl! {
+33 | |     service = EchoService,
+34 | |     impl = DefaultEchoService,
+35 | |     instance = || DefaultEchoService,
+...  |
+40 | |     ],
+41 | | }
+   | |_^
+   |
+   = note: this error originates in the macro `impress_service_impl` (in Nightly builds, run with -Z macro-backtrace for more info)

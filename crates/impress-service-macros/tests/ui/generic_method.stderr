@@ -1,0 +1,5 @@
+error: #[impress_method] `SizeService::size_of` is generic; a verb's arguments become a JSON schema, which needs concrete types — write one method with concrete DTOs per instantiation
+  --> tests/ui/generic_method.rs:18:22
+   |
+18 |     async fn size_of<T: Serialize + Send + 'static>(&self, value: T) -> Size;
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -172,6 +172,28 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
             }
             {
                 found_any_method = true;
+                if method.sig.asyncness.is_none() {
+                    return Err(syn::Error::new_spanned(
+                        &method.sig.ident,
+                        format!(
+                            "#[impress_method] `{trait_name}::{}` must be an `async fn`: the \
+                             generated invoker awaits every verb, so write `async fn {}(&self, …) \
+                             -> …` even when the body does no async work",
+                            method.sig.ident, method.sig.ident
+                        ),
+                    ));
+                }
+                if let Some(generic) = method.sig.generics.params.first() {
+                    return Err(syn::Error::new_spanned(
+                        generic,
+                        format!(
+                            "#[impress_method] `{trait_name}::{}` is generic; a verb's arguments \
+                             become a JSON schema, which needs concrete types — write one \
+                             method with concrete DTOs per instantiation",
+                            method.sig.ident
+                        ),
+                    ));
+                }
                 let doc = collect_doc(&method.attrs);
                 if doc.is_empty() {
                     let method_name = method.sig.ident.to_string();
@@ -334,14 +356,54 @@ fn adverb_variant(spelling: &str) -> Option<&'static str> {
     }
 }
 
+const ADVERB_SPELLINGS: [&str; 6] = [
+    "tentatively",
+    "with_review",
+    "once",
+    "reversibly",
+    "within",
+    "in_background",
+];
+
+/// Edit distance between two short words, for "did you mean" on a misspelt
+/// vocabulary word.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut diagonal = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let above = row[j + 1];
+            row[j + 1] = (diagonal + usize::from(ca != *cb))
+                .min(row[j] + 1)
+                .min(above + 1);
+            diagonal = above;
+        }
+    }
+    row[b.len()]
+}
+
 fn validate_adverb(ident: &Ident) -> syn::Result<()> {
     let spelling = ident.to_string();
     if adverb_variant(&spelling).is_some() {
         Ok(())
     } else {
+        let nearest = ADVERB_SPELLINGS
+            .iter()
+            .min_by_key(|candidate| edit_distance(&spelling, candidate))
+            .filter(|candidate| edit_distance(&spelling, candidate) <= 3);
+        let hint = match nearest {
+            Some(candidate) => format!(" (did you mean `{candidate}`?)"),
+            None => String::new(),
+        };
         Err(syn::Error::new(
             ident.span(),
-            format!("unknown adverb `{spelling}`; one of {ADVERB_VOCABULARY}"),
+            format!(
+                "unknown adverb `{spelling}`{hint}; `supports(…)` lists the adverbs beyond the \
+                 universal three that this verb honors, one of {ADVERB_VOCABULARY} \
+                 (`tentatively`, `with_review` and `once` need no declaration)"
+            ),
         ))
     }
 }
@@ -946,7 +1008,14 @@ impl syn::parse::Parse for ImplMacroInput {
                 }
                 "instance" => instance = Some(input.parse()?),
                 "strict_args" => {
-                    let flag: syn::LitBool = input.parse()?;
+                    let flag: syn::LitBool = input.parse().map_err(|e| {
+                        syn::Error::new(
+                            e.span(),
+                            "`strict_args` must be `true` or `false`: it is `true` unless written, \
+                             and `false` lets a verb accept argument keys its input schema does \
+                             not name",
+                        )
+                    })?;
                     strict_args = flag.value;
                 }
                 "safety" => {
@@ -1027,8 +1096,12 @@ impl syn::parse::Parse for ImplMacroInput {
             effects: effects.ok_or_else(|| {
                 syn::Error::new(
                     input.span(),
-                    "missing `effects = { reads: […], writes: […], reach: […] }` (the service's \
-                     default effect set, ADR-0036 D1; `{}` for a service that touches nothing)",
+                    "missing `effects = { reads: […], writes: […], reach: […] }`: declare what the \
+                     service's verbs read, write and reach, e.g. `effects = { reads: \
+                     [\"bibliography-entry\"], writes: [], reach: [fs] }`, or `effects = {}` for a \
+                     service that touches nothing; a verb that differs from the service says so \
+                     with `#[impress_method(effects(reads = […], writes = […], reach = […]))]` \
+                     on the trait (ADR-0036 D1)",
                 )
             })?,
             supports,
@@ -1241,6 +1314,7 @@ fn expand_method(
     let mut struct_fields = Vec::new();
     let mut arg_idents = Vec::new();
     for (arg_attrs, arg_name, arg_ty) in &method.args {
+        refuse_unowned_argument(arg_name, arg_ty)?;
         validate_supported_ty(arg_ty)?;
         struct_fields.push(quote! {
             #(#arg_attrs)*
@@ -1307,8 +1381,51 @@ fn expand_method(
         }
     };
 
+    // The derives below fail on a type with no `Deserialize`/`JsonSchema` with
+    // an error about a private bound inside serde or schemars. These
+    // assertions fail first, at the same type, in words that name the fix.
+    let arg_checks = method.args.iter().map(|(_, _, arg_ty)| {
+        quote! {
+            const _: () = {
+                #[diagnostic::on_unimplemented(
+                    message = "argument `{Self}` of a verb needs `serde::Deserialize` and `schemars::JsonSchema`",
+                    label = "this argument type has no `Deserialize` + `JsonSchema`",
+                    note = "derive both on it, or — for a type from another crate — write a DTO that derives both and convert with `From`/`TryFrom` inside the method (docs/capability.md, \"DTO rules\")"
+                )]
+                trait VerbArgument {}
+                impl<T: ?Sized + ::serde::de::DeserializeOwned + ::impress_service_core::schemars::JsonSchema>
+                    VerbArgument for T {}
+                #[allow(dead_code)]
+                fn check<T: VerbArgument>() {}
+                #[allow(dead_code)]
+                fn assert_argument() { check::<#arg_ty>(); }
+            };
+        }
+    });
+    let result_check = match &method.ret {
+        Some(ret) => quote! {
+            const _: () = {
+                #[diagnostic::on_unimplemented(
+                    message = "result `{Self}` of a verb needs `serde::Serialize` and `schemars::JsonSchema`",
+                    label = "this result type has no `Serialize` + `JsonSchema`",
+                    note = "derive both on it, or — for a type from another crate — write a DTO that derives both and build it with `From` from the library's value before returning (docs/capability.md, \"DTO rules\")"
+                )]
+                trait VerbResult {}
+                impl<T: ?Sized + ::serde::Serialize + ::impress_service_core::schemars::JsonSchema>
+                    VerbResult for T {}
+                #[allow(dead_code)]
+                fn check<T: VerbResult>() {}
+                #[allow(dead_code)]
+                fn assert_result() { check::<#ret>(); }
+            };
+        },
+        None => quote! {},
+    };
+
     Ok(quote! {
         #doc_required
+        #(#arg_checks)*
+        #result_check
         // -- Args struct -----------------------------------------------------
         #[doc(hidden)]
         #[derive(
@@ -1415,6 +1532,59 @@ fn expand_method(
             ::impress_service_core::CliSubcommand::of(&#verb_static)
         }
     })
+}
+
+/// What in `ty` cannot be a verb argument, and the owned spelling to write
+/// instead. An argument is deserialized from a JSON object into a struct the
+/// macro writes, so it has to be an owned, nameable type.
+fn unowned_part(ty: &Type) -> Option<(&'static str, &'static str)> {
+    match ty {
+        Type::Reference(_) => Some((
+            "borrows",
+            "write the owned type (`String` for `&str`, `Vec<T>` for `&[T]`, `PathBuf` for \
+             `&Path`) and borrow inside the method",
+        )),
+        Type::ImplTrait(_) | Type::TraitObject(_) => Some((
+            "is not a concrete type",
+            "write a concrete DTO (a struct deriving `Deserialize` and `JsonSchema`) in its place",
+        )),
+        Type::Paren(inner) => unowned_part(&inner.elem),
+        Type::Group(inner) => unowned_part(&inner.elem),
+        Type::Slice(inner) => unowned_part(&inner.elem),
+        Type::Array(inner) => unowned_part(&inner.elem),
+        Type::Tuple(tuple) => tuple.elems.iter().find_map(unowned_part),
+        Type::Path(path) => path.path.segments.iter().find_map(|segment| {
+            if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                args.args.iter().find_map(|arg| match arg {
+                    syn::GenericArgument::Type(inner) => unowned_part(inner),
+                    syn::GenericArgument::Lifetime(_) => Some((
+                        "carries a lifetime",
+                        "write an owned DTO with no lifetime parameter and convert to the \
+                         borrowing type inside the method",
+                    )),
+                    _ => None,
+                })
+            } else {
+                None
+            }
+        }),
+        _ => None,
+    }
+}
+
+/// Refuse an argument whose type cannot be deserialized from JSON into an
+/// owned field, naming the argument and the type to write.
+fn refuse_unowned_argument(name: &Ident, ty: &Type) -> syn::Result<()> {
+    match unowned_part(ty) {
+        None => Ok(()),
+        Some((problem, fix)) => Err(syn::Error::new_spanned(
+            ty,
+            format!(
+                "argument `{name}` {problem}; a verb's arguments are read from a JSON object into \
+                 owned fields — {fix}"
+            ),
+        )),
+    }
 }
 
 /// Phase 0 supports a small allow-list of argument and return types.

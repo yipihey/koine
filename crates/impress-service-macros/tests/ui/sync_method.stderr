@@ -1,0 +1,5 @@
+error: #[impress_method] `EchoService::echo` must be an `async fn`: the generated invoker awaits every verb, so write `async fn echo(&self, …) -> …` even when the body does no async work
+  --> tests/ui/sync_method.rs:17:8
+   |
+17 |     fn echo(&self, message: String) -> EchoReply;
+   |        ^^^^
