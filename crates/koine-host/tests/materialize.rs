@@ -69,8 +69,9 @@ fn schema() -> Value {
     })
 }
 
+/// Two rows, so a call through the host (below) has something to keep.
 fn papers(_: Value) -> ServiceFuture {
-    Box::pin(async { Ok(json!([])) })
+    Box::pin(async { Ok(json!([{ "bibcode": "A", "title": "t1" }, { "bibcode": "B" }])) })
 }
 
 // The materialiser slot is process-wide: the cases take turns.
@@ -224,4 +225,32 @@ fn rows_without_an_id_or_a_refusal_or_no_rows_declaration_write_nothing() {
     materialize::clear();
     materialize::after_verb(&PAPERS, &json!([{ "bibcode": "F" }]));
     assert_eq!(paper_items(&*store).len(), 1);
+}
+
+/// The whole path: a host serves, a verb is called over HTTP, and its rows
+/// are records of the host's store afterwards (the pipeline's call site,
+/// the host's install at `serve`, the inventory manifest).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_verb_called_over_http_leaves_its_rows_in_the_hosts_store() {
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    koine_host::ensure_linked();
+    let workspace = tempfile::tempdir().unwrap();
+    let served = koine_host::serve(koine_host::Config::new("memory:", workspace.path()))
+        .await
+        .expect("the host starts");
+    let client = reqwest::Client::new();
+    let answer = client
+        .post(format!("{}/api/verb/rows-fixture_papers", served.url()))
+        .header("Authorization", format!("Bearer {}", served.token()))
+        .json(&json!({}))
+        .send()
+        .await
+        .expect("the call reaches the host");
+    assert_eq!(answer.status(), 200);
+
+    let (store, _) = koine_store::process::acquire().expect("serve installed the store");
+    let rows = paper_items(&*store);
+    assert_eq!(rows.len(), 2, "both rows of the fixture are records");
+    assert!(rows.iter().all(|r| r.schema.as_str() == "paper"));
+    served.shutdown().await;
 }
