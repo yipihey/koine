@@ -203,7 +203,8 @@ HTTP).
    to the installed `BackgroundRunner` and answers the `JobStarted` shape
    of `impress-service-core::job`. With no runner installed the adverb is
    refused `unsupported-adverb`. The runner is where the job row, the
-   progress and the cancel live; the pipeline stays store-free.
+   progress, the emitted lines (`job::emit`, docs/capability.md § A verb
+   that emits) and the cancel live; the pipeline stays store-free.
 7. **`every` is `in_background`, repeated.** Its value is a duration
    string, an unsigned integer and one unit: `"2s"`, `"10m"`, `"1h"`,
    `"2d"`. Seconds at least 1 (`"500ms"` is refused), days at most (365). A

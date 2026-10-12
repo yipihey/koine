@@ -13,6 +13,11 @@
 //!   value list, plus a `plot-spec@1.0.0` payload (`crate::plot`) ready for
 //!   the `plot` widget.
 //!
+//! A third verb, [`tick`](SurfaceDemoService::tick), is the stream demo
+//! (plan-koine-tree-stream T-D2): run `in_background`, it emits `n` values
+//! with `impress_service_core::job::emit` and reports `progress`; run inline
+//! (a form's Run, Tier A) both are no-ops and it just sleeps and answers.
+//!
 //! `examples/surface-demo.surface.json` drives both from two sliders (a copy
 //! of `crates/impress-surface/examples/signal-explorer.surface.json`, whose
 //! verb and argument names already matched these — see that file and this
@@ -59,6 +64,14 @@ const SERIES_N_RANGE: std::ops::RangeInclusive<u32> = 2..=100_000;
 
 /// Smallest/largest `bins` `histogram` accepts.
 const HISTOGRAM_BINS_RANGE: std::ops::RangeInclusive<u32> = 1..=1024;
+
+/// Result of the `tick` verb.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct TickResult {
+    pub ok: bool,
+    /// How many values the verb emitted (the `n` it was asked for).
+    pub emitted: u32,
+}
 
 /// One thing wrong with a call's arguments. See the crate docs for why this
 /// is a field on the result rather than a `Result` error variant.
@@ -170,6 +183,15 @@ pub trait SurfaceDemoService: Send + Sync + 'static {
     #[impress_method]
     #[impress_example(name = "default", args = r#"{"values": [1, 2, 3], "bins": 3}"#)]
     async fn histogram(&self, values: Vec<f64>, bins: u32) -> HistogramResult;
+
+    /// A stream in miniature: emit `{"i": k, "at": <ms since start>}` `n`
+    /// times, `every_ms` apart, reporting `progress` `k/n` each time. Run it
+    /// `in_background` and the values land on the job's row (`lines`,
+    /// `GET /api/job/<id>/lines`); run inline, emitting and progress do
+    /// nothing and it only sleeps and answers `{ok, emitted}`.
+    #[impress_method(supports(in_background))]
+    #[impress_example(name = "default", args = r#"{"n": 2, "every_ms": 1}"#)]
+    async fn tick(&self, n: u32, every_ms: u64) -> TickResult;
 }
 
 /// The default (and only) implementation: pure computation, no state.
@@ -215,6 +237,25 @@ impl SurfaceDemoService for DefaultSurfaceDemoService {
             x,
             values,
             error: None,
+        }
+    }
+
+    async fn tick(&self, n: u32, every_ms: u64) -> TickResult {
+        let started = std::time::Instant::now();
+        for k in 1..=n {
+            let at = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            impress_service_core::job::emit(serde_json::json!({ "i": k, "at": at }));
+            impress_service_core::job::progress(
+                Some(k as f32 / n as f32),
+                &format!("tick {k}/{n}"),
+            );
+            if k < n {
+                tokio::time::sleep(std::time::Duration::from_millis(every_ms)).await;
+            }
+        }
+        TickResult {
+            ok: true,
+            emitted: n,
         }
     }
 
@@ -303,6 +344,14 @@ impress_service_impl! {
             /// Number of buckets; must be between 1 and 1024.
             bins: u32
         ) -> HistogramResult,
+        /// A stream in miniature: emit `{"i": k, "at": ms}` `n` times,
+        /// `every_ms` apart, with `progress` k/n; answers `{ok, emitted}`.
+        tick(
+            /// How many values to emit.
+            n: u32,
+            /// Milliseconds to wait between values.
+            every_ms: u64
+        ) -> TickResult,
     ],
 }
 
@@ -397,6 +446,47 @@ mod tests {
             );
             assert!(result.x.is_empty());
         }
+    }
+
+    // --------------------------------------------------------------- tick
+
+    #[test]
+    fn tick_runs_inline_where_emit_and_progress_are_no_ops() {
+        let result = call(
+            "surface-demo-service_tick",
+            json!({ "n": 3, "every_ms": 1 }),
+        );
+        assert_eq!(result, json!({ "ok": true, "emitted": 3 }));
+    }
+
+    #[test]
+    fn tick_emits_n_values_in_order_inside_a_job_scope() {
+        use impress_service_core::job::{EmitSink, ProgressSink, EMIT, PROGRESS};
+        use std::sync::{Arc, Mutex};
+        let lines: Arc<Mutex<Vec<Value>>> = Arc::default();
+        let reports: Arc<Mutex<Vec<String>>> = Arc::default();
+        let emit = {
+            let lines = lines.clone();
+            EmitSink::new(move |v| lines.lock().unwrap().push(v))
+        };
+        let progress = {
+            let reports = reports.clone();
+            ProgressSink::new(move |_, m| reports.lock().unwrap().push(m.to_string()))
+        };
+        let service = DefaultSurfaceDemoService::new();
+        let result = runtime::block_on(PROGRESS.scope(
+            progress,
+            EMIT.scope(emit, async { service.tick(3, 1).await }),
+        ));
+        assert_eq!(result.emitted, 3);
+        let lines = lines.lock().unwrap();
+        let indices: Vec<u64> = lines.iter().map(|l| l["i"].as_u64().unwrap()).collect();
+        assert_eq!(indices, vec![1, 2, 3]);
+        assert!(lines.iter().all(|l| l["at"].is_u64()));
+        assert_eq!(
+            *reports.lock().unwrap(),
+            vec!["tick 1/3", "tick 2/3", "tick 3/3"]
+        );
     }
 
     // ---------------------------------------------------------- histogram

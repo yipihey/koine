@@ -31,12 +31,21 @@
 //!   task-local sink that writes `progress` (0..1, or null) and
 //!   `progress_message` to the row at most twice a second, and the last value
 //!   lands when the job ends. A routine's progress is its current run's.
+//! * **lines** (plan-koine-tree-stream T-D2): a verb that calls
+//!   `impress_service_core::job::emit` is a stream. The runner keeps the last
+//!   [`LINES_LIMIT`] values in memory and writes them to the row as `lines`
+//!   (a `Value::Array`, so each emitted JSON value stays the structured value
+//!   it was) with `line_count`, the total ever emitted, in one `SetPayload`
+//!   update at most every 100 ms; what is held lands when the job ends or is
+//!   cancelled, before `state` flips. A routine's lines are its runs' lines,
+//!   cumulative, with the same limit, and survive a re-arm.
+//!   [`JobRunner::lines`] answers `GET /api/job/<id>/lines`.
 //!
 //! `GET /api/job`, `GET /api/job/<id>` and `POST /api/job/<id>/cancel` are the
 //! host's listing, reading and cancelling; the `impel-service_job-*` verbs the
 //! job module's docs name belong to impel and are not linked here.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -45,7 +54,7 @@ use impress_item::schema::refs;
 use impress_item::{
     ActorKind, AttributedStore, FieldMutation, Item, ItemId, ItemQuery, Priority, Value,
 };
-use impress_service_core::job::{JobHandle, ProgressSink, PROGRESS};
+use impress_service_core::job::{EmitSink, JobHandle, ProgressSink, EMIT, PROGRESS};
 use impress_service_core::pipeline::adverbs::BackgroundRunner;
 use impress_service_core::pipeline::{self, Call, CallerIdentity};
 use impress_service_core::refusal::{codes, Refusal};
@@ -75,6 +84,8 @@ mod field {
     pub const LAST_MESSAGE: &str = "last_message";
     pub const PROGRESS: &str = "progress";
     pub const PROGRESS_MESSAGE: &str = "progress_message";
+    pub const LINES: &str = "lines";
+    pub const LINE_COUNT: &str = "line_count";
 }
 
 /// A routine row's `kind`.
@@ -85,6 +96,12 @@ pub const LAST_RESULT_LIMIT: usize = 4096;
 
 /// The least time between two progress writes to one row.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
+
+/// The least time between two writes of a job's lines to its row.
+const LINES_INTERVAL: Duration = Duration::from_millis(100);
+
+/// How many of a job's most recent lines its row keeps.
+pub const LINES_LIMIT: usize = 1000;
 
 /// What the runner keeps for a job it is running now.
 struct LiveJob {
@@ -111,6 +128,13 @@ struct ProgressState {
     pending: Option<(Option<f32>, String)>,
     trailing: bool,
     closed: bool,
+    /// The last [`LINES_LIMIT`] emitted values, oldest first.
+    lines: VecDeque<Value>,
+    /// Every value ever emitted, including the ones the ring dropped.
+    line_count: i64,
+    lines_dirty: bool,
+    lines_last_write: Option<Instant>,
+    lines_trailing: bool,
 }
 
 impl ProgressWriter {
@@ -119,12 +143,83 @@ impl ProgressWriter {
         id: ItemId,
         runtime: tokio::runtime::Handle,
     ) -> Arc<Self> {
+        // A re-armed routine carries its lines on: seed from the row.
+        let mut state = ProgressState::default();
+        if let Ok(Some(item)) = store.get(id) {
+            if let Some(Value::Array(held)) = item.payload.get(field::LINES) {
+                state.lines = held.iter().cloned().collect();
+            }
+            if let Some(Value::Int(n)) = item.payload.get(field::LINE_COUNT) {
+                state.line_count = *n;
+            }
+        }
         Arc::new(Self {
             store,
             id,
             runtime,
-            state: Mutex::default(),
+            state: Mutex::new(state),
         })
+    }
+
+    fn emit_sink(self: &Arc<Self>) -> EmitSink {
+        let writer = self.clone();
+        EmitSink::new(move |line| writer.emit(line))
+    }
+
+    /// Append one emitted value; write the lines now when the window since
+    /// the last write has passed, else once when it ends.
+    fn emit(self: &Arc<Self>, line: Json) {
+        let line = serde_json::from_value::<Value>(line.clone())
+            .unwrap_or_else(|_| Value::String(line.to_string()));
+        let mut state = self.lock();
+        if state.closed {
+            return;
+        }
+        state.lines.push_back(line);
+        while state.lines.len() > LINES_LIMIT {
+            state.lines.pop_front();
+        }
+        state.line_count += 1;
+        state.lines_dirty = true;
+        let wait = state.lines_last_write.map_or(Duration::ZERO, |at| {
+            LINES_INTERVAL.saturating_sub(at.elapsed())
+        });
+        if wait.is_zero() {
+            self.write_lines(&mut state);
+        } else if !state.lines_trailing {
+            state.lines_trailing = true;
+            let writer = self.clone();
+            self.runtime.spawn(async move {
+                tokio::time::sleep(wait).await;
+                let mut state = writer.lock();
+                state.lines_trailing = false;
+                if !state.closed {
+                    writer.write_lines(&mut state);
+                }
+            });
+        }
+    }
+
+    /// One update: the held lines and the running total together, so a
+    /// reader never sees one without the other.
+    fn write_lines(&self, state: &mut ProgressState) {
+        if !state.lines_dirty {
+            return;
+        }
+        state.lines_dirty = false;
+        state.lines_last_write = Some(Instant::now());
+        if let Err(e) = self.store.update(
+            self.id,
+            vec![
+                FieldMutation::SetPayload(
+                    field::LINES.into(),
+                    Value::Array(state.lines.iter().cloned().collect()),
+                ),
+                FieldMutation::SetPayload(field::LINE_COUNT.into(), Value::Int(state.line_count)),
+            ],
+        ) {
+            tracing::warn!(target: "koine-host", "job {}: could not record lines: {e}", self.id);
+        }
     }
 
     fn sink(self: &Arc<Self>) -> ProgressSink {
@@ -182,6 +277,7 @@ impl ProgressWriter {
     fn flush(&self) {
         let mut state = self.lock();
         self.write_pending(&mut state);
+        self.write_lines(&mut state);
     }
 
     /// Write whatever is held and take no more (the job ended or was
@@ -189,6 +285,7 @@ impl ProgressWriter {
     fn close(&self) {
         let mut state = self.lock();
         self.write_pending(&mut state);
+        self.write_lines(&mut state);
         state.closed = true;
     }
 }
@@ -298,6 +395,9 @@ impl JobRunner {
         if let Some(message) = text(field::PROGRESS_MESSAGE) {
             out["progress_message"] = json!(message);
         }
+        let (held, total) = line_state(item);
+        out["line_count"] = json!(total);
+        out["lines_held"] = json!(held.len());
         if routine {
             out["routine"] = json!(true);
             out["verb"] = json!(text(field::VERB));
@@ -322,6 +422,37 @@ impl JobRunner {
             }
         }
         out
+    }
+
+    /// `GET /api/job/<id>/lines?after=<n>`: the lines from index `after` of
+    /// the job's total on, or `None` when there is no such job. The row holds
+    /// only the last [`LINES_LIMIT`]; when `after` is older than that the
+    /// answer starts at the oldest line kept and `dropped` says how many of
+    /// the asked-for lines are gone. `next` is the `after` for the next call.
+    pub fn lines(&self, id: ItemId, after: u64) -> Option<Json> {
+        let item = self.store.get(id).ok().flatten()?;
+        if item.schema != refs::TASK {
+            return None;
+        }
+        let state = self.render(&item)["job"]["state"].clone();
+        let (held, total) = line_state(&item);
+        let first = total.saturating_sub(held.len() as u64);
+        let from = after.max(first);
+        let skip = usize::try_from(from - first).unwrap_or(usize::MAX);
+        let lines: Vec<Json> = held
+            .iter()
+            .skip(skip)
+            .map(|v| serde_json::to_value(v).unwrap_or(Json::Null))
+            .collect();
+        Some(json!({
+            "ok": true,
+            "wire_version": WIRE_VERSION,
+            "lines": lines,
+            "next": total,
+            "total": total,
+            "dropped": first.saturating_sub(after),
+            "state": state,
+        }))
     }
 
     /// Every job this process is running now, and every routine row (running,
@@ -526,14 +657,21 @@ impl JobRunner {
         let store = self.store.clone();
         let progress = ProgressWriter::new(store.clone(), id, self.runtime.clone());
         let sink = progress.sink();
+        let emit = progress.emit_sink();
         let writer = progress.clone();
         let mut table = self.live();
         let task = self.runtime.spawn(async move {
             let mut runs = runs;
             loop {
-                let outcome =
-                    PROGRESS.scope(sink.clone(), pipeline::invoke_handle(verb.clone(), call.clone()))
-                        .await;
+                let outcome = PROGRESS
+                    .scope(
+                        sink.clone(),
+                        EMIT.scope(
+                            emit.clone(),
+                            pipeline::invoke_handle(verb.clone(), call.clone()),
+                        ),
+                    )
+                    .await;
                 runs += 1;
                 writer.flush();
                 let (_, result, code, message) = outcome_fields(outcome);
@@ -568,13 +706,14 @@ impl BackgroundRunner for JobRunner {
         let live = self.live.clone();
         let progress = ProgressWriter::new(store.clone(), id, self.runtime.clone());
         let sink = progress.sink();
+        let emit = progress.emit_sink();
         let writer = progress.clone();
         // Held across the spawn and the insert, so a job that finishes at
         // once cannot remove an entry that is not there yet.
         let mut table = self.live();
         let task = self.runtime.spawn(async move {
             let outcome = PROGRESS
-                .scope(sink, pipeline::invoke_handle(verb, call))
+                .scope(sink, EMIT.scope(emit, pipeline::invoke_handle(verb, call)))
                 .await;
             let (state, result, code, message) = outcome_fields(outcome);
             // A cancel removed the entry first and wrote its own end.
@@ -637,6 +776,20 @@ impl BackgroundRunner for JobRunner {
             state: "running".into(),
         })
     }
+}
+
+/// The lines a row holds (oldest first) and how many were ever emitted. A
+/// row that never emitted holds none and counts zero.
+fn line_state(item: &Item) -> (Vec<Value>, u64) {
+    let held = match item.payload.get(field::LINES) {
+        Some(Value::Array(held)) => held.clone(),
+        _ => Vec::new(),
+    };
+    let total = match item.payload.get(field::LINE_COUNT) {
+        Some(Value::Int(n)) => u64::try_from(*n).unwrap_or(0),
+        _ => 0,
+    };
+    (held, total)
 }
 
 /// `human`, `agent:mcp`, `system:impel-taskd`: the inverse of
@@ -825,6 +978,46 @@ mod tests {
         // Closed: later reports are dropped.
         writer.report(Some(0.0), "late");
         assert_eq!(read().1, Some(Value::String("done".into())));
+    }
+
+    #[tokio::test]
+    async fn lines_batch_to_one_write_per_window_keep_the_last_thousand_and_land_at_close() {
+        let store: Arc<dyn AttributedStore> = Arc::from(koine_store::open("memory:").unwrap());
+        let runner = JobRunner::new(store.clone(), tokio::runtime::Handle::current());
+        let id = uuid::Uuid::new_v4();
+        runner
+            .insert_row(id, &CallerIdentity::Person, vec![])
+            .unwrap();
+        let writer = ProgressWriter::new(store.clone(), id, tokio::runtime::Handle::current());
+        let count = || line_state(&store.get(id).unwrap().unwrap()).1;
+        for i in 0..2500 {
+            writer.emit(json!({ "i": i }));
+        }
+        // The first emit wrote at once; the rest are held in the window.
+        assert_eq!(count(), 1);
+        tokio::time::sleep(LINES_INTERVAL + Duration::from_millis(250)).await;
+        assert_eq!(count(), 2500);
+        writer.emit(json!("last"));
+        writer.close();
+        let answer = runner.lines(id, 0).unwrap();
+        assert_eq!(answer["total"], 2501);
+        assert_eq!(answer["lines"].as_array().unwrap().len(), LINES_LIMIT);
+        assert_eq!(answer["dropped"], 1501);
+        assert_eq!(answer["lines"][LINES_LIMIT - 1], "last");
+        assert_eq!(answer["next"], 2501);
+        // Paging inside the ring drops nothing.
+        let tail = runner.lines(id, 2499).unwrap();
+        assert_eq!(tail["dropped"], 0);
+        assert_eq!(tail["lines"], json!([{ "i": 2499 }, "last"]));
+        assert_eq!(runner.lines(id, 9_999).unwrap()["lines"], json!([]));
+        // Closed: later emits are dropped.
+        writer.emit(json!("late"));
+        assert_eq!(count(), 2501);
+        // A new writer over the same row (a re-armed routine) carries on.
+        let again = ProgressWriter::new(store.clone(), id, tokio::runtime::Handle::current());
+        again.emit(json!("more"));
+        assert_eq!(count(), 2502);
+        assert!(runner.lines(uuid::Uuid::new_v4(), 0).is_none());
     }
 
     #[test]

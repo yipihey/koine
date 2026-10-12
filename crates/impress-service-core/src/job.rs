@@ -127,9 +127,69 @@ pub fn progress(fraction: Option<f32>, message: &str) {
     let _ = PROGRESS.try_with(|sink| (sink.0)(fraction, message));
 }
 
+/// Where a running job's [`emit`] calls go. The runner builds one per job
+/// (or per routine) beside its [`ProgressSink`] and runs the job inside
+/// [`EMIT`]`.scope`.
+#[derive(Clone)]
+pub struct EmitSink(pub Arc<EmitFn>);
+
+/// What an [`EmitSink`] calls: one emitted value.
+pub type EmitFn = dyn Fn(serde_json::Value) + Send + Sync;
+
+impl EmitSink {
+    /// A sink that calls `f` for every emitted line.
+    pub fn new(f: impl Fn(serde_json::Value) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(f))
+    }
+}
+
+tokio::task_local! {
+    /// The line sink of the job this task is running, set by the runner
+    /// around the verb (plan-koine-tree-stream T-D2). Unset everywhere else.
+    pub static EMIT: EmitSink;
+}
+
+/// Append one value to the running job's stream. **A stream is a job that
+/// emits**: a verb run `in_background` (or `every`) calls this for each
+/// message, log line, token or tick, and the runner keeps the last 1000 on
+/// the job's `task@1.0.0` row (`lines`, with `line_count` the total ever
+/// emitted), batching the writes to one per 100 ms. `GET
+/// /api/job/<id>/lines?after=<n>` reads them; a surface shows them with
+/// `log{lines: "{{source.job.lines}}"}` over a `query` source for the row.
+///
+/// A no-op outside a job: a verb calls it unconditionally, and a call that
+/// is not running as a job (a form's Run, the CLI, a Tier A example) emits
+/// nothing. Like [`progress`], the scope is the task: work handed to
+/// `tokio::spawn` or a blocking thread does not carry it, so emit from the
+/// verb's own task.
+pub fn emit(line: serde_json::Value) {
+    let _ = EMIT.try_with(|sink| (sink.0)(line));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn emit_reaches_the_sink_inside_a_scope_and_nowhere_else() {
+        use std::sync::Mutex;
+        emit(serde_json::json!("ignored"));
+        let seen: Arc<Mutex<Vec<serde_json::Value>>> = Arc::default();
+        let sink = {
+            let seen = seen.clone();
+            EmitSink::new(move |line| seen.lock().unwrap().push(line))
+        };
+        EMIT.scope(sink, async {
+            emit(serde_json::json!({ "i": 0 }));
+            emit(serde_json::json!("two"));
+        })
+        .await;
+        emit(serde_json::json!("after"));
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![serde_json::json!({ "i": 0 }), serde_json::json!("two")]
+        );
+    }
 
     #[tokio::test]
     async fn progress_reaches_the_sink_inside_a_scope_and_nowhere_else() {

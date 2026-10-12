@@ -9,7 +9,8 @@
 //! | `GET /api/verb/<name>/surface` | the generated form for that verb (`verb_surface`) | here |
 //! | `GET /ui`, `/ui/*` | the `koine-web` bundle | [`ui`] |
 //! | `GET/PUT/DELETE /api/blob/<item>/<name>` | the store's blobs | [`blob`] |
-//! | `GET /api/job`, `GET /api/job/<id>`, `POST /api/job/<id>/cancel` | the default job runner: what is running, a job's or routine's row (state, `progress`, `runs`), stopping it | here |
+//! | `GET /api/job`, `GET /api/job/<id>`, `POST /api/job/<id>/cancel` | the default job runner: what is running, a job's or routine's row (state, `progress`, `runs`, `line_count`), stopping it | here |
+//! | `GET /api/job/<id>/lines?after=<n>` | what the job has emitted (`job::emit`): the lines from index `n` on, `next`, `total`, `dropped`, `state` | here |
 //! | `GET /api/secret`, `PUT/DELETE /api/secret/<name>` | the secrets linked verbs declare (never a value) | [`secret`] |
 //! | `POST /mcp` | MCP over JSON-RPC | here |
 //!
@@ -24,10 +25,11 @@ mod secret;
 mod surface;
 mod ui;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::extract::{DefaultBodyLimit, Path, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
@@ -71,6 +73,7 @@ pub(crate) fn router(state: Shared) -> Router {
         )
         .route("/api/job", get(job_list))
         .route("/api/job/{id}", get(job_status))
+        .route("/api/job/{id}/lines", get(job_lines))
         .route("/api/job/{id}/cancel", post(job_cancel))
         .route("/mcp", post(mcp))
         .route("/ui", get(ui::serve))
@@ -257,6 +260,35 @@ async fn job_status(State(state): State<Shared>, Path(id): Path<String>) -> Resp
         Err(response) => return *response,
     };
     match state.runner.status(id) {
+        Some(answer) => json_response(200, &answer),
+        None => refusal(codes::NOT_FOUND, format!("no job {id}")),
+    }
+}
+
+/// `GET /api/job/<id>/lines?after=<n>`: the lines a job has emitted, from
+/// index `after` (default 0) of its total. See `JobRunner::lines`.
+async fn job_lines(
+    State(state): State<Shared>,
+    Path(id): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    let id = match job_id(&id) {
+        Ok(id) => id,
+        Err(response) => return *response,
+    };
+    let after = match query.get("after") {
+        None => 0,
+        Some(raw) => match raw.parse::<u64>() {
+            Ok(n) => n,
+            Err(_) => {
+                return refusal(
+                    codes::INVALID_ARGUMENT,
+                    format!("after must be a non-negative integer, got '{raw}'"),
+                )
+            }
+        },
+    };
+    match state.runner.lines(id, after) {
         Some(answer) => json_response(200, &answer),
         None => refusal(codes::NOT_FOUND, format!("no job {id}")),
     }

@@ -122,6 +122,26 @@ fn work(_: Value) -> ServiceFuture {
     })
 }
 
+/// A verb that emits `n` numbered lines at once (a flood).
+static FLOOD: VerbDescriptor = VerbDescriptor {
+    name: "host-fixture_flood",
+    method: "flood",
+    description: "Test fixture: emits `ms` numbered lines as fast as it can.",
+    handler: flood,
+    ..NAP
+};
+inventory::submit! { McpToolDescriptor::of(&FLOOD) }
+
+fn flood(args: Value) -> ServiceFuture {
+    Box::pin(async move {
+        let n = args.get("ms").and_then(Value::as_u64).unwrap_or(0);
+        for i in 0..n {
+            impress_service_core::job::emit(json!({ "i": i }));
+        }
+        Ok(json!({ "ok": true, "emitted": n }))
+    })
+}
+
 fn nap_schema() -> Value {
     json!({ "type": "object", "properties": { "ms": { "type": "integer" } } })
 }
@@ -1581,6 +1601,110 @@ async fn a_job_reports_progress_that_status_shows() {
     assert_eq!(done["job"]["state"], "completed", "{done}");
     assert_eq!(done["progress"], 0.5);
     assert_eq!(done["progress_message"], "half");
+    host.served.shutdown().await;
+}
+
+/// Poll `GET /api/job/<id>/lines` until its `total` is `total`.
+async fn lines_until(host: &Host, id: &str, total: u64) -> Value {
+    let mut last = Value::Null;
+    for _ in 0..300 {
+        let (status, lines) = host.get_json(&format!("/api/job/{id}/lines?after=0")).await;
+        assert_eq!(status, 200, "{lines}");
+        if lines["total"] == total {
+            return lines;
+        }
+        last = lines;
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("the job never emitted {total} lines: {last}");
+}
+
+#[tokio::test]
+async fn a_job_that_emits_is_a_stream_the_lines_route_pages() {
+    let _turn = TURN.lock().await;
+    let host = start("memory:", "stream-app").await;
+    let (status, started) = host
+        .post(
+            "/api/verb/surface-demo-service_tick",
+            json!({ "n": 5, "every_ms": 10, "adverbs": { "in_background": true } }),
+        )
+        .await;
+    assert_eq!(status, 200, "{started}");
+    let id = started["job"]["id"].as_str().unwrap().to_string();
+
+    let all = lines_until(&host, &id, 5).await;
+    assert_eq!(all["ok"], true);
+    assert_eq!(all["wire_version"], 1);
+    assert_eq!(all["dropped"], 0);
+    assert_eq!(all["next"], 5);
+    let lines = all["lines"].as_array().unwrap();
+    let indices: Vec<u64> = lines.iter().map(|l| l["i"].as_u64().unwrap()).collect();
+    assert_eq!(indices, vec![1, 2, 3, 4, 5], "{all}");
+    assert!(lines.iter().all(|l| l["at"].is_u64()));
+
+    // `after` pages: from 3 on is the last two; at the end is empty.
+    let (_, tail) = host.get_json(&format!("/api/job/{id}/lines?after=3")).await;
+    let tail_lines = tail["lines"].as_array().unwrap();
+    assert_eq!(tail_lines, &lines[3..]);
+    assert_eq!(
+        (tail["next"].as_u64(), tail["total"].as_u64()),
+        (Some(5), Some(5))
+    );
+    let (_, none) = host.get_json(&format!("/api/job/{id}/lines?after=5")).await;
+    assert_eq!(none["lines"], json!([]));
+    assert_eq!(none["next"], 5);
+    let (status, bad) = host.get_json(&format!("/api/job/{id}/lines?after=x")).await;
+    assert_eq!(status, 400, "{bad}");
+
+    // The job's own row shows the count, and it ended after the last line.
+    let done = job_until(&host, &id, |j| j["job"]["state"] != "running").await;
+    assert_eq!(done["job"]["state"], "completed", "{done}");
+    assert_eq!(done["line_count"], 5);
+    assert_eq!(done["lines_held"], 5);
+    assert_eq!(done["progress_message"], "tick 5/5");
+    assert_eq!(done["result"]["emitted"], 5);
+    assert!(all["state"].is_string(), "{all}");
+    let (_, list) = host.get_json("/api/job").await;
+    assert!(list["jobs"].is_array());
+
+    // The unknown job is not-found, a bad id is invalid.
+    let (status, none) = host
+        .get_json("/api/job/00000000-0000-4000-8000-000000000000/lines")
+        .await;
+    assert_eq!(status, 404, "{none}");
+    assert_eq!(none["code"], "not-found");
+    let (status, _) = host.get_json("/api/job/nope/lines").await;
+    assert_eq!(status, 400);
+    host.served.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_flood_keeps_the_last_thousand_lines_and_counts_the_rest() {
+    let _turn = TURN.lock().await;
+    let host = start("memory:", "flood-app").await;
+    let (_, started) = host
+        .post(
+            "/api/verb/host-fixture_flood",
+            json!({ "ms": 3000, "adverbs": { "in_background": true } }),
+        )
+        .await;
+    let id = started["job"]["id"].as_str().unwrap().to_string();
+    let all = lines_until(&host, &id, 3000).await;
+    let lines = all["lines"].as_array().unwrap();
+    assert_eq!(lines.len(), 1000, "the ring keeps the last thousand");
+    assert_eq!(all["dropped"], 2000);
+    assert_eq!(lines[0], json!({ "i": 2000 }));
+    assert_eq!(lines[999], json!({ "i": 2999 }));
+    assert_eq!(all["next"], 3000);
+    // Asking from inside the ring drops nothing.
+    let (_, inside) = host
+        .get_json(&format!("/api/job/{id}/lines?after=2990"))
+        .await;
+    assert_eq!(inside["dropped"], 0);
+    assert_eq!(inside["lines"].as_array().unwrap().len(), 10);
+    let done = job_until(&host, &id, |j| j["job"]["state"] != "running").await;
+    assert_eq!(done["line_count"], 3000);
+    assert_eq!(done["lines_held"], 1000);
     host.served.shutdown().await;
 }
 

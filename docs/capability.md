@@ -790,6 +790,60 @@ the refusal, do not retry), `NotFound` when the upload is missing (upload
 again), `Store` when the store failed. The bytes are read whole; a verb that
 takes a very large file should say so in its `///`.
 
+### A verb that emits
+
+A stream is a job that emits (plan-koine-tree-stream T-D2): no new verb shape.
+A verb that declares `supports(in_background)` (or `every`) calls
+`impress_service_core::job::emit(value)` for each message, log line, token or
+tick, and `progress(fraction, message)` for how far along it is:
+
+```rust
+use impress_service_core::job::{emit, progress};
+
+/// Emit `n` ticks, `every_ms` apart.
+#[impress_method(supports(in_background))]
+async fn tick(&self, n: u32, every_ms: u64) -> TickResult {
+    for k in 1..=n {
+        emit(serde_json::json!({ "i": k }));
+        progress(Some(k as f32 / n as f32), &format!("tick {k}/{n}"));
+        tokio::time::sleep(std::time::Duration::from_millis(every_ms)).await;
+    }
+    TickResult { ok: true, emitted: n }
+}
+```
+
+`emit` is a no-op outside a job, so the same verb runs inline (a form's Run,
+the CLI, a Tier A example) and only answers. Call it from the verb's own task:
+work handed to `tokio::spawn` or a blocking thread does not carry the scope.
+`surface-demo-service_tick` is the worked example.
+
+The host keeps the last 1000 values on the job's `task@1.0.0` row as `lines`
+(an array of the emitted JSON values) beside `line_count`, the total ever
+emitted, written together by one update at most every 100 ms and once more
+when the job ends or is cancelled. `GET /api/job/<id>` and `GET /api/job`
+show `line_count` and `lines_held`. A routine's lines are its runs' lines,
+cumulative, with the same limit.
+
+`GET /api/job/<id>/lines?after=<n>` is the stream itself, `after` an index
+into the total:
+
+```json
+{ "ok": true, "wire_version": 1, "lines": [{"i": 3}], "next": 3, "total": 3,
+  "dropped": 0, "state": "running" }
+```
+
+Poll with `after = next`. Lines older than the last 1000 are gone: an `after`
+below `total - 1000` starts at the oldest line kept and `dropped` says how
+many of the requested ones are lost (0 otherwise). An unknown job is
+`not-found`; `cancel` ends the stream.
+
+The live view is a surface over the row, with nothing new in the vocabulary:
+a `query` source over the `task` kind for the job, and
+`log{lines: "{{source.job.lines}}"}`. Every flush is a store event, so the
+feed (plan-koine-live L-D2) re-renders the surface as lines arrive. The
+host's kind manifest must name the task kind (`task` over `task@1.0.0`) for
+that query to compile; `manifest::minimal()` does not yet.
+
 ## 10. Checklist
 
 Tick every line; each is something you can look at or run.

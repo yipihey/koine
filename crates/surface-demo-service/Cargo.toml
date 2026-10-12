@@ -14,6 +14,8 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 schemars = { workspace = true }
 async-trait = { workspace = true }
+# `tick` sleeps between the values it emits (plan-koine-tree-stream T-D2).
+tokio = { workspace = true, features = ["time"] }
 koine-workspace-hack.workspace = true
 
 [dev-dependencies]

@@ -453,6 +453,40 @@ else
 fi
 stop_host
 
+# A stream is a job that emits (plan-koine-tree-stream T-D2). The scaffolded
+# app links no demo verbs, so this is the stock koine-host binary, which links
+# `surface-demo-service_tick`, started in_background through the same route.
+must "cargo build -p koine-host" cargo build -p koine-host --manifest-path "$KOINE_PATH/Cargo.toml"
+STREAM_HOST_BIN="$CARGO_TARGET_DIR/debug/koine-host"
+check "koine-host binary exists" test -x "$STREAM_HOST_BIN"
+STATS_HOST_BIN="$HOST_BIN"
+HOST_BIN="$STREAM_HOST_BIN"
+if start_host "$TMP/host-stream.log"; then
+    req POST /api/verb/surface-demo-service_tick '{"n":3,"every_ms":50,"adverbs":{"in_background":true}}'
+    expect_eq "tick in_background is 200" "$STATUS" "200"
+    JOB="$(jq -r '.job.id' <<<"$BODY")"
+    check "tick answers a job handle" test -n "$JOB" -a "$JOB" != null
+    TOTAL=0
+    for _ in $(seq 1 100); do
+        req GET "/api/job/$JOB/lines?after=0"
+        TOTAL="$(jq -r '.total // 0' <<<"$BODY")"
+        [[ "$TOTAL" == 3 ]] && break
+        sleep 0.1
+    done
+    expect_eq "the job's lines reach total == 3" "$TOTAL" "3"
+    check "the lines are the emitted objects in order" jq -e '.ok == true and ([.lines[].i] == [1,2,3]) and .next == 3 and .dropped == 0' <<<"$BODY"
+    req GET "/api/job/$JOB/lines?after=2"
+    check "after=2 pages to the last line" jq -e '(.lines | length) == 1 and .lines[0].i == 3' <<<"$BODY"
+    req GET "/api/job/$JOB"
+    expect_eq "GET /api/job/<id> shows line_count" "$(jq -r '.line_count' <<<"$BODY")" "3"
+    req GET "/api/job/00000000-0000-4000-8000-000000000000/lines"
+    expect_eq "lines of an unknown job is 404" "$STATUS" "404"
+else
+    fail "koine-host starts for the stream check"
+fi
+stop_host
+HOST_BIN="$STATS_HOST_BIN"
+
 # ================================================================ 7. the page
 DX="${DX:-$(command -v dx || echo "$HOME/.cargo/bin/dx")}"
 [[ -x "$DX" ]] || DX="/home/user/.cargo/bin/dx"
