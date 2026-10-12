@@ -531,7 +531,14 @@ pub fn editor_apply(host: &mut StyleHost, event: &Event) -> Result<bool, StyleEr
             host.reset(slot)?;
             Ok(true)
         }
-        EventKind::Select | EventKind::Submit => Ok(false),
+        // Row events (plan-koine-outline) are not the style editor's.
+        EventKind::Select
+        | EventKind::Submit
+        | EventKind::Rename
+        | EventKind::Delete
+        | EventKind::Activate
+        | EventKind::Move
+        | EventKind::Menu => Ok(false),
     }
 }
 

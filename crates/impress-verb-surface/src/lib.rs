@@ -576,12 +576,16 @@ fn result_node(output_schema: &Value, returns_kind: Option<&str>, rows: Option<R
                     path: "state.selected".to_string(),
                     value: json!("{{event.value}}"),
                 }],
+                actions: Vec::new(),
+                count_field: None,
             }),
             _ => NodeKind::Table(impress_surface::spec::Table {
                 rows: json!("{{state.result}}"),
                 columns: table_columns(output_schema),
                 id_field: None,
                 on_select: Vec::new(),
+                actions: Vec::new(),
+                count_field: None,
             }),
         },
         ResultShape::Kv => NodeKind::Kv(json!("{{state.result}}")),
@@ -684,6 +688,8 @@ fn envelope_result_node(
         columns,
         id_field,
         on_select,
+        actions: Vec::new(),
+        count_field: None,
     }))
     .with_id("result-view")
     .with_label(label)
@@ -786,6 +792,8 @@ pub fn catalogue() -> SurfaceSpec {
             path: "state.selected".to_string(),
             value: json!("{{event.value}}"),
         }],
+        actions: Vec::new(),
+        count_field: None,
     }))
     .with_id("catalogue-table");
 

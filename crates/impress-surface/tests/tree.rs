@@ -47,8 +47,15 @@ fn a_tree_round_trips_and_resolves_to_the_visible_outline() {
     assert_eq!(back, s);
     let tree = resolve(&s, &s.state, &Value::Null, &Value::Null);
     match &tree.root.node {
-        RenderKind::Tree { nodes, bind } => {
+        RenderKind::Tree {
+            nodes,
+            bind,
+            expanded,
+            actions,
+        } => {
             assert_eq!(bind.as_deref(), Some("state.open"));
+            assert_eq!(expanded, &vec![json!("a")]);
+            assert!(actions.is_empty());
             let shown: Vec<(&str, u32, bool, bool)> = nodes
                 .iter()
                 .map(|n| (n.label.as_str(), n.depth, n.has_children, n.expanded))

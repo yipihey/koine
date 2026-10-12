@@ -387,6 +387,19 @@ pub enum EventKind {
     Click,
     Select,
     Submit,
+    /// A `tree` row renamed (plan-koine-outline O-D3): value
+    /// `{"id": …, "label": "<the new text>"}`.
+    Rename,
+    /// A `tree` row deleted: value `[id]`.
+    Delete,
+    /// A `tree` row opened (a double-click, or `o`): value `[id]`.
+    Activate,
+    /// A `tree` row or rows dragged elsewhere (O-D4): value
+    /// `{"ids": [...], "to": <parent id or null>, "index": <position>}`.
+    Move,
+    /// A row's context menu entry chosen (O-D5): value
+    /// `{"id": <row id>, "action": "<label>"}`.
+    Menu,
 }
 
 /// A node's visibility condition: truthy at `path` when `equals` is absent, or
@@ -431,6 +444,19 @@ pub struct Tab {
     pub body: Node,
 }
 
+/// One entry of a row's context menu (plan-koine-outline O-D5): choosing it
+/// sends a `menu` event whose value is `{"id": <row id>, "action": <label>}`,
+/// and the reducer runs `on_click` with that as `{{event.value}}`. A node's
+/// labels are unique.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+pub struct MenuAction {
+    pub label: String,
+    #[serde(default)]
+    pub on_click: Vec<Action>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
@@ -448,6 +474,15 @@ pub struct Table {
     pub id_field: Option<String>,
     #[serde(default)]
     pub on_select: Vec<Action>,
+    /// A context menu per row (plan-koine-outline O-D5); a `menu` event names
+    /// one entry by label. Absent from the wire when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<MenuAction>,
+    /// A row field drawn after the label (plan-koine-outline O-D6): a literal
+    /// property name, never a template. Absent or null in a row draws
+    /// nothing. Absent from the wire when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count_field: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -457,6 +492,15 @@ pub struct ListWidget {
     pub rows: Value,
     #[serde(default)]
     pub on_select: Vec<Action>,
+    /// A context menu per row (plan-koine-outline O-D5); a `menu` event names
+    /// one entry by label. Absent from the wire when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<MenuAction>,
+    /// A row field drawn after the label (plan-koine-outline O-D6): a literal
+    /// property name, never a template. Absent or null in a row draws
+    /// nothing. Absent from the wire when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count_field: Option<String>,
 }
 
 /// `tree{rows, id_field, parent_field, label_field, bind, on_select}`
@@ -487,6 +531,31 @@ pub struct Tree {
     /// Runs on a `select`; `{{event.value}}` is `[id]`.
     #[serde(default)]
     pub on_select: Vec<Action>,
+    /// Runs on a `rename` (plan-koine-outline O-D3); `{{event.value}}` is
+    /// `{"id": …, "label": "<the new text>"}`. Absent from the wire when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub on_rename: Vec<Action>,
+    /// Runs on a `delete`; `{{event.value}}` is `[id]`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub on_delete: Vec<Action>,
+    /// Runs on an `activate` (a double-click, or `o`); `{{event.value}}` is
+    /// `[id]`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub on_activate: Vec<Action>,
+    /// Runs on a `move` (O-D4); `{{event.value}}` is
+    /// `{"ids": [...], "to": <parent id or null>, "index": <position among
+    /// the new siblings>}`. The handler decides what a move means.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub on_move: Vec<Action>,
+    /// A context menu per row (plan-koine-outline O-D5); a `menu` event names
+    /// one entry by label. Absent from the wire when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<MenuAction>,
+    /// A row field drawn after the label (plan-koine-outline O-D6): a literal
+    /// property name, never a template. Absent or null in a row draws
+    /// nothing. Absent from the wire when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count_field: Option<String>,
 }
 
 /// `graph{nodes, edges, id_field, label_field, source_field, target_field,
@@ -1293,6 +1362,16 @@ pub fn child_pointers(node: &Node) -> Vec<(String, &Node)> {
     }
 }
 
+/// A row menu's handlers (`/tree/actions/2/on_click`).
+fn menu_pointers<'a>(kind: &str, actions: &'a [MenuAction], out: &mut Vec<(String, &'a [Action])>) {
+    for (i, a) in actions.iter().enumerate() {
+        out.push((
+            format!("/{kind}/actions/{i}/on_click"),
+            a.on_click.as_slice(),
+        ));
+    }
+}
+
 /// Each action list `node` declares, with its JSON-pointer suffix
 /// (`/on_change`, `/table/on_select`, `/button/on_click`, …).
 pub fn handler_pointers(node: &Node) -> Vec<(String, &[Action])> {
@@ -1301,9 +1380,22 @@ pub fn handler_pointers(node: &Node) -> Vec<(String, &[Action])> {
         ("/on_submit".to_string(), node.on_submit.as_slice()),
     ];
     match &node.kind {
-        NodeKind::Table(t) => out.push(("/table/on_select".to_string(), t.on_select.as_slice())),
-        NodeKind::List(l) => out.push(("/list/on_select".to_string(), l.on_select.as_slice())),
-        NodeKind::Tree(t) => out.push(("/tree/on_select".to_string(), t.on_select.as_slice())),
+        NodeKind::Table(t) => {
+            out.push(("/table/on_select".to_string(), t.on_select.as_slice()));
+            menu_pointers("table", &t.actions, &mut out);
+        }
+        NodeKind::List(l) => {
+            out.push(("/list/on_select".to_string(), l.on_select.as_slice()));
+            menu_pointers("list", &l.actions, &mut out);
+        }
+        NodeKind::Tree(t) => {
+            out.push(("/tree/on_select".to_string(), t.on_select.as_slice()));
+            out.push(("/tree/on_rename".to_string(), t.on_rename.as_slice()));
+            out.push(("/tree/on_delete".to_string(), t.on_delete.as_slice()));
+            out.push(("/tree/on_activate".to_string(), t.on_activate.as_slice()));
+            out.push(("/tree/on_move".to_string(), t.on_move.as_slice()));
+            menu_pointers("tree", &t.actions, &mut out);
+        }
         NodeKind::Graph(g) => out.push(("/graph/on_select".to_string(), g.on_select.as_slice())),
         NodeKind::Plot(p) => out.push(("/plot/on_click".to_string(), p.on_click.as_slice())),
         NodeKind::Image(i) => out.push(("/image/on_click".to_string(), i.on_click.as_slice())),

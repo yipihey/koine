@@ -1370,7 +1370,7 @@ impress_service_impl! {
         surface_dispatch(
             /// UUID of the stored surface returned by surface-create or surface-list.
             id: String,
-            /// {"widget": id, "kind": "change"|"click"|"select"|"submit",
+            /// {"widget": id, "kind": "change"|"click"|"select"|"submit"|"rename"|"delete"|"activate"|"move"|"menu",
             /// "value": json}.
             event: Event,
             /// State instance identifier; defaults to this device.

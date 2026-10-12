@@ -102,8 +102,9 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
             rows,
             columns,
             id_field,
+            ..
         } => table_node(id, label, help, rows, columns, id_field.as_deref(), ctx),
-        RenderKind::List { rows } => list_node(id, label, help, rows, ctx),
+        RenderKind::List { rows, .. } => list_node(id, label, help, rows, ctx),
         RenderKind::Tree { nodes, .. } => tree_node(id, label, help, nodes, ctx),
         RenderKind::Graph { svg, .. } => {
             let on_event = ctx.on_event;

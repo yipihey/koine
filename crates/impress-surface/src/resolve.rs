@@ -119,9 +119,22 @@ pub enum RenderKind {
         /// the table selects by `id`, then by index.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id_field: Option<String>,
+        /// The labels of the row menu (`Table::actions`); a `menu` event
+        /// names one. Absent when the table declares none.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        actions: Vec<String>,
+        /// The row field a renderer draws as the count (`Table::count_field`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        count_field: Option<String>,
     },
     List {
         rows: Value,
+        /// As [`RenderKind::Table`]'s `actions`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        actions: Vec<String>,
+        /// As [`RenderKind::Table`]'s `count_field`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        count_field: Option<String>,
     },
     /// `tree{…}` (plan-koine-tree-stream T-D1): the visible outline, already
     /// nested and filtered by the expanded ids, in drawing order.
@@ -131,6 +144,15 @@ pub enum RenderKind {
         /// click sends `change` for this widget with the new list.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         bind: Option<String>,
+        /// The whole expanded list read from `bind` (plan-koine-outline
+        /// O-D2), including ids of branches a collapsed ancestor hides. A
+        /// disclosure toggle sends this list with one id added or removed,
+        /// so collapsing a branch keeps its descendants' state.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        expanded: Vec<Value>,
+        /// The labels of the row menu (`Tree::actions`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        actions: Vec<String>,
     },
     /// `graph{…}` (plan-koine-tree-stream T-D3): `spec` is the
     /// `koine_plot::graph::GraphSpec` the rows became (ids as text), `svg`
@@ -202,6 +224,11 @@ pub enum RenderKind {
 pub struct RenderTab {
     pub title: String,
     pub body: RenderNode,
+}
+
+/// The labels of a row menu, in declaration order.
+fn menu_labels(actions: &[crate::spec::MenuAction]) -> Vec<String> {
+    actions.iter().map(|a| a.label.clone()).collect()
 }
 
 /// See the module docs.
@@ -373,12 +400,16 @@ fn resolve_kind(
                 id_field: t.id_field.clone().or(envelope_id),
                 columns,
                 rows: rows.clone(),
+                actions: menu_labels(&t.actions),
+                count_field: t.count_field.clone(),
             }
         }
         NodeKind::List(l) => {
             let resolved = resolve_value(&l.rows, ctx)?;
             RenderKind::List {
                 rows: unwrap_rows(&resolved).0.clone(),
+                actions: menu_labels(&l.actions),
+                count_field: l.count_field.clone(),
             }
         }
         NodeKind::Tree(t) => {
@@ -397,9 +428,12 @@ fn resolve_kind(
                         id: t.id_field.as_deref(),
                         parent: t.parent_field.as_deref(),
                         label: t.label_field.as_deref(),
+                        count: t.count_field.as_deref(),
                     },
                 ),
                 bind: t.bind.clone(),
+                expanded,
+                actions: menu_labels(&t.actions),
             }
         }
         NodeKind::Graph(g) => resolve_graph(g, ctx)?,

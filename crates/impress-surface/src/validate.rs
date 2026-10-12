@@ -31,7 +31,9 @@
 //! 5. Node ids (given or auto-derived) are unique; an interactive widget
 //!    (`field`, `button`, `table`, `list`) with no `id` is a warning.
 //! 6. Per kind: a `select` field has options, `grid.columns >= 1`, a
-//!    `table.id_field` is a non-empty literal field name, a node
+//!    `table.id_field` is a non-empty literal field name, a `tree`, `table`
+//!    or `list` row menu has non-empty, unique labels and a literal
+//!    `count_field`, a node
 //!    that could not be read is an error with the reader's own message, an
 //!    unknown kind a warning.
 //! 7. `each` is a literal path with a data root; `open` names a view kind and
@@ -609,10 +611,15 @@ fn check_node(node: &Node, at: &str, scope: &Scope, problems: &mut Vec<Problem>)
                     ));
                 }
             }
+            check_row_menu("table", &t.actions, &t.count_field, at, problems);
         }
-        NodeKind::List(l) => refs(&l.rows, "list/rows"),
+        NodeKind::List(l) => {
+            refs(&l.rows, "list/rows");
+            check_row_menu("list", &l.actions, &l.count_field, at, problems);
+        }
         NodeKind::Tree(t) => {
             refs(&t.rows, "tree/rows");
+            check_row_menu("tree", &t.actions, &t.count_field, at, problems);
             if let Some(bind) = &t.bind {
                 check_state_path(bind, &format!("{at}/tree/bind"), problems);
             }
@@ -708,6 +715,49 @@ fn check_node(node: &Node, at: &str, scope: &Scope, problems: &mut Vec<Problem>)
             format!("this build has no '{kind}' widget: it renders as a placeholder"),
         )),
         NodeKind::Invalid { error, .. } => problems.push(Problem::error(at, error.clone())),
+    }
+}
+
+/// `actions` and `count_field` of a `tree`, `table` or `list`
+/// (plan-koine-outline O-D5, O-D6): a label is non-empty and unique within
+/// the node, and `count_field` is a literal property name. The handlers
+/// inside are checked with every other action list ([`handler_pointers`]).
+fn check_row_menu(
+    kind: &str,
+    actions: &[crate::spec::MenuAction],
+    count_field: &Option<String>,
+    at: &str,
+    problems: &mut Vec<Problem>,
+) {
+    let mut seen = BTreeSet::new();
+    for (i, action) in actions.iter().enumerate() {
+        let path = format!("{at}/{kind}/actions/{i}/label");
+        if action.label.trim().is_empty() {
+            problems.push(Problem::error(
+                path,
+                format!("{kind}.actions[{i}].label must not be empty"),
+            ));
+        } else if !seen.insert(action.label.as_str()) {
+            problems.push(Problem::error(
+                path,
+                format!(
+                    "{kind}.actions label '{}' is used twice: a `menu` event names its entry \
+                     by label",
+                    action.label
+                ),
+            ));
+        }
+    }
+    if let Some(field) = count_field {
+        if field.trim().is_empty() || field.contains("{{") {
+            problems.push(Problem::error(
+                format!("{at}/{kind}/count_field"),
+                format!(
+                    "{kind}.count_field must be a non-empty literal field name of the rows, \
+                     not a template"
+                ),
+            ));
+        }
     }
 }
 
@@ -1321,6 +1371,8 @@ mod tests {
                 columns: vec!["bibcode".to_string()],
                 id_field: id_field.map(str::to_string),
                 on_select: Vec::new(),
+                actions: Vec::new(),
+                count_field: None,
             }))
             .with_id("t"),
         )

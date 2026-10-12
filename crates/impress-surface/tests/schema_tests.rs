@@ -184,3 +184,63 @@ fn an_unknown_node_kind_is_valid_against_the_schema() {
     });
     assert_eq!(errors(&validator(), &spec), Vec::<String>::new());
 }
+
+/// The plan-koine-outline additions are part of the vocabulary: a tree with
+/// row events, a menu and a count, and a table and list with a menu, are
+/// valid; a misspelt handler or menu key is not.
+#[test]
+fn the_outline_vocabulary_passes_the_emitted_schema() {
+    let validator = validator();
+    let handler = serde_json::json!([{ "set": { "path": "state.x", "value": "{{event.value}}" } }]);
+    let ok = serde_json::json!({
+        "surface": "1.0", "name": "ok", "state": { "rows": [], "x": null, "open": [] },
+        "root": { "column": [
+            { "id": "side", "tree": {
+                "rows": "{{state.rows}}", "bind": "state.open", "count_field": "n",
+                "on_rename": handler, "on_delete": handler, "on_activate": handler,
+                "on_move": handler,
+                "actions": [ { "label": "Rename", "on_click": handler } ] } },
+            { "id": "t", "table": { "rows": [], "columns": ["a"], "count_field": "n",
+                "actions": [ { "label": "Open" } ] } },
+            { "id": "l", "list": { "rows": [], "count_field": "n",
+                "actions": [ { "label": "Pin", "on_click": handler } ] } }
+        ] }
+    });
+    assert_eq!(errors(&validator, &ok), Vec::<String>::new());
+    for (what, root) in [
+        (
+            "a misspelt tree handler",
+            serde_json::json!({ "tree": { "rows": [], "on_remame": handler } }),
+        ),
+        (
+            "a menu entry without a label",
+            serde_json::json!({ "tree": { "rows": [], "actions": [ { "on_click": handler } ] } }),
+        ),
+        (
+            "a menu entry with a misspelt key",
+            serde_json::json!({ "list": { "rows": [], "actions": [ { "label": "a", "on_clik": handler } ] } }),
+        ),
+        (
+            "a count_field that is not a string",
+            serde_json::json!({ "tree": { "rows": [], "count_field": 3 } }),
+        ),
+    ] {
+        let spec =
+            serde_json::json!({ "surface": "1.0", "name": "bad", "state": {}, "root": root });
+        assert!(
+            !errors(&validator, &spec).is_empty(),
+            "the schema accepted {what}"
+        );
+    }
+}
+
+/// The five new event kinds are in the emitted schema.
+#[test]
+fn the_schema_mentions_every_event_kind() {
+    let event = serde_json::to_string(&schema_for!(impress_surface::Event)).unwrap();
+    for kind in [
+        "change", "click", "select", "submit", "rename", "delete", "activate", "move", "menu",
+    ] {
+        assert!(event.contains(kind), "Event schema lacks `{kind}`");
+    }
+}

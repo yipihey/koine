@@ -30,6 +30,11 @@ pub struct TreeNode {
     pub has_children: bool,
     /// The node is a branch and its id is in the expanded list.
     pub expanded: bool,
+    /// The row's `count_field` value (plan-koine-outline O-D6); `None` when
+    /// no field is declared or the row lacks it or holds null. Absent from
+    /// the wire when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub count: Option<Value>,
     /// The row itself, for a renderer that wants a second column.
     pub row: Value,
 }
@@ -40,11 +45,14 @@ pub struct Fields<'a> {
     pub id: Option<&'a str>,
     pub parent: Option<&'a str>,
     pub label: Option<&'a str>,
+    pub count: Option<&'a str>,
 }
 
 /// See the module docs. `rows` is the array of rows (an envelope already
 /// unwrapped); anything else yields no nodes. `expanded` is the list of
-/// expanded ids.
+/// expanded ids: the whole list from the bind path, including ids of branches
+/// a collapsed ancestor hides (plan-koine-outline O-D2), which keep their
+/// state for when the ancestor opens again.
 pub fn build(rows: &Value, expanded: &[Value], fields: Fields<'_>) -> Vec<TreeNode> {
     let id_field = fields.id.unwrap_or("id");
     let parent_field = fields.parent.unwrap_or("parent");
@@ -126,6 +134,11 @@ pub fn build(rows: &Value, expanded: &[Value], fields: Fields<'_>) -> Vec<TreeNo
                 depth,
                 has_children,
                 expanded: is_expanded,
+                count: fields
+                    .count
+                    .and_then(|field| row.get(field))
+                    .filter(|v| !v.is_null())
+                    .cloned(),
                 row: (*row).clone(),
             });
         }
@@ -273,9 +286,32 @@ mod tests {
             id: Some("key"),
             parent: Some("up"),
             label: Some("text"),
+            count: None,
         };
         let nodes = build(&rows, &[json!("r")], fields);
         assert_eq!(labels(&nodes), vec![("root".into(), 0), ("kid".into(), 1)]);
+    }
+
+    #[test]
+    fn count_is_the_declared_field_and_none_when_absent_or_null() {
+        let rows = json!([
+            {"id": "a", "n": 3},
+            {"id": "b", "n": 0},
+            {"id": "c", "n": null},
+            {"id": "d"},
+        ]);
+        let fields = Fields {
+            count: Some("n"),
+            ..Fields::default()
+        };
+        let counts: Vec<Option<Value>> = build(&rows, &[], fields)
+            .into_iter()
+            .map(|n| n.count)
+            .collect();
+        assert_eq!(counts, vec![Some(json!(3)), Some(json!(0)), None, None]);
+        assert!(build(&rows, &[], Fields::default())
+            .iter()
+            .all(|n| n.count.is_none()));
     }
 
     #[test]

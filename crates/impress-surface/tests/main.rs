@@ -7,6 +7,7 @@ mod contract;
 mod golden;
 mod graph;
 mod live;
+mod outline;
 mod reduce_properties;
 mod schema_tests;
 mod source_errors;

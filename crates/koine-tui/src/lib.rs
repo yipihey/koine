@@ -632,6 +632,7 @@ mod tests {
                 depth,
                 has_children,
                 expanded,
+                count: None,
                 row: serde_json::json!({}),
             }
         };
@@ -642,6 +643,8 @@ mod tests {
                 node(serde_json::json!(7), "docs", 0, true, false),
             ],
             bind: Some("state.open".into()),
+            expanded: vec![],
+            actions: vec![],
         });
         tree.root.id = "files".into();
         tree.focus_order = vec!["files".into()];
@@ -677,6 +680,8 @@ mod tests {
         empty.root.node = RenderKind::Tree {
             nodes: vec![],
             bind: None,
+            expanded: vec![],
+            actions: vec![],
         };
         let event = TextFrontend::new().key(&empty, Key::Activate).unwrap();
         assert_eq!(event.kind, EventKind::Click);

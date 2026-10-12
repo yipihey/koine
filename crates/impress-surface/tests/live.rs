@@ -53,6 +53,7 @@ fn a_table_reads_rows_columns_and_id_field_from_an_envelope() {
             rows,
             columns,
             id_field,
+            ..
         } => {
             assert_eq!(rows, json!([{"id": "a", "n": 1}, {"id": "b", "n": 2}]));
             assert_eq!(columns, vec!["n", "id"]);
@@ -114,7 +115,7 @@ fn a_list_reads_the_rows_of_an_envelope() {
         json!({"id": "l", "list": {"rows": "{{state.result}}"}}),
     );
     match rendered(&s) {
-        RenderKind::List { rows } => assert_eq!(rows, json!(["a", "b"])),
+        RenderKind::List { rows, .. } => assert_eq!(rows, json!(["a", "b"])),
         other => panic!("expected a list, got {other:?}"),
     }
 }

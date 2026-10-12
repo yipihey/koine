@@ -243,6 +243,81 @@ pub fn reduce(
             }
             _ => {}
         },
+        // plan-koine-outline O-D3/O-D4: a tree's own row events. Each runs
+        // the tree's matching list with `{{event.value}}` as sent; a node
+        // with no such list (or of another kind) ignores the event, as a
+        // `select` on a table without `on_select` does.
+        EventKind::Rename | EventKind::Delete | EventKind::Activate | EventKind::Move => {
+            if let NodeKind::Tree(t) = &node.kind {
+                let handler: &[Action] = match event.kind {
+                    EventKind::Rename => &t.on_rename,
+                    EventKind::Delete => &t.on_delete,
+                    EventKind::Activate => &t.on_activate,
+                    _ => &t.on_move,
+                };
+                // The value's shape is the renderer's; a move is at least an
+                // object (`{ids, to, index}`), and only a tree that handles
+                // it is held to that.
+                if event.kind == EventKind::Move && !handler.is_empty() && !event.value.is_object()
+                {
+                    return Err(ReduceError::InvalidArgument {
+                        message: format!(
+                            "a `move` event's value must be an object \
+                             {{\"ids\", \"to\", \"index\"}}, got {}",
+                            crate::spec::json_type(&event.value)
+                        ),
+                    });
+                }
+                run_actions(
+                    handler,
+                    &mut new_state,
+                    (params, sources),
+                    &event_value,
+                    &mut effects,
+                )?;
+            }
+        }
+        // O-D5: a row menu entry, on a tree, table or list. `value` is
+        // `{"id", "action": <label>}`; the entry's `on_click` runs. A widget
+        // that declares no menu ignores the event; one that declares a menu
+        // refuses a label it does not have, naming the ones it does.
+        EventKind::Menu => {
+            let actions: &[crate::spec::MenuAction] = match &node.kind {
+                NodeKind::Tree(t) => &t.actions,
+                NodeKind::Table(t) => &t.actions,
+                NodeKind::List(l) => &l.actions,
+                _ => &[],
+            };
+            if !actions.is_empty() {
+                let label = event.value.get("action").and_then(Value::as_str);
+                let entry = label.and_then(|l| actions.iter().find(|a| a.label == l));
+                let Some(entry) = entry else {
+                    let labels: Vec<&str> = actions.iter().map(|a| a.label.as_str()).collect();
+                    return Err(ReduceError::InvalidArgument {
+                        message: match label {
+                            Some(l) => format!(
+                                "widget '{}' has no menu action '{l}'; its actions are: {}",
+                                event.widget,
+                                labels.join(", ")
+                            ),
+                            None => format!(
+                                "a `menu` event's value needs an `action` label (a string); \
+                                 widget '{}' has: {}",
+                                event.widget,
+                                labels.join(", ")
+                            ),
+                        },
+                    });
+                };
+                run_actions(
+                    &entry.on_click,
+                    &mut new_state,
+                    (params, sources),
+                    &event_value,
+                    &mut effects,
+                )?;
+            }
+        }
         EventKind::Submit => {
             // "runs `on_submit` if declared else is a no-op" — an empty
             // `on_submit` list already does nothing, so no branch is needed.
@@ -319,6 +394,11 @@ fn event_kind_str(kind: EventKind) -> &'static str {
         EventKind::Click => "click",
         EventKind::Select => "select",
         EventKind::Submit => "submit",
+        EventKind::Rename => "rename",
+        EventKind::Delete => "delete",
+        EventKind::Activate => "activate",
+        EventKind::Move => "move",
+        EventKind::Menu => "menu",
     }
 }
 
