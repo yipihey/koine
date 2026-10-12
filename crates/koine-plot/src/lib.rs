@@ -12,6 +12,17 @@
 //!   (`koine-dioxus` places it inside `div.koine-plot`).
 //! - [`text`]: [`text::render_text`], an ASCII sketch for a terminal
 //!   (`koine-tui`): axes, three ticks each, one glyph per series.
+//! - [`Frame`] / [`frame`]: the plot area and axis ranges `render_svg` drew
+//!   with, in the SVG's viewBox units. [`Frame::to_data`] maps a pixel in the
+//!   element back to data coordinates (log axes included; `None` outside the
+//!   plot area) through the same arithmetic as [`Frame::to_pixel`], which the
+//!   renderer calls for every point, so a page can turn a click into `{x, y}`.
+//! - [`graph`]: [`graph::GraphSpec`] (nodes, edges), [`graph::layout`] (a
+//!   deterministic force-directed layout seeded by an FNV-1a hash of the node
+//!   ids, 200 fixed iterations) and [`graph::render_graph_svg`] (edges as
+//!   `<line>`, one `<g class="koine-graph-node" data-id>` per node, labels up
+//!   to 500 nodes). The JSON forms are [`graph::parse_graph`] and
+//!   [`graph::render_graph_svg_json`].
 //! - [`parse_spec`], [`render_svg_json`], [`render_text_json`]: the same for a
 //!   spec held as JSON, answering a typed [`PlotError`] when it does not parse.
 //!
@@ -25,11 +36,13 @@
 //! plot, because the spec types it renders are this crate's.
 
 pub mod axis;
+pub mod graph;
 pub mod spec;
 pub mod svg;
 pub mod text;
 
 pub use spec::*;
+pub use svg::{frame, Frame};
 
 use serde_json::Value;
 

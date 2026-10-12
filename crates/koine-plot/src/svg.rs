@@ -15,28 +15,19 @@ use crate::spec::*;
 pub fn render_svg(spec: &PlotSpec) -> String {
     let mut svg = SvgBuilder::new(spec.width, spec.height);
 
-    // Layout: margins for axes, title, legend
-    let has_title = spec.title.is_some();
-    let margin_top = if has_title { 40.0 } else { 20.0 };
-    let margin_bottom = if spec.x_axis.label.is_some() {
-        60.0
-    } else {
-        45.0
-    };
-    let margin_left = if spec.y_axis.label.is_some() {
-        70.0
-    } else {
-        55.0
-    };
-    let margin_right = 20.0;
-
-    let plot_x = margin_left;
-    let plot_y = margin_top;
-    let plot_w = (spec.width - margin_left - margin_right).max(1.0);
-    let plot_h = (spec.height - margin_top - margin_bottom).max(1.0);
-
-    // Compute data bounds
-    let (x_min, x_max, y_min, y_max) = compute_bounds(spec);
+    // Layout: one function owns the margins and the bounds.
+    let frame = frame(spec);
+    let Frame {
+        plot_x,
+        plot_y,
+        plot_w,
+        plot_h,
+        x_min,
+        x_max,
+        y_min,
+        y_max,
+        ..
+    } = frame;
 
     // Build axis configs
     let x_axis_config = AxisConfig {
@@ -93,13 +84,7 @@ pub fn render_svg(spec: &PlotSpec) -> String {
     );
 
     // Coordinate transform closures
-    let to_px = |x: f64, y: f64| -> (f64, f64) {
-        let xn = normalize(x, x_min, x_max, spec.x_axis.log_scale);
-        let yn = normalize(y, y_min, y_max, spec.y_axis.log_scale);
-        let px = plot_x + xn * plot_w;
-        let py = plot_y + (1.0 - yn) * plot_h;
-        (px, py)
-    };
+    let to_px = |x: f64, y: f64| -> (f64, f64) { frame.to_pixel(x, y) };
 
     // Grid lines
     if spec.show_grid {
@@ -195,7 +180,7 @@ pub fn render_svg(spec: &PlotSpec) -> String {
     if let Some(title) = &spec.title {
         svg.text(
             spec.width / 2.0,
-            margin_top / 2.0 + 4.0,
+            plot_y / 2.0 + 4.0,
             title,
             "middle",
             "14px",
@@ -213,6 +198,101 @@ pub fn render_svg(spec: &PlotSpec) -> String {
     }
 
     svg.finish()
+}
+
+// ── The plot frame ──────────────────────────────────────────────────
+
+/// The plot area and the axis ranges [`render_svg`] drew with, in the SVG's
+/// viewBox units.
+///
+/// `plot_x/plot_y/plot_w/plot_h` are the rectangle the data is drawn in;
+/// `x_min..x_max` and `y_min..y_max` are the (padded) data ranges it maps
+/// onto, `x_log`/`y_log` whether an axis is a base-10 log axis. A page that
+/// receives a click in element coordinates maps it back through
+/// [`Frame::to_data`], which is the inverse of the [`Frame::to_pixel`] the
+/// renderer itself calls for every point: one arithmetic, two directions.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Frame {
+    pub width: f64,
+    pub height: f64,
+    pub plot_x: f64,
+    pub plot_y: f64,
+    pub plot_w: f64,
+    pub plot_h: f64,
+    pub x_min: f64,
+    pub x_max: f64,
+    pub y_min: f64,
+    pub y_max: f64,
+    pub x_log: bool,
+    pub y_log: bool,
+}
+
+/// The frame of `spec`: margins for axes, title and labels, and the padded
+/// data bounds. [`render_svg`] draws from this and nothing else.
+pub fn frame(spec: &PlotSpec) -> Frame {
+    let has_title = spec.title.is_some();
+    let margin_top = if has_title { 40.0 } else { 20.0 };
+    let margin_bottom = if spec.x_axis.label.is_some() {
+        60.0
+    } else {
+        45.0
+    };
+    let margin_left = if spec.y_axis.label.is_some() {
+        70.0
+    } else {
+        55.0
+    };
+    let margin_right = 20.0;
+
+    let (x_min, x_max, y_min, y_max) = compute_bounds(spec);
+    Frame {
+        width: spec.width,
+        height: spec.height,
+        plot_x: margin_left,
+        plot_y: margin_top,
+        plot_w: (spec.width - margin_left - margin_right).max(1.0),
+        plot_h: (spec.height - margin_top - margin_bottom).max(1.0),
+        x_min,
+        x_max,
+        y_min,
+        y_max,
+        x_log: spec.x_axis.log_scale,
+        y_log: spec.y_axis.log_scale,
+    }
+}
+
+impl Frame {
+    /// Data coordinates to a pixel in the SVG's viewBox units.
+    pub fn to_pixel(&self, x: f64, y: f64) -> (f64, f64) {
+        let xn = normalize(x, self.x_min, self.x_max, self.x_log);
+        let yn = normalize(y, self.y_min, self.y_max, self.y_log);
+        let px = self.plot_x + xn * self.plot_w;
+        let py = self.plot_y + (1.0 - yn) * self.plot_h;
+        (px, py)
+    }
+
+    /// A pixel in the SVG's viewBox units to data coordinates; `None` when
+    /// the pixel is outside the plot area (or not finite). Log axes are
+    /// inverted through `10^`.
+    pub fn to_data(&self, px: f64, py: f64) -> Option<(f64, f64)> {
+        if !px.is_finite() || !py.is_finite() {
+            return None;
+        }
+        if px < self.plot_x
+            || px > self.plot_x + self.plot_w
+            || py < self.plot_y
+            || py > self.plot_y + self.plot_h
+        {
+            return None;
+        }
+        let xn = (px - self.plot_x) / self.plot_w;
+        let yn = 1.0 - (py - self.plot_y) / self.plot_h;
+        Some((
+            denormalize(xn, self.x_min, self.x_max, self.x_log)?,
+            denormalize(yn, self.y_min, self.y_max, self.y_log)?,
+        ))
+    }
 }
 
 // ── Coordinate normalization ────────────────────────────────────────
@@ -235,6 +315,20 @@ fn normalize(v: f64, min: f64, max: f64, log_scale: bool) -> f64 {
             return 0.5;
         }
         (v - min) / range
+    }
+}
+
+/// The inverse of [`normalize`]; `None` where a log axis has no positive range.
+fn denormalize(n: f64, min: f64, max: f64, log_scale: bool) -> Option<f64> {
+    if log_scale {
+        if min <= 0.0 || max <= 0.0 {
+            return None;
+        }
+        let log_min = min.log10();
+        let log_max = max.log10();
+        Some(10f64.powf(log_min + n * (log_max - log_min)))
+    } else {
+        Some(min + n * (max - min))
     }
 }
 
@@ -968,7 +1062,7 @@ impl SvgBuilder {
 }
 
 /// Escape XML special characters.
-fn escape_xml(s: &str) -> String {
+pub(crate) fn escape_xml(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -1076,6 +1170,80 @@ mod tests {
         );
         let svg = render_svg(&spec);
         assert!(svg.contains("polyline"));
+    }
+
+    fn close(a: f64, b: f64) -> bool {
+        (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0)
+    }
+
+    #[test]
+    fn frame_round_trips_linear_axes() {
+        let spec =
+            PlotSpec::new()
+                .with_title("t")
+                .line(vec![0.0, 5.0, 10.0], vec![-2.0, 3.0, 8.0], "a");
+        let f = frame(&spec);
+        assert!(!f.x_log && !f.y_log);
+        assert_eq!((f.width, f.height), (spec.width, spec.height));
+        for (x, y) in [(0.0, -2.0), (5.0, 3.0), (10.0, 8.0), (2.5, 0.0)] {
+            let (px, py) = f.to_pixel(x, y);
+            let (bx, by) = f.to_data(px, py).expect("inside the plot area");
+            assert!(close(bx, x) && close(by, y), "({x},{y}) -> ({bx},{by})");
+        }
+    }
+
+    #[test]
+    fn frame_round_trips_log_axes() {
+        // `compute_bounds` pads linearly, so a log axis only keeps a positive
+        // range when the data does not span most of its magnitude.
+        let spec = PlotSpec::new().with_log_x().with_log_y().line(
+            vec![10.0, 14.0, 20.0],
+            vec![100.0, 150.0, 200.0],
+            "ll",
+        );
+        let f = frame(&spec);
+        assert!(f.x_log && f.y_log && f.x_min > 0.0 && f.y_min > 0.0);
+        for (x, y) in [(10.0, 100.0), (14.0, 150.0), (20.0, 200.0), (12.0, 120.0)] {
+            let (px, py) = f.to_pixel(x, y);
+            let (bx, by) = f.to_data(px, py).expect("inside the plot area");
+            assert!(close(bx, x) && close(by, y), "({x},{y}) -> ({bx},{by})");
+        }
+        // Equal ratios are equally far apart on a log axis.
+        let (a, _) = f.to_pixel(10.0, 100.0);
+        let (b, _) = f.to_pixel(12.0, 100.0);
+        let (c, _) = f.to_pixel(14.4, 100.0);
+        assert!(close(b - a, c - b));
+    }
+
+    #[test]
+    fn frame_rejects_pixels_outside_the_plot_area() {
+        let f = frame(&PlotSpec::new().line(vec![0.0, 1.0], vec![0.0, 1.0], "a"));
+        assert!(f.to_data(f.plot_x - 1.0, f.plot_y + 1.0).is_none());
+        assert!(f.to_data(f.plot_x + 1.0, f.plot_y - 1.0).is_none());
+        assert!(f
+            .to_data(f.plot_x + f.plot_w + 1.0, f.plot_y + 1.0)
+            .is_none());
+        assert!(f
+            .to_data(f.plot_x + 1.0, f.plot_y + f.plot_h + 1.0)
+            .is_none());
+        assert!(f.to_data(f64::NAN, f.plot_y + 1.0).is_none());
+        assert!(f.to_data(f.plot_x + 1.0, f.plot_y + 1.0).is_some());
+    }
+
+    #[test]
+    fn frame_serialises_and_matches_the_rendered_plot_area() {
+        let spec = PlotSpec::new()
+            .with_x_label("x")
+            .line(vec![0.0, 1.0], vec![0.0, 1.0], "a");
+        let f = frame(&spec);
+        let back: Frame = serde_json::from_value(serde_json::to_value(f).unwrap()).unwrap();
+        assert_eq!(back, f);
+        // The plot-area background rect is drawn from the frame.
+        let svg = render_svg(&spec);
+        assert!(svg.contains(&format!(
+            r##"<rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" fill="#fafafa""##,
+            f.plot_x, f.plot_y, f.plot_w, f.plot_h
+        )));
     }
 
     #[test]
