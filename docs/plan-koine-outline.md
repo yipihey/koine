@@ -100,6 +100,8 @@ impress-apps it is what the imbib sidebar leaf becomes, with imbib's own
 verbs named, once the Swift renderer draws a tree (that renderer is
 impress-apps' work and follows this plan).
 
+The guide is [outline.md](outline.md).
+
 ## Work packages
 
 | # | Package | Where |

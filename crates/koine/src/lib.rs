@@ -35,12 +35,12 @@ pub mod frame;
 pub mod gesture;
 pub mod style;
 pub mod style_file;
+pub mod surface;
 
 pub use impress_layout as layout;
 pub use impress_pane_query as pane_query;
 #[cfg(feature = "verbs")]
 pub use impress_service_core as verbs;
-pub use impress_surface as surface;
 #[cfg(feature = "verbs")]
 pub use impress_verb_surface as verb_surface;
 

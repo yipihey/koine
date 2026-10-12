@@ -844,6 +844,8 @@ feed (plan-koine-live L-D2) re-renders the surface as lines arrive. The
 host's kind manifest must name the task kind (`task` over `task@1.0.0`) for
 that query to compile; `manifest::minimal()` does not yet.
 
+A sidebar of things that nest (renamed, deleted, dragged, with a menu and counts) is one `tree` node: [outline.md](outline.md).
+
 ## 10. Checklist
 
 Tick every line; each is something you can look at or run.
