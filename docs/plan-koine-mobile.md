@@ -179,7 +179,24 @@ not yet committed to main (I5). The guide for an agent is
   source); `Dioxus.toml` sets `UIFileSharingEnabled` and
   `LSSupportsOpeningDocumentsInPlace` there.
 
-**Unverified: everything behind the `mobile` feature and the lane.** There was
+**Verified on the lane (2026-10-12, `mobile` at 076d99f): 43 of 43.** The
+first run on `macos-15` answered the eight assumptions below in one pass:
+the dependency tree built for `aarch64-apple-ios-sim` (504 crates, 330 s
+cold); `dx build --platform ios --release --features mobile` enabled the
+feature and bundled `target/dx/koine-demo-mobile/release/ios/KoineDemoMobile.app`;
+the plist keys and `com.koine.demo` landed; the simulator ran the unsigned
+bundle; the app's `$HOME` was its data container and the token appeared
+under `Documents/koine-demo/automation/loopback-<port>.token`; the Mac
+reached the app's loopback and drove `/api/status`, the histogram verb,
+`/api/surface` create, render, three dispatches, state, wait, the list and
+`/mcp tools/list`. Two things the run taught: `xcrun simctl
+get_app_container` took eight minutes on the cold runner (the proof is
+patient), and `GET /ui/` answers 503 because the page lives in the WebView,
+not on the host (the browser bundle is not shipped in the app). The one
+assertion that failed on the first run was the script's: a dispatch is an
+agent event only through an `emit`, and the generated form has none.
+
+**Unverified before that run: everything behind the `mobile` feature and the lane.** There was
 no Xcode, no WKWebView and no `x86_64`/`aarch64-apple-ios*` toolchain, so none
 of this has run. A Mac run (the first push to a `mobile*` branch) is what
 confirms:
