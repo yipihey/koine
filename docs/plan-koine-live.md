@@ -160,4 +160,45 @@ the container, so a koine client finds a koine host's token either way.
 
 ## Status
 
-Filled in as the packages land.
+P1–P5 are built on koine main. What landed, and where it differs from the
+decisions above:
+
+- **L-D1.** `every` is the seventh adverb; the interval is at least one
+  second and at most 365 days. A routine row also keeps the call's other
+  adverbs, so a re-arm keeps `within` and `reversibly`; a re-armed routine
+  runs at once, then on its interval. Stopping the host leaves routine rows
+  `running` so the next launch re-arms them; a plain job is written
+  `cancelled`. The CLI takes `--every <duration>`.
+- **L-D2.** As decided. The feed keeps its id-to-schema map for the host's
+  life; a `Deleted` for an id it never saw invalidates every ref a live
+  surface reads. A write that lands between a page's render and its next
+  `surface_wait` is seen at the following event, which is the counter's
+  design. The feed reads `SessionRegistry::shared()` and
+  `DefaultLayoutService::new()`, the same objects the inventory verbs use.
+- **L-D3.** As decided. A verb that does its work on a task it spawns itself
+  does not carry the progress scope.
+- **L-D4.** As decided. A row's id may be a string, a number or a bool; a
+  row without one is skipped and counted in a warning. The uuid5 is
+  hand-written (the workspace `uuid` carries no `v5` feature, and enabling
+  it would move the workspace-hack).
+- **L-D5.** As decided, plus a rule the first press needed: a handler's
+  actions after a `call` are carried on the `Effect::Call` and run by the
+  runtime after the call's `into` is written, because `reduce` is pure and
+  ran the whole list before any call was made (the catalogue's own
+  three-call chain had the same ordering). The More button is hidden
+  when `state.result.next` is null.
+- **L-D6.** As decided. The TUI shows the file's name; the Swift view is a
+  later edit.
+- **L-D7.** As decided. There is no success colour in the palette, so an
+  added diff line uses `--koine-color-success` with info as its fallback.
+  The TUI prints the block under `with_blocks(true)`; `with_plots` is a
+  deprecated alias of it.
+- **L-D8.** As decided, with a colour per series so several are told
+  apart; the y axis is unlabelled.
+- **L-D9.** As decided. `--window` is `cli::main`'s alone (the native window
+  needs the main thread, outside the runtime's `block_on`); `cli::run`
+  warns and serves without it. The `webview` feature cannot be built on this
+  container (no webkit2gtk) and is unverified beyond reading the wry and
+  tao sources; CI builds the browser fallback.
+- **L-D10.** As decided; the suite's container gives `<container>/workspace`,
+  where its clients look.
