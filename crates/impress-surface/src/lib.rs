@@ -50,6 +50,7 @@
 //!   never `on_click`/`on_select`/`on_change` — the renderer does not need to know
 //!   they exist to fire them.
 
+pub mod envelope;
 pub mod plan;
 pub mod reduce;
 pub mod resolve;

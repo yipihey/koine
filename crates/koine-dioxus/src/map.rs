@@ -15,7 +15,7 @@ use impress_surface::resolve::RenderTab;
 use impress_surface::{Event, EventKind, RenderKind, RenderNode};
 use serde_json::Value;
 
-use crate::{font_class, Ctx};
+use crate::{font_class, Ctx, FileChosen};
 
 /// One node, and everything under it.
 pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
@@ -128,6 +128,31 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                         "{error}"
                     }
                 },
+            }
+        }
+        RenderKind::Code { language, text } => {
+            let is_diff = language.as_deref() == Some("diff");
+            let inner = language
+                .as_ref()
+                .map(|language| format!("language-{language}"));
+            rsx! {
+                pre {
+                    class: class("koine-code", None, ctx, id),
+                    "data-koine-id": "{id}",
+                    "data-koine-focused": focused,
+                    "data-language": language.clone(),
+                    aria_label: label,
+                    title: help,
+                    code { class: inner,
+                        if is_diff {
+                            for (index , line) in text.lines().enumerate() {
+                                span { key: "{index}", class: diff_class(line), "{line}\n" }
+                            }
+                        } else {
+                            "{text}"
+                        }
+                    }
+                }
             }
         }
         RenderKind::Image { blob, url } => {
@@ -522,6 +547,50 @@ fn field_node(
                 }
             }
         }
+        "file" => {
+            let accept = options
+                .get("accept")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            // The blob reference the field holds names the file last sent.
+            let chosen = value
+                .pointer("/blob/name")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            let on_file = ctx.on_file;
+            rsx! {
+                input {
+                    id: "{dom_id}",
+                    class: class,
+                    r#type: "file",
+                    accept: accept,
+                    tabindex: 0,
+                    "data-koine-id": "{id}",
+                    "data-koine-focused": focused,
+                    "data-koine-bind": bind,
+                    "data-koine-file": chosen,
+                    title: help,
+                    aria_label: label.clone(),
+                    onchange: move |e: FormEvent| {
+                        let (Some(on_file), Some(file)) = (on_file, e.files().into_iter().next())
+                        else {
+                            return;
+                        };
+                        let widget = widget.clone();
+                        spawn(async move {
+                            if let Ok(bytes) = file.read_bytes().await {
+                                on_file
+                                    .call(FileChosen {
+                                        widget,
+                                        name: file.name(),
+                                        bytes: bytes.to_vec(),
+                                    });
+                            }
+                        });
+                    },
+                }
+            }
+        }
         "date" => {
             let shown = value.as_str().unwrap_or_default().to_string();
             rsx! {
@@ -600,6 +669,21 @@ fn class(base: &str, font: Option<String>, ctx: &Ctx<'_>, id: &str) -> String {
         out.push_str(" koine-focused");
     }
     out
+}
+
+/// The class of one line of a `diff`: added (`+`), removed (`-`), a hunk
+/// header (`@@`), or context. A sheet colours them; the mapping only names
+/// them.
+fn diff_class(line: &str) -> &'static str {
+    if line.starts_with("@@") {
+        "koine-diff-hunk"
+    } else if line.starts_with('+') {
+        "koine-diff-add"
+    } else if line.starts_with('-') {
+        "koine-diff-del"
+    } else {
+        "koine-diff-ctx"
+    }
 }
 
 /// A number field's value is a JSON number: an integer when it is one.
@@ -707,6 +791,15 @@ mod tests {
             selection_of(&json!({"id": "p1"}), Some("bibcode"), 4),
             json!([4])
         );
+    }
+
+    #[test]
+    fn a_diff_line_is_classed_by_its_prefix() {
+        assert_eq!(diff_class("@@ -1,2 +1,2 @@"), "koine-diff-hunk");
+        assert_eq!(diff_class("+added"), "koine-diff-add");
+        assert_eq!(diff_class("-removed"), "koine-diff-del");
+        assert_eq!(diff_class(" context"), "koine-diff-ctx");
+        assert_eq!(diff_class(""), "koine-diff-ctx");
     }
 
     #[test]

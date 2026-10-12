@@ -27,6 +27,7 @@ pub use koine::cursor::Key;
 use koine::cursor::Cursor;
 use koine::style::{editor_apply, editor_spec, StyleError, StyleHost};
 use koine::surface::{Event, RenderKind, RenderNode, RenderTree, SurfaceSpec};
+use serde_json::Value;
 
 /// One text performance of a tree: a cursor into [`RenderTree::focus_order`]
 /// and the tui style sheet.
@@ -34,10 +35,11 @@ use koine::surface::{Event, RenderKind, RenderNode, RenderTree, SurfaceSpec};
 pub struct TextFrontend {
     cursor: Cursor,
     style: StyleHost,
-    /// Draw a `plot` node's sketch under its line (`with_plots`). Off by
-    /// default so [`render`] keeps one line per node, the contract the
-    /// cursor and the frontends suite rely on.
-    draw_plots: bool,
+    /// Draw the blocks under their lines (`with_blocks`): a `plot` node's
+    /// sketch and a `code` node's source. Off by default so [`render`] keeps
+    /// one line per node, the contract the cursor and the frontends suite
+    /// rely on.
+    draw_blocks: bool,
 }
 
 impl Default for TextFrontend {
@@ -51,16 +53,24 @@ impl TextFrontend {
         Self {
             cursor: Cursor::new(),
             style: StyleHost::new("tui").expect("tui is a koine frontend"),
-            draw_plots: false,
+            draw_blocks: false,
         }
     }
 
-    /// Print each `plot` node's sketch (`koine_plot::text`, 60x14) under its
-    /// line. The binary turns this on; a renderer that counts lines per node
-    /// leaves it off.
-    pub fn with_plots(mut self, draw: bool) -> Self {
-        self.draw_plots = draw;
+    /// Print each `plot` node's sketch (`koine_plot::text`, 60x14) and each
+    /// `code` node's source (one line per source line, indented by two) under
+    /// its header line. The binary turns this on; a renderer that counts
+    /// lines per node leaves it off.
+    pub fn with_blocks(mut self, draw: bool) -> Self {
+        self.draw_blocks = draw;
         self
+    }
+
+    /// [`Self::with_blocks`], under the name it had when plots were the only
+    /// block.
+    #[deprecated(note = "use `with_blocks`: it also prints `code` nodes")]
+    pub fn with_plots(self, draw: bool) -> Self {
+        self.with_blocks(draw)
     }
 
     pub fn sheet(&self) -> &koine::style::StyleSheet {
@@ -100,7 +110,7 @@ impl TextFrontend {
             0,
             focused,
             self.style.sheet(),
-            self.draw_plots,
+            self.draw_blocks,
             &mut lines,
         );
         lines.join("\n")
@@ -149,7 +159,7 @@ fn write_node(
     indent: usize,
     focused: Option<&str>,
     sheet: &koine::style::StyleSheet,
-    draw_plots: bool,
+    draw_blocks: bool,
     out: &mut Vec<String>,
 ) {
     let mut focus_mark = fill(sheet.value("focus"), &[]);
@@ -163,7 +173,15 @@ fn write_node(
         " ".repeat(focus_width)
     };
     let pad = " ".repeat(indent);
-    if let (true, RenderKind::Plot { spec }) = (draw_plots, &node.node) {
+    if let (true, RenderKind::Code { text, .. }) = (draw_blocks, &node.node) {
+        // A code block is its header and then its source, one line each,
+        // indented two under the header.
+        out.push(format!("{mark}{pad}{}", line_of(node, sheet)));
+        let under = " ".repeat(focus_width);
+        out.extend(text.lines().map(|line| format!("{under}{pad}  {line}")));
+        return;
+    }
+    if let (true, RenderKind::Plot { spec }) = (draw_blocks, &node.node) {
         // A plot is a header line and then the sketch, one line each, under
         // the same indent. A spec that does not parse is the one line.
         match koine_plot::render_text_json(spec, PLOT_COLS, PLOT_ROWS) {
@@ -179,7 +197,7 @@ fn write_node(
     out.push(format!("{mark}{pad}{}", line_of(node, sheet)));
     let child_indent = indent + indent_of(node, sheet);
     for child in children_of(node) {
-        write_node(child, child_indent, focused, sheet, draw_plots, out);
+        write_node(child, child_indent, focused, sheet, draw_blocks, out);
     }
 }
 
@@ -228,9 +246,21 @@ fn line_of(node: &RenderNode, sheet: &koine::style::StyleSheet) -> String {
         RenderKind::List { .. } => fill(sheet.value("list"), &[("label", label)]),
         // `write_node` prints a plot's sketch itself.
         RenderKind::Plot { .. } => "plot".into(),
+        RenderKind::Code { language, .. } => match language {
+            Some(language) => format!("code {language}"),
+            None => "code".into(),
+        },
         RenderKind::Image { .. } => "image".into(),
-        RenderKind::Field { value, .. } => {
-            let shown = value.to_string();
+        RenderKind::Field { field, value, .. } => {
+            // A file field holds a blob reference; what it shows is the name.
+            let shown = if field.get("file").is_some() {
+                match value.pointer("/blob/name").and_then(Value::as_str) {
+                    Some(name) => format!("file {name}"),
+                    None => "file (none)".to_string(),
+                }
+            } else {
+                value.to_string()
+            };
             fill(
                 sheet.value("field"),
                 &[("value", shown.as_str()), ("label", label)],
@@ -440,7 +470,7 @@ mod tests {
     fn a_plot_prints_its_sketch_under_a_header() {
         let spec = serde_json::json!({"title": "t", "series": [{"label": "s", "x": [0, 1, 2], "y": [0, 1, 4]}]});
         let text = TextFrontend::new()
-            .with_plots(true)
+            .with_blocks(true)
             .render(&plot_tree(spec));
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines[0], " plot", "{text}");
@@ -454,14 +484,88 @@ mod tests {
     #[test]
     fn a_plot_that_does_not_parse_is_one_line_naming_the_error() {
         let text = TextFrontend::new()
-            .with_plots(true)
+            .with_blocks(true)
             .render(&plot_tree(serde_json::json!({"series": [{"x": [1]}]})));
         assert_eq!(text.lines().count(), 1, "{text}");
         assert!(text.starts_with(" plot: plot spec: "), "{text}");
         let wrong = TextFrontend::new()
-            .with_plots(true)
+            .with_blocks(true)
             .render(&plot_tree(serde_json::json!({"series": 3})));
         assert!(wrong.starts_with(" plot: plot spec: "), "{wrong}");
+    }
+
+    fn node_tree(node: RenderKind) -> RenderTree {
+        RenderTree {
+            root: RenderNode {
+                id: "n".into(),
+                label: None,
+                help: None,
+                node,
+            },
+            focus_order: vec![],
+        }
+    }
+
+    #[test]
+    fn a_code_node_is_one_line_until_blocks_are_on_and_then_its_source_indented() {
+        let tree = node_tree(RenderKind::Code {
+            language: Some("diff".into()),
+            text: "@@ -1 +1 @@\n-old\n+new\n".into(),
+        });
+        assert_eq!(render(&tree), " code diff");
+        let text = TextFrontend::new().with_blocks(true).render(&tree);
+        assert_eq!(
+            text.lines().collect::<Vec<_>>(),
+            vec![" code diff", "   @@ -1 +1 @@", "   -old", "   +new"],
+            "{text}"
+        );
+        let bare = node_tree(RenderKind::Code {
+            language: None,
+            text: "x".into(),
+        });
+        assert_eq!(render(&bare), " code");
+        assert_eq!(
+            TextFrontend::new().with_blocks(true).render(&bare),
+            " code\n   x"
+        );
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn with_plots_is_with_blocks() {
+        let tree = node_tree(RenderKind::Code {
+            language: None,
+            text: "x".into(),
+        });
+        assert_eq!(
+            TextFrontend::new().with_plots(true).render(&tree),
+            TextFrontend::new().with_blocks(true).render(&tree)
+        );
+    }
+
+    #[test]
+    fn a_file_field_shows_the_name_it_sent_or_none() {
+        let field = |value: Value| {
+            node_tree(RenderKind::Field {
+                field: serde_json::json!({"file": {"accept": ".csv"}}),
+                bind: Some("state.f".into()),
+                value,
+            })
+        };
+        assert_eq!(render(&field(Value::Null)), " field file (none)");
+        assert_eq!(
+            render(&field(
+                serde_json::json!({"blob": {"item": "s1", "name": "data.csv"}})
+            )),
+            " field file data.csv"
+        );
+        // A text field is as it was.
+        let text = node_tree(RenderKind::Field {
+            field: serde_json::json!({"text": {}}),
+            bind: None,
+            value: serde_json::json!("Ada"),
+        });
+        assert_eq!(render(&text), " field \"Ada\"");
     }
 
     fn two_buttons() -> RenderTree {

@@ -43,8 +43,6 @@ dioxus-ssr = "0.7"
 default = ["web"]
 # The page in a browser: `dx serve`, `dx build --platform web`.
 web = ["dioxus/web"]
-# The same binary in a native window (wry). Mac only; not built in CI.
-desktop = ["dioxus/desktop"]
 
 [lints]
 workspace = true

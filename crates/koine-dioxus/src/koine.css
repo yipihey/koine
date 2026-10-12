@@ -182,6 +182,7 @@
 .koine-field > input[type="text"],
 .koine-field > input[type="number"],
 .koine-field > input[type="date"],
+.koine-field > input[type="file"],
 .koine-field > select {
   font: inherit;
   padding: 4px 6px;
@@ -235,6 +236,26 @@
 }
 
 .koine-image { max-width: 100%; }
+
+/* Code (plan-koine-live L-D7): shown as written, in a monospace block. A diff
+   has each line classed by its prefix. There is no `success` token in the
+   palette, so an added line is the info colour unless a host defines one. */
+
+.koine-code {
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: color-mix(in srgb, var(--koine-color-secondary) 12%, transparent);
+}
+
+.koine-code code { font: inherit; }
+
+.koine-diff-add { color: var(--koine-color-success, var(--koine-color-info)); }
+.koine-diff-del { color: var(--koine-color-error); }
+.koine-diff-hunk { color: var(--koine-color-secondary); font-weight: 600; }
+.koine-diff-ctx { color: inherit; }
 
 /* A kind this build cannot draw keeps its slot and says so. */
 

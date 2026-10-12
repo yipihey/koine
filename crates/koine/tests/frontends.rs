@@ -39,7 +39,7 @@ fn tree_of(root: Value, focus_order: Value) -> RenderTree {
 fn everything() -> RenderTree {
     let focus = [
         "b-go", "t-tabs", "t-table", "t-list", "f-text", "f-number", "f-slider", "f-select",
-        "f-toggle", "f-date", "f-color",
+        "f-toggle", "f-date", "f-color", "f-file",
     ];
     let root = json!({
         "id": "root",
@@ -74,6 +74,9 @@ fn everything() -> RenderTree {
             { "id": "f-toggle", "node": { "kind": "field", "field": { "toggle": {} }, "bind": "state.t", "value": true } },
             { "id": "f-date", "node": { "kind": "field", "field": { "date": {} }, "bind": "state.d", "value": "2026-01-02" } },
             { "id": "f-color", "node": { "kind": "field", "field": { "color": {} }, "bind": "state.c", "value": "red" } },
+            { "id": "f-file", "label": "Data", "node": { "kind": "field", "field": { "file": { "accept": ".csv,.xlsx" } }, "bind": "state.f", "value": null } },
+            { "id": "code-diff", "node": { "kind": "code", "language": "diff", "text": "@@ -1,2 +1,2 @@\n context\n-old\n+new\n" } },
+            { "id": "code-plain", "node": { "kind": "code", "text": "plain text" } },
             { "id": "st-error", "node": { "kind": "status", "level": "error", "message": "bad" } },
             { "id": "st-warning", "node": { "kind": "status", "level": "warning", "message": "hmm" } },
             { "id": "st-info", "node": { "kind": "status", "level": "info", "message": "fyi" } },
@@ -99,6 +102,38 @@ fn holo() -> RenderTree {
         ]}}),
         json!([]),
     )
+}
+
+/// plan-koine-live end to end: a spec using the envelope (a table whose
+/// columns come from the result), a bound plot, a diff and a file field that
+/// has sent a file, resolved the way the app does.
+fn live_kinds() -> RenderTree {
+    let spec: SurfaceSpec = serde_json::from_value(json!({
+        "surface": "1.0", "name": "live",
+        "state": {
+            "result": {
+                "rows": [
+                    { "id": "a", "t": 0, "v": 1.5 },
+                    { "id": "b", "t": 1, "v": 2.5 },
+                    { "id": "c", "t": 2, "v": 2.0 }
+                ],
+                "columns": ["id", "v"],
+                "id_field": "id",
+                "next": "page-2"
+            },
+            "patch": "@@ -1 +1 @@\n-old\n+new\n",
+            "upload": { "blob": { "item": "s1", "name": "data.csv" } }
+        },
+        "root": { "id": "live", "column": [
+            { "id": "rows", "table": { "rows": "{{state.result}}", "columns": [] } },
+            { "id": "series", "plot": { "rows": "{{state.result}}", "x": "t", "y": ["v"] } },
+            { "id": "patch", "code": { "language": "diff", "text": "{{state.patch}}" } },
+            { "id": "upload", "bind": "state.upload", "field": { "file": { "accept": ".csv" } } },
+            { "id": "more", "button": { "label": "More", "on_click": [] } }
+        ] }
+    }))
+    .unwrap();
+    resolve(&spec, &spec.state, &json!({}), &json!({}))
 }
 
 fn resolved(spec: &SurfaceSpec, sources: &Value) -> RenderTree {
@@ -137,6 +172,7 @@ fn trees() -> Vec<(&'static str, RenderTree)> {
         ("style-editor-web", editor("web")),
         ("style-editor-tui", editor("tui")),
         ("every-kind", everything()),
+        ("live-kinds", live_kinds()),
         ("placeholder-holo", holo()),
     ];
     all.into()

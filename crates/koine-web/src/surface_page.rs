@@ -13,7 +13,7 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 use impress_surface::{Event, RenderTree};
 use koine::cursor::Cursor;
-use koine_dioxus::Surface;
+use koine_dioxus::{FileChosen, Surface};
 
 use crate::api::{self, ApiError, WAIT_TIMEOUT_MS};
 use crate::keys::{self, KeyAction};
@@ -101,6 +101,21 @@ impl Live {
             self.focused.set(Some(widget));
         }
         self.send(event);
+    }
+
+    /// A file chosen in a `file` field: store its bytes beside this surface
+    /// (`PUT /api/blob/<surface id>/<name>`), then send the field's `change`
+    /// carrying the blob reference. A refusal at the upload is the status
+    /// line's, and no `change` is sent.
+    fn on_file(self, chosen: FileChosen) {
+        let id = self.id.peek().clone();
+        let token = self.session.token.peek().clone();
+        spawn(async move {
+            match api::put_blob(&id, &chosen.name, chosen.bytes, token.as_ref()).await {
+                Ok(()) => self.on_event(api::file_change_event(&chosen.widget, &id, &chosen.name)),
+                Err(error) => self.session.refuse(error),
+            }
+        });
     }
 
     fn send(self, event: Event) {
@@ -244,6 +259,7 @@ pub fn SurfaceView(id: String, #[props(default)] embedded: bool) -> Element {
                     sheet,
                     focused: live.focused,
                     on_event: move |event| live.on_event(event),
+                    on_file: move |chosen| live.on_file(chosen),
                 }
             } else {
                 p { class: "kw-note", "rendering…" }

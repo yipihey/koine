@@ -91,6 +91,23 @@ pub(crate) struct Ctx<'a> {
     /// gesture, not surface state: the grammar's `tabs` has no handler, and
     /// the `select` event is sent anyway.
     pub active_tab: Signal<BTreeMap<String, usize>>,
+    /// Where a chosen file goes (plan-koine-live L-D6). `None` where nothing
+    /// is wired (the string renderer, a test): the input is drawn and does
+    /// nothing.
+    pub on_file: Option<EventHandler<FileChosen>>,
+}
+
+/// A file the person chose in a `file` field. The mapping reads the bytes
+/// through the browser's file engine and hands them over; it fetches nothing.
+/// The host uploads them and sends the field's `change` event with the blob
+/// reference `{"blob": {"item": "<surface id>", "name": "<name>"}}`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileChosen {
+    /// The node id of the `file` field.
+    pub widget: String,
+    /// The file's name, as the browser names it.
+    pub name: String,
+    pub bytes: Vec<u8>,
 }
 
 /// One performance of a [`RenderTree`].
@@ -104,6 +121,7 @@ pub fn Surface(
     sheet: ReadSignal<StyleSheet>,
     focused: ReadSignal<Option<String>>,
     on_event: EventHandler<Event>,
+    on_file: Option<EventHandler<FileChosen>>,
 ) -> Element {
     let active_tab = use_signal(BTreeMap::<String, usize>::new);
     let tree = tree.read();
@@ -123,6 +141,7 @@ pub fn Surface(
         focused: focused.as_deref(),
         on_event,
         active_tab,
+        on_file,
     };
     rsx! {
         div { class: "koine", style: css_variables(&sheet), {map::node(&tree.root, &ctx)} }

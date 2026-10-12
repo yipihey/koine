@@ -107,6 +107,11 @@ pub enum ReduceError {
     StatePath(#[from] StatePathError),
     #[error(transparent)]
     Template(#[from] TemplateError),
+    /// An action's resolved value is not the shape the action takes
+    /// (`append` of something that is neither rows nor an array, onto
+    /// something that is not an array).
+    #[error("{message}")]
+    InvalidArgument { message: String },
 }
 
 impl ReduceError {
@@ -119,6 +124,7 @@ impl ReduceError {
             ReduceError::InvalidPath { .. } => "invalid-path",
             ReduceError::EachNotArray { .. } => "each-not-array",
             ReduceError::StatePath(e) => e.code(),
+            ReduceError::InvalidArgument { .. } => "invalid-argument",
             ReduceError::Template(TemplateError::UnknownRoot { .. }) => "unknown-template-root",
             ReduceError::Template(TemplateError::MissingPath { .. }) => "missing-template-path",
         }
@@ -277,6 +283,31 @@ fn run_action(
             let resolved = resolve_value(value, &ctx)?;
             state_path::write(state, path, resolved)?;
         }
+        Action::Append { path, value } => {
+            let resolved = resolve_value(value, &ctx)?;
+            let added = rows_to_append(path, &resolved)?;
+            let existing = match state_path::read(state, path) {
+                Ok(existing) => Some(existing),
+                Err(StatePathError::Missing { .. }) => None,
+                Err(other) => return Err(other.into()),
+            };
+            let merged = match existing {
+                None | Some(Value::Null) => added,
+                Some(Value::Array(mut rows)) => {
+                    rows.extend(added);
+                    rows
+                }
+                Some(other) => {
+                    return Err(ReduceError::InvalidArgument {
+                        message: format!(
+                            "`append` to '{path}': the target is {}, not an array",
+                            crate::spec::json_type(&other)
+                        ),
+                    })
+                }
+            };
+            state_path::write(state, path, Value::Array(merged))?;
+        }
         Action::Call {
             verb,
             args,
@@ -365,6 +396,20 @@ fn run_action(
         }
     }
     Ok(())
+}
+
+/// What `append` adds: the `rows` of a `{rows, next}` envelope, or the array
+/// itself. Anything else is refused by shape (`invalid-argument`).
+fn rows_to_append(path: &str, resolved: &Value) -> Result<Vec<Value>, ReduceError> {
+    match crate::envelope::unwrap_rows(resolved).0 {
+        Value::Array(rows) => Ok(rows.clone()),
+        _ => Err(ReduceError::InvalidArgument {
+            message: format!(
+                "`append` to '{path}': the value is {}, not an array or a {{rows, next}} envelope",
+                crate::spec::json_type(resolved)
+            ),
+        }),
+    }
 }
 
 /// Resolve an `each` literal path (any of the four `Context` roots — not

@@ -45,6 +45,7 @@
 
 use serde_json::{Map, Value};
 
+use crate::envelope::{first_row_keys, unwrap_rows};
 use crate::spec::{node_id, Node, NodeKind, SurfaceSpec, When};
 use crate::template::{resolve_value, Context, Template, TemplateError};
 
@@ -124,6 +125,13 @@ pub enum RenderKind {
     },
     Plot {
         spec: Value,
+    },
+    /// `code{language, text}` (plan-koine-live L-D7): `text` is the resolved
+    /// string, shown as written.
+    Code {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+        text: String,
     },
     Image {
         blob: Option<Value>,
@@ -310,16 +318,40 @@ fn resolve_kind(
         NodeKind::Text(t) => RenderKind::Text {
             text: value_to_display(&Template::parse(t).resolve(ctx)?),
         },
-        NodeKind::Table(t) => RenderKind::Table {
-            rows: resolve_value(&t.rows, ctx)?,
-            columns: t.columns.clone(),
-            id_field: t.id_field.clone(),
-        },
-        NodeKind::List(l) => RenderKind::List {
-            rows: resolve_value(&l.rows, ctx)?,
-        },
+        NodeKind::Table(t) => {
+            // A `{rows, next}` envelope (L-D5) is read for its rows, and for
+            // the columns and id field the node leaves undeclared; a bare
+            // array is as it always was.
+            let resolved = resolve_value(&t.rows, ctx)?;
+            let (rows, envelope_columns, envelope_id, _) = unwrap_rows(&resolved);
+            let enveloped = !std::ptr::eq(rows, &resolved);
+            let columns = if !t.columns.is_empty() {
+                t.columns.clone()
+            } else if let Some(columns) = envelope_columns {
+                columns
+            } else if enveloped {
+                first_row_keys(rows)
+            } else {
+                Vec::new()
+            };
+            RenderKind::Table {
+                id_field: t.id_field.clone().or(envelope_id),
+                columns,
+                rows: rows.clone(),
+            }
+        }
+        NodeKind::List(l) => {
+            let resolved = resolve_value(&l.rows, ctx)?;
+            RenderKind::List {
+                rows: unwrap_rows(&resolved).0.clone(),
+            }
+        }
         NodeKind::Plot(p) => RenderKind::Plot {
-            spec: resolve_value(&p.spec, ctx)?,
+            spec: resolve_plot(p, ctx)?,
+        },
+        NodeKind::Code(c) => RenderKind::Code {
+            language: c.language.clone(),
+            text: value_to_display(&resolve_value(&c.text, ctx)?),
         },
         NodeKind::Image(img) => RenderKind::Image {
             blob: img
@@ -376,6 +408,54 @@ fn resolve_kind(
     })
 }
 
+/// A plot's spec: the opaque `spec` resolved, or the bound form built into the
+/// same shape (L-D8). One series per `y` field, labelled by the field, the x
+/// axis labelled by `x`; a row whose `x` or `y` is not a JSON number (a numeric
+/// string is not one) is skipped, so a table with a text column still plots.
+/// A node with neither form (or both) is `validate`'s to report; here it
+/// resolves to what it has, `spec` first.
+fn resolve_plot(plot: &crate::spec::Plot, ctx: &Context) -> Result<Value, TemplateError> {
+    if let Some(spec) = &plot.spec {
+        return resolve_value(spec, ctx);
+    }
+    let resolved = match &plot.rows {
+        Some(rows) => resolve_value(rows, ctx)?,
+        None => Value::Null,
+    };
+    let (rows, ..) = unwrap_rows(&resolved);
+    let rows: &[Value] = rows.as_array().map_or(&[], Vec::as_slice);
+    let x = plot.x.as_deref().unwrap_or_default();
+    let ys: Vec<&str> = match &plot.y {
+        Some(Value::String(y)) => vec![y.as_str()],
+        Some(Value::Array(ys)) => ys.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    };
+    // The colours `koine-plot` cycles through (`PlotColor::from_index`), so the
+    // series of a bound plot are told apart.
+    const COLOURS: [&str; 6] = ["Blue", "Red", "Green", "Orange", "Purple", "Cyan"];
+    let series: Vec<Value> = ys
+        .into_iter()
+        .enumerate()
+        .map(|(index, y)| {
+            let (mut xs, mut vs) = (Vec::new(), Vec::new());
+            for row in rows {
+                if let (Some(Value::Number(a)), Some(Value::Number(b))) = (row.get(x), row.get(y)) {
+                    xs.push(Value::Number(a.clone()));
+                    vs.push(Value::Number(b.clone()));
+                }
+            }
+            serde_json::json!({
+                "label": y,
+                "x": xs,
+                "y": vs,
+                "style": "Line",
+                "color": COLOURS[index % COLOURS.len()],
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({ "series": series, "x_axis": { "label": x } }))
+}
+
 fn resolve_children(
     children: &[Node],
     parent_path: &[usize],
@@ -429,6 +509,7 @@ fn field_options(f: &crate::spec::FieldKind) -> Value {
         crate::spec::FieldKind::Select(v) => ("select", v),
         crate::spec::FieldKind::Toggle(v) => ("toggle", v),
         crate::spec::FieldKind::Date(v) => ("date", v),
+        crate::spec::FieldKind::File(v) => ("file", v),
     };
     let mut map = Map::new();
     map.insert(tag.to_string(), options.clone());

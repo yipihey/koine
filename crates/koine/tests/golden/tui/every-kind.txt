@@ -21,6 +21,9 @@
    field true
    field "2026-01-02"
    field "red"
+   field file (none)
+   code diff
+   code
    status error: bad
    status warning: hmm
    status info: fyi

@@ -102,9 +102,8 @@ cargo check -p koine-web --target wasm32-unknown-unknown
 cargo test -p koine-web      # the pure modules, natively
 ```
 
-`--features desktop` builds the same binary under `dioxus/desktop` (a wry
-window). It needs webkit2gtk on Linux, is built on the Mac only, and is not
-in CI.
+A native window is the host's `--window` (plan-koine-live L-D9), not a build of this crate: the
+crate has no `desktop` feature.
 
 ## Keys
 

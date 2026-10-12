@@ -350,6 +350,14 @@ pub enum Action {
     },
     /// Re-run a named source even though its resolved args have not changed.
     Refresh { source: String },
+    /// Add rows to the array at `path` (plan-koine-live L-D5): the page after
+    /// the one a table shows. `value` is a template like `set`'s; it resolves
+    /// to a `{rows, next}` envelope (its `rows` are taken) or to an array
+    /// (taken whole), and anything else is refused `invalid-argument`. The
+    /// target must already be an array, or be missing or null, in which case
+    /// it becomes the value's rows. Like `set`, it is performed by `reduce`
+    /// itself: state is the value `reduce` owns.
+    Append { path: String, value: Value },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -456,8 +464,35 @@ pub struct ListWidget {
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 pub struct Plot {
     /// A `plot-spec@1.0.0` payload (ADR-0033 "Defaults"), opaque here — this
-    /// crate never renders pixels.
-    pub spec: Value,
+    /// crate never renders pixels. Exactly one of `spec` or the bound form
+    /// (`rows`, `x`, `y`) is given; [`crate::validate::validate`] says which
+    /// is missing or extra.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spec: Option<Value>,
+    /// The bound form (plan-koine-live L-D8): a template to an array of
+    /// objects, or to a `{rows, next}` envelope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows: Option<Value>,
+    /// The bound form: the row field on the x axis, a literal field name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<String>,
+    /// The bound form: a row field name, or an array of them (one series
+    /// each), literal names. A value that is not a JSON number is skipped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<Value>,
+}
+
+/// `code{language, text}` (plan-koine-live L-D7): a block of source or output
+/// shown as written. `language` only names what it is, so a frontend may
+/// colour it; a `diff` has its `+`, `-` and `@@` lines marked. `text` is a
+/// string or a template, resolved to a string.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+pub struct Code {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    pub text: Value,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -487,6 +522,14 @@ pub enum FieldKind {
     Select(Value),
     Toggle(Value),
     Date(Value),
+    /// A file chosen from the machine (plan-koine-live L-D6). `options` may
+    /// carry `accept`, the string an `<input accept>` takes
+    /// (`".csv,.xlsx"`). The field's value, and so what a `change` event
+    /// carries, is a blob reference, never the bytes:
+    /// `{"blob": {"item": "<surface id>", "name": "<file name>"}}`. The
+    /// renderer uploads the file first (the web page `PUT`s
+    /// `/api/blob/<surface id>/<name>`), then sends the `change`.
+    File(Value),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -533,6 +576,7 @@ pub enum NodeKind {
     Status(Status),
     Log(Value),
     Kv(Value),
+    Code(Code),
     Divider,
     Spacer,
     /// A tag key this build does not recognize. Carries the raw key and its raw
@@ -562,7 +606,7 @@ pub enum NodeKind {
 /// `tests/spec_round_trip.rs`) to assert the generated schema mentions each one.
 pub const NODE_KIND_NAMES: &[&str] = &[
     "column", "row", "grid", "section", "tabs", "text", "table", "list", "plot", "image", "field",
-    "button", "status", "log", "kv", "divider", "spacer",
+    "button", "status", "log", "kv", "code", "divider", "spacer",
 ];
 
 /// A surface node: the common keys plus exactly one node-kind key (D3). See the
@@ -675,6 +719,7 @@ impl Node {
             NodeKind::Status(_) => "status",
             NodeKind::Log(_) => "log",
             NodeKind::Kv(_) => "kv",
+            NodeKind::Code(_) => "code",
             NodeKind::Divider => "divider",
             NodeKind::Spacer => "spacer",
             NodeKind::Unknown { kind, .. } | NodeKind::Invalid { kind, .. } => kind.as_str(),
@@ -858,6 +903,10 @@ impl NodeKind {
             ),
             NodeKind::Log(v) => ("log".to_string(), v.clone()),
             NodeKind::Kv(v) => ("kv".to_string(), v.clone()),
+            NodeKind::Code(c) => (
+                "code".to_string(),
+                serde_json::to_value(c).unwrap_or(Value::Null),
+            ),
             NodeKind::Divider => ("divider".to_string(), Value::Object(Map::new())),
             NodeKind::Spacer => ("spacer".to_string(), Value::Object(Map::new())),
             NodeKind::Unknown { kind, node } => (kind.clone(), node.clone()),
@@ -900,6 +949,7 @@ fn parse_kind(key: &str, raw: Value, original: &Value) -> NodeKind {
         "status" => body(key, raw, original, NodeKind::Status),
         "log" => NodeKind::Log(raw),
         "kv" => NodeKind::Kv(raw),
+        "code" => body(key, raw, original, NodeKind::Code),
         "divider" => NodeKind::Divider,
         "spacer" => NodeKind::Spacer,
         _ => NodeKind::Unknown {
@@ -1028,6 +1078,7 @@ impl schemars::JsonSchema for Node {
                 "kv",
                 serde_json::json!({ "description": "Pairs: an object, or a {{…}} reference to one." }),
             ),
+            ("code", schema_json(gen.subschema_for::<Code>())),
             (
                 "divider",
                 serde_json::json!({ "type": "object", "maxProperties": 0 }),

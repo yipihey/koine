@@ -382,3 +382,108 @@ fn a_sheet_for_another_frontend_is_refused() {
     assert!(html.contains("&#39;tui&#39;"), "{html}");
     assert!(!html.contains("data-koine-id"), "{html}");
 }
+
+#[test]
+fn a_file_field_is_an_input_of_type_file_with_its_accept_and_ids() {
+    let held = tree(
+        json!({ "id": "up", "label": "Data", "node": {
+            "kind": "field", "field": { "file": { "accept": ".csv,.xlsx" } },
+            "bind": "state.file", "value": null
+        }}),
+        json!(["up"]),
+    );
+    let html = render_html(&held, &web(), None);
+    let (tag, _) = element(&html, "up");
+    assert!(tag.starts_with("<input"), "{tag}");
+    assert_eq!(attr(tag, "type"), Some("file"), "{tag}");
+    assert_eq!(attr(tag, "accept"), Some(".csv,.xlsx"), "{tag}");
+    assert_eq!(attr(tag, "data-koine-bind"), Some("state.file"), "{tag}");
+    assert_eq!(attr(tag, "id"), Some("koine-up"), "{tag}");
+    assert_eq!(attr(tag, "tabindex"), Some("0"), "{tag}");
+    assert!(!tag.contains("data-koine-file"), "{tag}");
+    assert!(html.contains("<label for=\"koine-up\""), "{html}");
+    assert_eq!(tab_stops(&html), vec!["up".to_string()]);
+
+    // With a blob reference held, the field says which file it sent.
+    let sent = tree(
+        json!({ "id": "up", "node": {
+            "kind": "field", "field": { "file": {} }, "bind": "state.file",
+            "value": { "blob": { "item": "s1", "name": "data.csv" } }
+        }}),
+        json!(["up"]),
+    );
+    let html = render_html(&sent, &web(), None);
+    let (tag, _) = element(&html, "up");
+    assert_eq!(attr(tag, "data-koine-file"), Some("data.csv"), "{tag}");
+    assert!(!tag.contains("accept"), "{tag}");
+}
+
+#[test]
+fn a_diff_is_one_classed_span_per_line_and_a_plain_block_is_its_text() {
+    let tree = tree(
+        json!({ "id": "root", "node": { "kind": "column", "items": [
+            { "id": "patch", "node": { "kind": "code", "language": "diff",
+                "text": "@@ -1,2 +1,2 @@\n context\n-old\n+new\n" } },
+            { "id": "src", "node": { "kind": "code", "language": "rust", "text": "fn main() {}\n" } },
+            { "id": "bare", "node": { "kind": "code", "text": "just text" } },
+        ]}}),
+        json!([]),
+    );
+    let html = render_html(&tree, &web(), None);
+
+    let (tag, rest) = element(&html, "patch");
+    assert!(tag.starts_with("<pre"), "{tag}");
+    assert!(attr(tag, "class").unwrap().contains("koine-code"), "{tag}");
+    assert_eq!(attr(tag, "data-language"), Some("diff"), "{tag}");
+    let block = &rest[..rest.find("</pre>").unwrap()];
+    assert!(block.starts_with("<code"), "{block}");
+    assert_eq!(block.matches("<span").count(), 4, "{block}");
+    for (class, line) in [
+        ("koine-diff-hunk", "@@ -1,2 +1,2 @@"),
+        ("koine-diff-ctx", " context"),
+        ("koine-diff-del", "-old"),
+        ("koine-diff-add", "+new"),
+    ] {
+        let wanted = format!("class=\"{class}\">{line}\n</span>");
+        assert!(block.contains(&wanted), "{wanted} not in {block}");
+    }
+
+    let (tag, rest) = element(&html, "src");
+    assert_eq!(attr(tag, "data-language"), Some("rust"), "{tag}");
+    let block = &rest[..rest.find("</pre>").unwrap()];
+    assert!(block.contains("language-rust"), "{block}");
+    assert!(block.contains("fn main() {}"), "{block}");
+    assert!(!block.contains("<span"), "{block}");
+
+    let (tag, rest) = element(&html, "bare");
+    assert!(!tag.contains("data-language"), "{tag}");
+    assert!(rest.contains("just text"), "{rest}");
+    assert_eq!(html.matches("data-koine-id=").count(), 4, "{html}");
+}
+
+#[test]
+fn a_bound_plot_is_drawn_as_svg_and_a_table_reads_an_envelope() {
+    let spec: impress_surface::SurfaceSpec = serde_json::from_value(json!({
+        "surface": "1.0", "name": "n",
+        "state": { "result": {
+            "rows": [{ "t": 0, "a": 1.0 }, { "t": 1, "a": 2.5 }, { "t": 2, "a": 2.0 }],
+            "next": "c2"
+        }},
+        "root": { "column": [
+            { "id": "p", "plot": { "rows": "{{state.result}}", "x": "t", "y": "a" } },
+            { "id": "tbl", "table": { "rows": "{{state.result}}", "columns": [] } },
+        ]}
+    }))
+    .unwrap();
+    let tree = resolve(&spec, &spec.state, &json!({}), &json!({}));
+    let html = render_html(&tree, &web(), None);
+    let (tag, rest) = element(&html, "p");
+    assert!(attr(tag, "class").unwrap().contains("koine-plot"), "{tag}");
+    assert!(!tag.contains("koine-plot-error"), "{tag}");
+    assert!(rest.starts_with("<svg"), "{rest}");
+    assert!(rest.contains("<polyline"), "{rest}");
+    // The table has the envelope's rows, and the first row's keys as columns.
+    assert_eq!(html.matches("data-koine-row=").count(), 3, "{html}");
+    assert!(html.contains("<th scope=\"col\">a</th>"), "{html}");
+    assert!(html.contains("<th scope=\"col\">t</th>"), "{html}");
+}

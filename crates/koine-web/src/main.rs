@@ -54,14 +54,14 @@ fn main() {
     launch();
 }
 
-#[cfg(any(target_arch = "wasm32", feature = "desktop"))]
+#[cfg(target_arch = "wasm32")]
 fn launch() {
     dioxus::launch(App);
 }
 
 /// A native build with no renderer (`cargo test`, `cargo check`) has no
 /// window to open: the pure modules are what it compiles and tests.
-#[cfg(not(any(target_arch = "wasm32", feature = "desktop")))]
+#[cfg(not(target_arch = "wasm32"))]
 fn launch() {
     eprintln!("koine-web draws in a browser: `dx serve`, or `dx build --platform web`");
     let _ = App;

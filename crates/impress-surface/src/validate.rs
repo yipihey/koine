@@ -607,7 +607,16 @@ fn check_node(node: &Node, at: &str, scope: &Scope, problems: &mut Vec<Problem>)
             }
         }
         NodeKind::List(l) => refs(&l.rows, "list/rows"),
-        NodeKind::Plot(p) => refs(&p.spec, "plot/spec"),
+        NodeKind::Plot(p) => check_plot(p, at, scope, problems),
+        NodeKind::Code(c) => {
+            refs(&c.text, "code/text");
+            if !c.text.is_string() {
+                problems.push(Problem::error(
+                    format!("{at}/code/text"),
+                    "code.text must be a string (a {{…}} template is a string)",
+                ));
+            }
+        }
         NodeKind::Image(img) => {
             if let Some(v) = &img.blob {
                 refs(v, "image/blob");
@@ -645,6 +654,68 @@ fn check_node(node: &Node, at: &str, scope: &Scope, problems: &mut Vec<Problem>)
             format!("this build has no '{kind}' widget: it renders as a placeholder"),
         )),
         NodeKind::Invalid { error, .. } => problems.push(Problem::error(at, error.clone())),
+    }
+}
+
+/// A plot is exactly one of `spec`, or the bound form `rows` + `x` + `y`
+/// (plan-koine-live L-D8). `x` and `y` are literal field names of the rows.
+fn check_plot(plot: &crate::spec::Plot, at: &str, scope: &Scope, problems: &mut Vec<Problem>) {
+    let bound = [
+        ("rows", plot.rows.is_some()),
+        ("x", plot.x.is_some()),
+        ("y", plot.y.is_some()),
+    ];
+    let given: Vec<&str> = bound.iter().filter(|(_, g)| *g).map(|(k, _)| *k).collect();
+    match (&plot.spec, given.len()) {
+        (Some(spec), 0) => {
+            check_template_refs(spec, &format!("{at}/plot/spec"), scope, false, problems)
+        }
+        (Some(_), _) => problems.push(Problem::error(
+            format!("{at}/plot"),
+            format!(
+                "a plot is either `spec` or `rows`, `x` and `y`, not both (found spec and {})",
+                given.join(", ")
+            ),
+        )),
+        (None, 3) => {
+            if let Some(rows) = &plot.rows {
+                check_template_refs(rows, &format!("{at}/plot/rows"), scope, false, problems);
+            }
+            let literal = |name: &str| !name.is_empty() && !name.contains("{{");
+            if !plot.x.as_deref().is_some_and(literal) {
+                problems.push(Problem::error(
+                    format!("{at}/plot/x"),
+                    "plot.x must be a non-empty literal field name of the rows",
+                ));
+            }
+            let ys_ok = match &plot.y {
+                Some(Value::String(y)) => literal(y),
+                Some(Value::Array(ys)) => {
+                    !ys.is_empty() && ys.iter().all(|y| y.as_str().is_some_and(literal))
+                }
+                _ => false,
+            };
+            if !ys_ok {
+                problems.push(Problem::error(
+                    format!("{at}/plot/y"),
+                    "plot.y must be a literal field name, or a non-empty array of them",
+                ));
+            }
+        }
+        (None, 0) => problems.push(Problem::error(
+            format!("{at}/plot"),
+            "a plot needs `spec`, or `rows`, `x` and `y`",
+        )),
+        (None, _) => {
+            let missing: Vec<&str> = bound.iter().filter(|(_, g)| !*g).map(|(k, _)| *k).collect();
+            problems.push(Problem::error(
+                format!("{at}/plot"),
+                format!(
+                    "a bound plot needs `rows`, `x` and `y`; missing {}",
+                    missing.join(", ")
+                ),
+            ));
+        }
     }
 }
 
@@ -687,6 +758,10 @@ fn check_action(action: &Action, at: &str, scope: &Scope, problems: &mut Vec<Pro
         Action::Set { path, value } => {
             check_state_path(path, &format!("{at}/set/path"), problems);
             check_template_refs(value, &format!("{at}/set/value"), scope, false, problems);
+        }
+        Action::Append { path, value } => {
+            check_state_path(path, &format!("{at}/append/path"), problems);
+            check_template_refs(value, &format!("{at}/append/value"), scope, false, problems);
         }
         Action::Call {
             verb,

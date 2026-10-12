@@ -234,6 +234,7 @@ fn render_surface(
         }
     }
 
+    let more_args = run_args.clone();
     let run_adverbs = {
         let templates: Map<String, Value> = adverbs
             .iter()
@@ -275,6 +276,20 @@ fn render_surface(
 
     column.push(result_node(output_schema, returns_kind, rows));
 
+    // A verb that pages (a `cursor` argument, a `{rows, next}` result) gets a
+    // More button: the same call with the cursor the last page answered,
+    // whose rows are added to the table (plan-koine-live L-D5). `when` keeps
+    // it off the last page, where `next` is null.
+    let pages = available
+        && row_envelope(output_schema).is_some()
+        && input_schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .is_some_and(|props| props.contains_key("cursor"));
+    if pages {
+        column.push(more_button(name, more_args));
+    }
+
     let mut state = Map::new();
     if let Some(props) = input_schema.get("properties").and_then(|p| p.as_object()) {
         for (name, prop) in props {
@@ -297,6 +312,10 @@ fn render_surface(
         state.insert("adverbs".to_string(), Value::Object(adverb_state));
     }
     state.insert("result".to_string(), Value::Null);
+    if pages {
+        // Where More's answer lands before it is added to the result.
+        state.insert("more".to_string(), Value::Null);
+    }
     if rows.is_some() {
         // The result table writes its selection here (`rows(…)`, F-D2), so a
         // second button on the same form can pass `{{state.selected}}`.
@@ -311,6 +330,39 @@ fn render_surface(
         sources: Default::default(),
         root: Node::leaf(NodeKind::Column(column)).with_id("root"),
     }
+}
+
+/// The More button of a paged verb: call it again with the form's arguments
+/// and `cursor: {{state.result.next}}`, then add the page's rows to the
+/// table's and take its `next`. No adverbs ride along: a tentative or
+/// background page would have no rows to add.
+fn more_button(verb: &str, mut args: Map<String, Value>) -> Node {
+    args.insert("cursor".to_string(), json!("{{state.result.next}}"));
+    Node::leaf(NodeKind::Button(Button {
+        label: "More".to_string(),
+        on_click: vec![
+            Action::Call {
+                verb: verb.to_string(),
+                args: Value::Object(args),
+                into: Some("state.more".to_string()),
+                each: None,
+                adverbs: None,
+            },
+            Action::Append {
+                path: "state.result.rows".to_string(),
+                value: json!("{{state.more.rows}}"),
+            },
+            Action::Set {
+                path: "state.result.next".to_string(),
+                value: json!("{{state.more.next}}"),
+            },
+        ],
+    }))
+    .with_id("more")
+    .with_when(When {
+        path: "state.result.next".to_string(),
+        equals: None,
+    })
 }
 
 /// The "How to run" field for one adverb, or `None` when the form does not
@@ -337,7 +389,7 @@ fn adverb_field(adverb: Adverb) -> Option<Node> {
             "Record an undo step; the result names the inverse call.",
         ),
         Adverb::InBackground => ("In background", "Start as a job and answer the handle."),
-        Adverb::Once | Adverb::Within => return None,
+        Adverb::Once | Adverb::Within | Adverb::Every => return None,
     };
     let name = adverb.as_str();
     Some(
@@ -495,6 +547,9 @@ fn default_for(prop: &Value) -> Value {
 /// (`{{event.value}}`, the array of ids every select event carries). A result
 /// object that wraps the one array of rows is read through that property.
 fn result_node(output_schema: &Value, returns_kind: Option<&str>, rows: Option<RowSchema>) -> Node {
+    if let Some(envelope) = row_envelope(output_schema) {
+        return envelope_result_node(&envelope, returns_kind, rows);
+    }
     let layout = rows.and_then(|_| row_layout(output_schema));
     let shape = match (&rows, &layout) {
         (Some(_), Some(_)) => ResultShape::Table,
@@ -536,6 +591,102 @@ fn result_node(output_schema: &Value, returns_kind: Option<&str>, rows: Option<R
     Node::leaf(node_kind)
         .with_id("result-view")
         .with_label(label)
+}
+
+/// An output schema that is a `{rows, next}` envelope (plan-koine-live L-D5):
+/// an object whose `rows` property is an array of objects, with a `next`
+/// property beside it (the cursor of the page after this one). `row_layout`
+/// reads only a single-property wrapper, so this is read here, from the same
+/// schema, by the same `$ref` rules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RowEnvelope {
+    /// The property names of the row object, in schema order.
+    properties: Vec<String>,
+}
+
+fn row_envelope(output_schema: &Value) -> Option<RowEnvelope> {
+    let top = schema_target(output_schema, output_schema);
+    let props = top.get("properties")?.as_object()?;
+    props.get("next")?;
+    let rows = schema_target(output_schema, props.get("rows")?);
+    let items = schema_target(output_schema, rows.get("items")?);
+    let properties = items
+        .get("properties")?
+        .as_object()?
+        .keys()
+        .cloned()
+        .collect();
+    Some(RowEnvelope { properties })
+}
+
+/// Follow a local `$ref`, and look through the wrappers schemars puts around
+/// one (`allOf` / `anyOf` / `oneOf` of one schema plus `null`).
+fn schema_target<'a>(root: &'a Value, mut node: &'a Value) -> &'a Value {
+    for _ in 0..16 {
+        if let Some(reference) = node.get("$ref").and_then(Value::as_str) {
+            match reference
+                .strip_prefix('#')
+                .and_then(|pointer| root.pointer(pointer))
+            {
+                Some(target) => {
+                    node = target;
+                    continue;
+                }
+                None => return node,
+            }
+        }
+        let single = ["allOf", "anyOf", "oneOf"].iter().find_map(|key| {
+            let live: Vec<&Value> = node
+                .get(*key)?
+                .as_array()?
+                .iter()
+                .filter(|item| item.get("type").and_then(Value::as_str) != Some("null"))
+                .collect();
+            (live.len() == 1).then(|| live[0])
+        });
+        match single {
+            Some(next) => node = next,
+            None => return node,
+        }
+    }
+    node
+}
+
+/// The result of a verb that answers `{rows, next}`: a table over the
+/// envelope itself, so the table reads its rows from it (and `append` can add
+/// the next page to `state.result.rows`).
+fn envelope_result_node(
+    envelope: &RowEnvelope,
+    returns_kind: Option<&str>,
+    rows: Option<RowSchema>,
+) -> Node {
+    let (columns, id_field, on_select) = match rows {
+        Some(rows) => (
+            if rows.columns.is_empty() {
+                envelope.properties.clone()
+            } else {
+                rows.columns.iter().map(|c| (*c).to_string()).collect()
+            },
+            Some(rows.id.to_string()),
+            vec![Action::Set {
+                path: "state.selected".to_string(),
+                value: json!("{{event.value}}"),
+            }],
+        ),
+        None => (envelope.properties.clone(), None, Vec::new()),
+    };
+    let label = match returns_kind {
+        Some(kind) => format!("Result ({kind})"),
+        None => "Result".to_string(),
+    };
+    Node::leaf(NodeKind::Table(impress_surface::spec::Table {
+        rows: json!("{{state.result}}"),
+        columns,
+        id_field,
+        on_select,
+    }))
+    .with_id("result-view")
+    .with_label(label)
 }
 
 enum ResultShape {
@@ -909,6 +1060,172 @@ mod tests {
         assert!(table.on_select.is_empty());
         assert!(spec.state.get("selected").is_none());
         assert!(!serde_json::to_string(&spec).unwrap().contains("id_field"));
+    }
+
+    fn paged_input() -> Value {
+        json!({"type": "object", "properties": {
+            "query": {"type": "string"}, "cursor": {"type": ["string", "null"]}}})
+    }
+
+    fn paged_output() -> Value {
+        json!({"type": "object", "properties": {
+            "rows": {"type": "array", "items": {"$ref": "#/definitions/Paper"}},
+            "next": {"anyOf": [{"type": "string"}, {"type": "null"}]}},
+            "definitions": {"Paper": {"type": "object", "properties": {
+                "bibcode": {"type": "string"}, "title": {"type": "string"}}}}})
+    }
+
+    fn paged_verb() -> VerbDescriptor {
+        let mut d = desc("t-service_x", SafetyClass::ReadOnly, paged_output);
+        d.input_schema = paged_input;
+        d.returns_kind = Some("paper");
+        d.rows = Some(RowSchema {
+            id: "bibcode",
+            title: None,
+            columns: &[],
+        });
+        d
+    }
+
+    fn column_of(spec: &SurfaceSpec) -> &Vec<Node> {
+        let NodeKind::Column(children) = &spec.root.kind else {
+            panic!("root is a column");
+        };
+        children
+    }
+
+    /// L-D5: a verb that takes `cursor` and answers `{rows, next}` gets a
+    /// More button that calls it again with the cursor the last page named,
+    /// adds the page's rows and takes its `next`.
+    #[test]
+    fn a_paged_verb_gets_a_more_button() {
+        let spec = verb_surface(&paged_verb());
+        let problems = validate::validate(&spec);
+        assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
+
+        let more = column_of(&spec)
+            .iter()
+            .find(|n| n.id.as_deref() == Some("more"))
+            .expect("a More button");
+        let NodeKind::Button(button) = &more.kind else {
+            panic!("a button")
+        };
+        assert_eq!(button.label, "More");
+        assert_eq!(
+            button.on_click,
+            vec![
+                Action::Call {
+                    verb: "t-service_x".to_string(),
+                    args: json!({"query": "{{state.query}}", "cursor": "{{state.result.next}}"}),
+                    into: Some("state.more".to_string()),
+                    each: None,
+                    adverbs: None,
+                },
+                Action::Append {
+                    path: "state.result.rows".to_string(),
+                    value: json!("{{state.more.rows}}"),
+                },
+                Action::Set {
+                    path: "state.result.next".to_string(),
+                    value: json!("{{state.more.next}}"),
+                },
+            ]
+        );
+        // Hidden on the last page (and before the first).
+        assert_eq!(
+            more.when,
+            Some(When {
+                path: "state.result.next".to_string(),
+                equals: None
+            })
+        );
+        assert_eq!(spec.state["more"], Value::Null);
+
+        // It follows the result, and the result is a table over the envelope.
+        let ids: Vec<_> = column_of(&spec)
+            .iter()
+            .filter_map(|n| n.id.as_deref())
+            .collect();
+        let result = ids.iter().position(|id| *id == "result-view").unwrap();
+        assert_eq!(ids.iter().position(|id| *id == "more"), Some(result + 1));
+        let table = result_table(&spec);
+        assert_eq!(table.rows, json!("{{state.result}}"));
+        assert_eq!(table.columns, vec!["bibcode", "title"]);
+        assert_eq!(table.id_field.as_deref(), Some("bibcode"));
+        assert_eq!(result_label(&spec), "Result (paper)");
+    }
+
+    /// Run's cursor is the form's own field; only More reads `next`.
+    #[test]
+    fn the_run_button_still_sends_the_cursor_field() {
+        let spec = verb_surface(&paged_verb());
+        let run = column_of(&spec)
+            .iter()
+            .find(|n| n.id.as_deref() == Some("run"))
+            .expect("Run");
+        let NodeKind::Button(button) = &run.kind else {
+            panic!("a button")
+        };
+        let Action::Call { args, .. } = &button.on_click[0] else {
+            panic!("a call")
+        };
+        assert_eq!(args["cursor"], json!("{{state.cursor}}"));
+    }
+
+    /// Without a `cursor` argument, or without `next` in the result, there is
+    /// no More.
+    #[test]
+    fn an_unpaged_verb_has_no_more_button() {
+        let has_more = |spec: &SurfaceSpec| {
+            column_of(spec)
+                .iter()
+                .any(|n| n.id.as_deref() == Some("more"))
+        };
+        // `next` but no `cursor` argument.
+        let mut no_cursor = paged_verb();
+        no_cursor.input_schema = schema_input;
+        assert!(!has_more(&verb_surface(&no_cursor)));
+        // A `cursor` argument but a plain array of rows.
+        let mut no_next = papers_verb(RowSchema {
+            id: "bibcode",
+            title: None,
+            columns: &[],
+        });
+        no_next.input_schema = paged_input;
+        assert!(!has_more(&verb_surface(&no_next)));
+        // Neither.
+        let plain = desc("t-service_x", SafetyClass::ReadOnly, schema_output_list);
+        let spec = verb_surface(&plain);
+        assert!(!has_more(&spec));
+        assert!(spec.state.get("more").is_none());
+    }
+
+    /// The More actions run as written: the call's arguments read the cursor
+    /// the table last showed, `append` adds rows and `set` takes `next`.
+    /// (`state.more` is filled here by hand: `into` is written by the runtime
+    /// when the call lands, after `reduce` has run the handler.)
+    #[test]
+    fn the_more_actions_reduce_as_written() {
+        let mut spec = verb_surface(&paged_verb());
+        spec.state["result"] = json!({"rows": [{"bibcode": "a"}], "next": "c2"});
+        spec.state["more"] = json!({"rows": [{"bibcode": "b"}], "next": null});
+        let event = impress_surface::spec::Event {
+            widget: "more".to_string(),
+            kind: impress_surface::spec::EventKind::Click,
+            value: Value::Null,
+        };
+        let (state, effects) =
+            impress_surface::reduce(&spec, &spec.state, &Value::Null, &Value::Null, &event)
+                .unwrap();
+        assert!(matches!(
+            effects.first(),
+            Some(impress_surface::Effect::Call { args, into, .. })
+                if args["cursor"] == json!("c2") && into.as_deref() == Some("state.more")
+        ));
+        assert_eq!(
+            state["result"],
+            json!({"rows": [{"bibcode": "a"}, {"bibcode": "b"}], "next": null})
+        );
     }
 
     struct Held(&'static [&'static str]);

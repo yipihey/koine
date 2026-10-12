@@ -31,7 +31,9 @@ fn the_schema_mentions_every_node_kind() {
 fn the_schema_mentions_every_action_kind() {
     let schema = schema_for!(SurfaceSpec);
     let json = serde_json::to_string(&schema).expect("schema serialises to JSON");
-    for kind in ["set", "call", "publish", "emit", "open", "refresh"] {
+    for kind in [
+        "set", "call", "publish", "emit", "open", "refresh", "append",
+    ] {
         assert!(
             json.contains(kind),
             "generated schema does not mention action kind '{kind}'"
@@ -78,6 +80,25 @@ fn a_table_naming_its_id_field_passes_the_emitted_schema() {
     let spec = serde_json::json!({
         "surface": "1.0", "name": "ok", "state": {},
         "root": { "table": { "rows": [], "columns": ["bibcode"], "id_field": "bibcode" } }
+    });
+    assert_eq!(errors(&validator, &spec), Vec::<String>::new());
+}
+
+/// The plan-koine-live additions are part of the vocabulary: an `append`, a
+/// `file` field, a `code` node and a bound plot are valid.
+#[test]
+fn the_live_vocabulary_passes_the_emitted_schema() {
+    let validator = validator();
+    let spec = serde_json::json!({
+        "surface": "1.0", "name": "ok", "state": {"r": null, "f": null},
+        "root": { "column": [
+            { "id": "up", "bind": "state.f", "field": { "file": { "accept": ".csv" } } },
+            { "code": { "language": "diff", "text": "+a" } },
+            { "plot": { "rows": "{{state.r}}", "x": "t", "y": ["a", "b"] } },
+            { "plot": { "spec": { "series": [] } } },
+            { "id": "more", "button": { "label": "More", "on_click": [
+                { "append": { "path": "state.r", "value": "{{state.r}}" } } ] } }
+        ] }
     });
     assert_eq!(errors(&validator, &spec), Vec::<String>::new());
 }

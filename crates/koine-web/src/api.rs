@@ -339,6 +339,43 @@ pub fn layout_verb_url(origin: &str) -> String {
     format!("{}/api/layout/verb", origin.trim_end_matches('/'))
 }
 
+/// `PUT /api/blob/<item>/<name>`: the bytes of a file chosen in a `file` field,
+/// kept beside the surface's item (plan-koine-live L-D6).
+pub fn blob_url(origin: &str, item: &str, name: &str) -> String {
+    format!(
+        "{}/api/blob/{}/{}",
+        origin.trim_end_matches('/'),
+        encode(item),
+        encode(name)
+    )
+}
+
+/// The `change` a `file` field sends once its bytes are stored: the value is
+/// a blob reference, never the bytes (`FieldKind::File`).
+pub fn file_change_event(widget: &str, item: &str, name: &str) -> Event {
+    Event {
+        widget: widget.to_string(),
+        kind: impress_surface::EventKind::Change,
+        value: json!({ "blob": { "item": item, "name": name } }),
+    }
+}
+
+/// What a blob `PUT` answered: `ok`, or the app's `{code, message}` refusal.
+pub fn parse_put_blob(body: &Value) -> Result<(), ApiError> {
+    if body.get("ok").and_then(Value::as_bool) == Some(true) {
+        return Ok(());
+    }
+    let code = body
+        .get("code")
+        .and_then(Value::as_str)
+        .unwrap_or("refused");
+    let message = body
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("the app refused the upload");
+    Err(ApiError::new(code, message))
+}
+
 /// The dispatch body: `{"event": …}`.
 pub fn dispatch_body(event: &Event) -> Value {
     json!({ "event": event })
@@ -352,7 +389,7 @@ pub fn layout_verb_body(verb: &Verb) -> Result<Value, ApiError> {
 }
 
 /// The origin the page is served from, and so the origin of every request.
-/// A browser build asks the window; a native build (desktop, tests) dials
+/// A browser build asks the window; a native build (tests) dials
 /// impress's own port.
 pub fn origin() -> String {
     #[cfg(target_arch = "wasm32")]
@@ -375,6 +412,17 @@ async fn get(url: &str) -> Result<Value, ApiError> {
 
 async fn post(url: &str, body: &Value, token: Option<&Token>) -> Result<Value, ApiError> {
     let mut request = reqwest::Client::new().post(url).json(body);
+    if let Some(token) = token {
+        request = request.bearer_auth(token.as_str());
+    }
+    answer(request.send().await.map_err(transport)?).await
+}
+
+async fn put_bytes(url: &str, bytes: Vec<u8>, token: Option<&Token>) -> Result<Value, ApiError> {
+    let mut request = reqwest::Client::new()
+        .put(url)
+        .header("content-type", "application/octet-stream")
+        .body(bytes);
     if let Some(token) = token {
         request = request.bearer_auth(token.as_str());
     }
@@ -428,6 +476,18 @@ pub async fn dispatch(
     }
 }
 
+/// Store the bytes of a chosen file beside the surface `item`, under `name`.
+/// Needs the token. The page then sends [`file_change_event`].
+pub async fn put_blob(
+    item: &str,
+    name: &str,
+    bytes: Vec<u8>,
+    token: Option<&Token>,
+) -> Result<(), ApiError> {
+    let body = put_bytes(&blob_url(&origin(), item, name), bytes, token).await?;
+    parse_put_blob(&body)
+}
+
 /// Long-poll for the next change. `timed_out` is not an error.
 pub async fn wait(id: &str, after_seq: u64, timeout_ms: u64) -> Result<WaitResult, ApiError> {
     let result = parse_wait(&get(&wait_url(&origin(), id, after_seq, timeout_ms)).await?)?;
@@ -463,6 +523,44 @@ mod tests {
             "root": {"id": "go", "node": {"kind": "button", "label": "Go"}},
             "focus_order": ["go"]
         })
+    }
+
+    #[test]
+    fn a_blob_url_encodes_the_item_and_the_name() {
+        assert_eq!(
+            blob_url("http://localhost:23125/", "s-1", "my data.csv"),
+            "http://localhost:23125/api/blob/s-1/my%20data.csv"
+        );
+        assert_eq!(
+            blob_url("http://h", "s", "a/b.csv"),
+            "http://h/api/blob/s/a%2Fb.csv"
+        );
+    }
+
+    #[test]
+    fn a_stored_file_is_a_change_carrying_a_blob_reference() {
+        let event = file_change_event("upload", "surface-1", "data.csv");
+        assert_eq!(event.widget, "upload");
+        assert_eq!(event.kind, EventKind::Change);
+        assert_eq!(
+            event.value,
+            json!({"blob": {"item": "surface-1", "name": "data.csv"}})
+        );
+    }
+
+    #[test]
+    fn a_blob_put_answer_is_ok_or_the_apps_refusal() {
+        assert!(parse_put_blob(&json!({
+            "ok": true, "wire_version": 1, "item": "x", "name": "n", "bytes": 3
+        }))
+        .is_ok());
+        let refused = parse_put_blob(&json!({
+            "ok": false, "code": "not-found", "message": "the store does not hold blobs"
+        }))
+        .unwrap_err();
+        assert_eq!(refused.code, "not-found");
+        assert!(refused.message.contains("blobs"));
+        assert_eq!(parse_put_blob(&json!({})).unwrap_err().code, "refused");
     }
 
     #[test]

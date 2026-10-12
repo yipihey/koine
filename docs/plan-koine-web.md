@@ -96,14 +96,17 @@ the SSR goldens:
 | `section{title,collapsed,body}` | `section` + `h2` + `details`-like body | collapsed is `hidden` on the body, not a DOM removal, so ids stay addressable |
 | `tabs{tabs}` | `div[role=tablist]` + `button[role=tab]` + `div[role=tabpanel]` | the active tab is the page's memory of a gesture (the grammar's `tabs` has no handler); a tab click still sends `select` with the tab index |
 | `text{text}` | `p` | font class from the `text` slot |
-| `table{rows,columns}` | `table` with `thead`/`tbody` | one `tr` per row; a row click is `select` with `[row.id]` (the suite's convention: a selection is an array of ids, `[index]` when a row has none) |
-| `list{rows}` | `ul` + `li` | same `select` rule |
+| `table{rows,columns}` | `table` with `thead`/`tbody` | one `tr` per row; a row click is `select` with `[row.id]` (the suite's convention: a selection is an array of ids, `[index]` when a row has none). `rows` may resolve to a `{rows, next}` envelope: the resolver reads its rows, and its `columns` / `id_field` when the node declares none (plan-koine-live L-D5); the mapping sees the array |
+| `list{rows}` | `ul` + `li` | same `select` rule; the same envelope |
 | `field{field,bind,value}` | `input`/`select`/`textarea`/`input[type=date]`/`input[type=range]`/`input[type=checkbox]` by `FieldKind` | `change` carries the value in the field's JSON type |
+| `field{file}` | `input[type=file][accept]`, `data-koine-file` the name last sent | no fetch in the mapping: the chosen file's bytes go to the page through `Surface`'s `on_file` (`FileChosen{widget,name,bytes}`); the page `PUT`s `/api/blob/<surface id>/<name>` and sends `change` with `{"blob": {"item": "<surface id>", "name": "<name>"}}`. With no `on_file` (SSR, tests) the input is drawn and nothing is wired (L-D6) |
 | `button{label}` | `button` | `click` |
 | `status{level,message}` | `div[role=status]`, `role=alert` for `error` | color from the `status.<level>` slot |
 | `log{lines}` | `pre.koine-log` | |
 | `kv{pairs}` | `dl` | |
 | `plot{spec}` | `div.koine-plot` holding the SVG `koine_plot::render_svg_json` draws, the spec on `data-koine-spec`; `div.koine-plot-error` naming the error when the spec does not parse | the drawing is `koine-plot`'s; the mapping only places it |
+| `plot{rows,x,y}` | the same `div.koine-plot` | the bound form (L-D8): the resolver builds the spec (one `Line` series per `y`, labelled by the field, the x axis labelled by `x`; a row whose `x` or `y` is not a JSON number is skipped), so the mapping sees `RenderKind::Plot{spec}` as before |
+| `code{language,text}` | `pre.koine-code[data-language]` holding `code`; for `diff`, one `span.koine-diff-add` / `-del` / `-hunk` / `-ctx` per line (`+`, `-`, `@@`, else) with its newline | colours from the status palette (`--koine-color-success`, else info, for an added line); no syntax highlighter (L-D7). The tui prints `code <language>` and, with `with_blocks`, the source indented by two |
 | `image{blob,url}` | `img` | `blob` is served by the host as `/api/blob/<id>` (not in this plan; placeholder until then) |
 | `divider`, `spacer` | `hr`, `div.koine-spacer` | |
 | `placeholder{unknown_kind,reason}` | `div.koine-placeholder` naming both | the same words the tui prints |
