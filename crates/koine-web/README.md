@@ -13,6 +13,9 @@ keys, the router and the pages. The plan is
 | `/surface/:id` | one surface, live: render, then a long-poll on `…/wait` that re-renders on any change; events are posted to `…/dispatch` |
 | `/layout` | the window tree with pane frames (below) |
 | `/style` | the style editor, drawn by the web frontend and applied to the same sheet the surface page reads |
+| `/host` | where the page's host is: with a host link, the app id, the origin and the bearer (with a Copy button); in a browser, the window's origin, where the token came from, and the paste field |
+
+(In a browser the router's prefix is `/ui`, so `/host` is `/ui/host`.)
 
 Every page has a status line: the app origin, whether a token is held
 ("read-only: no token" when not), and the last refusal as `code: message`.
@@ -102,8 +105,47 @@ cargo check -p koine-web --target wasm32-unknown-unknown
 cargo test -p koine-web      # the pure modules, natively
 ```
 
-A native window is the host's `--window` (plan-koine-live L-D9), not a build of this crate: the
-crate has no `desktop` feature.
+`koine-host --window` (plan-koine-live L-D9) is still the desktop window for a
+browser bundle; the `desktop` and `mobile` features below are for an app that
+links its own host.
+
+## As a library
+
+The crate is a library with a thin browser binary (`src/main.rs` is
+`koine_web::launch()`). An app that runs its host in-process
+(`docs/plan-koine-mobile.md` M-D1, M-D2) hands the page its host instead of
+letting it ask the window:
+
+```rust
+use koine_web::{install_link, launch, HostLink};
+
+install_link(HostLink {
+    origin: "http://127.0.0.1:49152".into(),   // where the host bound
+    token: Some(bearer),                        // its loopback bearer
+    app_id: "my-app".into(),
+});
+launch();
+```
+
+- `install_link(HostLink)` installs the link once, before `launch`; a second
+  call replaces the first. `host_link()` answers the installed link.
+- `launch()` runs `dioxus::launch` under the `desktop` or `mobile` feature (and
+  in a browser); with none of them it prints a hint and returns.
+- With a link installed, every request dials `link.origin`, and the token is
+  the link's from the first paint (read-write, nothing to paste). The link's
+  token lives in memory only: it is never written to `sessionStorage` or a URL.
+  With no link, the window's origin and the meta tag / `sessionStorage` / field
+  apply as above.
+
+`desktop` and `mobile` forward to `dioxus/desktop` and `dioxus/mobile` (a
+WKWebView on macOS and iOS) and are built with `--no-default-features`, which
+`dx` does for you: `dx build --platform ios` (or `macos`) from a crate that
+links a host and calls `launch`, such as `crates/koine-demo-mobile`. This crate
+itself is not what `dx` builds for a phone. Those features need the platform's
+WebView (Xcode on a Mac); the Linux lane keeps the browser build and the native
+tests. On a native target the key shortcuts are off (the editable-element
+guard cannot read the DOM synchronously, so it answers "editable"): touch and
+pointer input, Tab and Enter work.
 
 ## Keys
 

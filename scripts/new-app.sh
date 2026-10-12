@@ -12,12 +12,14 @@
 #   ├── README.md                     the agent's checklist, in order
 #   └── crates/
 #       ├── <name>-service/           dto.rs, service.rs, selftest.rs
-#       └── <name>-host/              main.rs: links the service, calls koine_host::cli::main
+#       ├── <name>-host/              main.rs: links the service, calls koine_host::cli::main
+#       └── <name>-mobile/            only with --mobile: the app on an iPhone
+#                                     (Cargo.toml, src/main.rs, Dioxus.toml)
 #
 # Usage:
 #   scripts/new-app.sh <name> --lib <crate-name> [--lib-path <path>]
 #                      [--koine-rev <rev> | --koine-path <checkout>]
-#                      [--koine-git <url>]
+#                      [--koine-git <url>] [--mobile]
 #
 #   <name>          ^[a-z][a-z0-9-]*$ ; becomes the workspace directory and the
 #                   prefix of the verbs (`<name>-service_<verb>`)
@@ -29,6 +31,12 @@
 #   --koine-path    depend on a local koine checkout by path instead of git
 #                   (what the scaffold's own test uses)
 #   --koine-git     the koine repository URL (default: the public one)
+#   --mobile        also write crates/<name>-mobile/: the host in-process and
+#                   the koine-web page in a WebView, built with `dx build
+#                   --platform ios` (docs/mobile.md in the koine checkout;
+#                   docs/plan-koine-mobile.md M-D6). Adds the crate to the
+#                   workspace and an "On an iPhone" section to the README.
+#                   Off by default: without it the output is unchanged.
 #
 # Refuses an existing <name>/ and writes nothing in that case: the tree is
 # built in a scratch directory beside it and moved into place at the end.
@@ -58,6 +66,7 @@ LIB_PATH=""
 KOINE_REV=""
 KOINE_PATH=""
 KOINE_GIT="https://github.com/yipihey/koine"
+MOBILE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -67,6 +76,7 @@ while [[ $# -gt 0 ]]; do
         --koine-rev) KOINE_REV="${2:-}"; shift 2 ;;
         --koine-path) KOINE_PATH="${2:-}"; shift 2 ;;
         --koine-git) KOINE_GIT="${2:-}"; shift 2 ;;
+        --mobile) MOBILE=1; shift ;;
         --*) die "unknown flag '$1' (try --help)" ;;
         *)
             [[ -z "$NAME" ]] || die "one <name> only; got '$NAME' and '$1'"
@@ -99,6 +109,7 @@ TRAIT="${PASCAL}Service"          # kebab(TRAIT) == "<name>-service"
 IMPL="Default${TRAIT}"
 SERVICE_CRATE="${NAME}-service"
 HOST_CRATE="${NAME}-host"
+MOBILE_CRATE="${NAME}-mobile"
 SERVICE_SNAKE="${SERVICE_CRATE//-/_}"
 LIB_SNAKE="${LIB//-/_}"
 TOOL="${SERVICE_CRATE}_echo"
@@ -122,6 +133,13 @@ fi
 KOINE_CORE_DEP="$(koine_dep impress-service-core)"
 KOINE_MACROS_DEP="$(koine_dep impress-service-macros)"
 KOINE_HOST_DEP="$(koine_dep koine-host)"
+# A workspace dependency's default features cannot be turned off by the member
+# that inherits it, so `default-features = false` is written here: the default
+# is koine-web's browser build, and the phone app wants no renderer but its own.
+KOINE_WEB_DEP="$(koine_dep koine-web)"
+KOINE_WEB_DEP="${KOINE_WEB_DEP% \}}, default-features = false }"
+WORKSPACE_MEMBERS="\"crates/${SERVICE_CRATE}\", \"crates/${HOST_CRATE}\""
+[[ -z "$MOBILE" ]] || WORKSPACE_MEMBERS+=", \"crates/${MOBILE_CRATE}\""
 
 # ---------------------------------------------------------------- the library
 PUBLIC_FNS="//   (no --lib-path given: list the library's public API with \`cargo doc --open\` or docs.rs)"
@@ -149,13 +167,9 @@ STAGE="$(mktemp -d "./.${NAME}.new.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 ROOT="$STAGE/$NAME"
 
-# emit <relative-path>: stdin, with __PLACEHOLDERS__ filled, to $ROOT/<path>.
-emit() {
-    local path="$1" body
-    path="${path//__SERVICE_CRATE__/$SERVICE_CRATE}"
-    path="${path//__HOST_CRATE__/$HOST_CRATE}"
-    path="$ROOT/$path"
-    mkdir -p "$(dirname "$path")"
+# expand: stdin with its __PLACEHOLDERS__ filled, on stdout.
+expand() {
+    local body
     body="$(cat)"
     body="${body//__NAME__/$NAME}"
     body="${body//__PASCAL__/$PASCAL}"
@@ -164,6 +178,8 @@ emit() {
     body="${body//__SERVICE_CRATE__/$SERVICE_CRATE}"
     body="${body//__SERVICE_SNAKE__/$SERVICE_SNAKE}"
     body="${body//__HOST_CRATE__/$HOST_CRATE}"
+    body="${body//__MOBILE_CRATE__/$MOBILE_CRATE}"
+    body="${body//__WORKSPACE_MEMBERS__/$WORKSPACE_MEMBERS}"
     body="${body//__LIB_DEP__/$LIB_DEP}"
     body="${body//__LIB_SNAKE__/$LIB_SNAKE}"
     body="${body//__LIB__/$LIB}"
@@ -174,7 +190,23 @@ emit() {
     body="${body//__KOINE_MACROS_DEP__/$KOINE_MACROS_DEP}"
     body="${body//__KOINE_HOST_DEP__/$KOINE_HOST_DEP}"
     body="${body//__PUBLIC_FNS__/$PUBLIC_FNS}"
-    printf '%s\n' "$body" >"$path"
+    printf '%s' "$body"
+}
+
+# emit <relative-path>: stdin, with __PLACEHOLDERS__ filled, to $ROOT/<path>.
+emit() {
+    local path="$1"
+    path="${path//__SERVICE_CRATE__/$SERVICE_CRATE}"
+    path="${path//__HOST_CRATE__/$HOST_CRATE}"
+    path="${path//__MOBILE_CRATE__/$MOBILE_CRATE}"
+    path="$ROOT/$path"
+    mkdir -p "$(dirname "$path")"
+    printf '%s\n' "$(expand)" >"$path"
+}
+
+# emit_append <relative-path>: as emit, after what the file already holds.
+emit_append() {
+    printf '\n%s\n' "$(expand)" >>"$ROOT/$1"
 }
 
 emit Cargo.toml <<'EOF'
@@ -182,7 +214,7 @@ emit Cargo.toml <<'EOF'
 # host binary that links it. koine: __KOINE_WHERE__.
 [workspace]
 resolver = "2"
-members = ["crates/__SERVICE_CRATE__", "crates/__HOST_CRATE__"]
+members = [__WORKSPACE_MEMBERS__]
 
 [workspace.package]
 version = "0.1.0"
@@ -575,8 +607,133 @@ The guide is `docs/capability.md` in the koine checkout. Tick these in order.
 stores to `canonical` before naming it in `reads`/`writes`.
 EOF
 
+# ---------------------------------------------------------------- --mobile
+# The app on an iPhone (docs/plan-koine-mobile.md M-D6): crates/koine-demo-mobile
+# with this app's service linked instead of the demo's. The workspace manifest
+# ends with its [workspace.dependencies] table, so the two lines appended to it
+# below land in that table.
+if [[ -n "$MOBILE" ]]; then
+    {
+        printf '%s\n' "# --mobile: the page (no renderer until the mobile crate's \`mobile\` feature"
+        printf '%s\n' "# turns one on) and the renderer's own crate."
+        printf '%s\n' "$KOINE_WEB_DEP"
+        printf '%s\n' 'dioxus = { version = "0.7", default-features = false }'
+    } >>"$ROOT/Cargo.toml"
+
+    emit "crates/__MOBILE_CRATE__/Cargo.toml" <<'EOF'
+[package]
+name = "__MOBILE_CRATE__"
+description = "__NAME__ on an iPhone: the host in-process, the koine-web page in a WebView"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+__SERVICE_CRATE__ = { path = "../__SERVICE_CRATE__" }
+koine-host.workspace = true
+koine-web.workspace = true
+# Named so `dx` finds the crate to be a dioxus app (the direct dependency and
+# the `mobile` feature below).
+dioxus.workspace = true
+
+[features]
+# Off by default: `cargo test` and `cargo check` compile all of `main` without
+# opening a window (`koine_web::launch` prints a hint and returns when no
+# renderer is on). `dx build --platform ios` turns it on.
+mobile = ["koine-web/mobile", "dioxus/mobile"]
+EOF
+
+    emit "crates/__MOBILE_CRATE__/src/main.rs" <<'EOF'
+//! __NAME__ on an iPhone: one process, the host in-process (loopback, an
+//! ephemeral port, a `dir:` store under the app's Documents) and the
+//! `koine-web` page in a WebView, handed the host's URL and bearer directly.
+//! `dx build --platform ios` builds it with the `mobile` feature on.
+
+const APP_ID: &str = "__NAME__";
+
+fn main() {
+    // Each keeps its crate's verbs through the link.
+    koine_host::ensure_linked();
+    __SERVICE_SNAKE__::ensure_linked();
+
+    let host = koine_host::embed::start(koine_host::embed::sandbox_config(APP_ID))
+        .expect("the host starts");
+
+    let url = host.url();
+    eprintln!("__MOBILE_CRATE__: host {url}");
+    eprintln!(
+        "__MOBILE_CRATE__: loopback token {}",
+        host.token_path().display()
+    );
+
+    koine_web::install_link(koine_web::HostLink {
+        origin: url,
+        token: Some(host.token().to_string()),
+        app_id: APP_ID.into(),
+    });
+    koine_web::launch();
+    host.shutdown();
+}
+EOF
+
+    emit "crates/__MOBILE_CRATE__/Dioxus.toml" <<'EOF'
+# Read by `dx build --platform ios` / `dx serve --platform ios` run from this
+# directory (dioxus-cli 0.7.x).
+[application]
+name = "__MOBILE_CRATE__"
+
+[bundle]
+identifier = "com.__NAME__.koine"
+publisher = "__NAME__"
+
+# Info.plist keys merged into the generated one: with both, the Files app
+# shows this app's Documents/__NAME__/ (the store, the settings, the token).
+[ios.plist]
+UIFileSharingEnabled = true
+LSSupportsOpeningDocumentsInPlace = true
+EOF
+
+    emit_append README.md <<'EOF'
+## On an iPhone
+
+`crates/__MOBILE_CRATE__` is __NAME__ as an iOS app (--mobile; the guide is
+`docs/mobile.md` in the koine checkout, the plan `docs/plan-koine-mobile.md`):
+the host runs inside the app, over a `dir:` store in the app's
+`Documents/__NAME__/`, and the `koine-web` page is drawn in a WebView. It needs
+a Mac with Xcode.
+
+```bash
+rustup target add aarch64-apple-ios-sim aarch64-apple-ios
+cargo install dioxus-cli --version 0.7.10 --locked
+cd crates/__MOBILE_CRATE__
+dx serve --platform ios                       # the simulator
+dx build --platform ios --device --release    # a phone (your signing identity)
+```
+
+`cargo test` and `cargo check -p __MOBILE_CRATE__` build it without a window
+(the `mobile` feature is off); only `dx` turns it on.
+
+The app logs its URL and the token file at start. On the simulator:
+
+```bash
+DATA=$(xcrun simctl get_app_container booted com.__NAME__.koine data)
+TOKEN_FILE=$(ls "$DATA"/Documents/__NAME__/automation/loopback-*.token)
+TOKEN=$(cat "$TOKEN_FILE")
+PORT=$(basename "$TOKEN_FILE" .token | cut -d- -f2)
+curl -s localhost:$PORT/api/status
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+     -d '{"message":"hello"}' localhost:$PORT/api/verb/__TOOL__
+```
+
+On a phone the Files app shows the same folder (`UIFileSharingEnabled`), and the
+page's `/host` route shows the URL and bearer. An agent app on the phone dials
+`http://127.0.0.1:<port>/mcp` with that bearer. iOS suspends a backgrounded app,
+so the host answers only while the app is on screen.
+EOF
+fi
+
 # ---------------------------------------------------------------- publish
 mv "$ROOT" "./$NAME"
 echo "wrote ./$NAME  (koine: $KOINE_WHERE; library: $LIB)"
 echo "  verbs:  ${TOOL%_echo}_*   (scaffold: $TOOL)"
+[[ -z "$MOBILE" ]] || echo "  mobile: crates/$MOBILE_CRATE   (a Mac with Xcode: $NAME/README.md, \"On an iPhone\")"
 echo "  next:   cd $NAME && cargo test      # then read $NAME/README.md"

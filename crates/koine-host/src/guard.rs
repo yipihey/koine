@@ -31,25 +31,33 @@ pub(crate) async fn guard(
     request: Request,
     next: Next,
 ) -> Response {
+    let loopback = peer.ip().to_canonical().is_loopback();
+    let (allow_network, network_bearer, opened_at_runtime) = {
+        let network = state.network.read().unwrap_or_else(|e| e.into_inner());
+        (
+            network.allow,
+            network.bearer.clone(),
+            network.listener.is_some(),
+        )
+    };
     let host = request
         .headers()
         .get(header::HOST)
         .and_then(|value| value.to_str().ok());
-    if !host.is_some_and(|host| host_names_this_machine(host, state.bind)) {
+    if !host_admitted(host, state.bind, loopback, opened_at_runtime) {
         return refusal(
             StatusCode::BAD_REQUEST,
             "Host header does not name this server",
         );
     }
-    let loopback = peer.ip().to_canonical().is_loopback();
     let bearer = bearer(request.headers());
     let admitted = admitted(
         loopback,
         request.method(),
         bearer,
         &state.token,
-        state.allow_network,
-        state.network_bearer.as_deref(),
+        allow_network,
+        network_bearer.as_deref(),
     );
     if !admitted {
         let mut response = refusal(StatusCode::UNAUTHORIZED, "unauthorized");
@@ -73,6 +81,42 @@ pub(crate) async fn guard(
         response.headers_mut().remove(name);
     }
     response
+}
+
+/// The Host check. The wildcard listener `POST /api/host/network` opens has
+/// no one address to name, so a remote peer there may use any IP literal or
+/// `.local` name; it still needs the bearer, which is what a DNS-rebinding
+/// page cannot present. Loopback peers keep the strict rule.
+fn host_admitted(
+    host: Option<&str>,
+    bound: IpAddr,
+    loopback: bool,
+    opened_at_runtime: bool,
+) -> bool {
+    let Some(host) = host else { return false };
+    if host_names_this_machine(host, bound) {
+        return true;
+    }
+    opened_at_runtime && !loopback && host_is_lan_name(host)
+}
+
+/// An IP literal or an mDNS `.local` name, with or without a port.
+fn host_is_lan_name(host: &str) -> bool {
+    let host = host.trim().to_ascii_lowercase();
+    let name = if host.starts_with('[') {
+        return host
+            .find(']')
+            .is_some_and(|end| host[1..end].parse::<std::net::Ipv6Addr>().is_ok());
+    } else {
+        match host.rsplit_once(':') {
+            Some((name, port)) if port.chars().all(|c| c.is_ascii_digit()) => name,
+            _ => host.as_str(),
+        }
+    };
+    name.parse::<std::net::Ipv4Addr>().is_ok()
+        || name
+            .strip_suffix(".local")
+            .is_some_and(|label| !label.is_empty() && !label.contains(".."))
 }
 
 fn refusal(status: StatusCode, reason: &str) -> Response {
@@ -190,6 +234,34 @@ mod tests {
             "0.0.0.0",
             IpAddr::from([0, 0, 0, 0])
         ));
+    }
+
+    #[test]
+    fn a_wildcard_listener_admits_lan_names_for_remote_peers_only() {
+        let lan = "192.168.1.9:23130";
+        // Only the listener opened at runtime, and only for a remote peer.
+        assert!(host_admitted(Some(lan), LOCAL, false, true));
+        assert!(host_admitted(
+            Some("iphone.local:23130"),
+            LOCAL,
+            false,
+            true
+        ));
+        assert!(host_admitted(Some("[fe80::1]:23130"), LOCAL, false, true));
+        assert!(!host_admitted(Some(lan), LOCAL, false, false));
+        assert!(!host_admitted(Some(lan), LOCAL, true, true));
+        // A hostname that is not on the LAN is still a rebinding candidate.
+        assert!(!host_admitted(Some("evil.example"), LOCAL, false, true));
+        assert!(!host_admitted(
+            Some("localhost.evil.example"),
+            LOCAL,
+            false,
+            true
+        ));
+        assert!(!host_admitted(Some(".local"), LOCAL, false, true));
+        assert!(!host_admitted(None, LOCAL, false, true));
+        // Loopback names pass everywhere.
+        assert!(host_admitted(Some("localhost:1"), LOCAL, true, false));
     }
 
     #[test]

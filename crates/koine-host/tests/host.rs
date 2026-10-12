@@ -1820,3 +1820,189 @@ async fn another_process_writing_the_same_directory_wakes_it_too() {
     drop(other);
     host.served.shutdown().await;
 }
+
+// ------------------------------------------------------------ host/network
+
+/// This machine's address on a route to anywhere, when it has one (the UDP
+/// connect sends nothing). A request to it arrives from that same address:
+/// a peer that is not loopback.
+fn lan_ip() -> Option<std::net::IpAddr> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("192.0.2.1:9").ok()?;
+    let ip = socket.local_addr().ok()?.ip();
+    (!ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
+}
+
+async fn refused(client: &Client, url: &str) -> bool {
+    match client.get(url).timeout(Duration::from_secs(3)).send().await {
+        Err(error) => error.is_connect(),
+        Ok(_) => false,
+    }
+}
+
+#[tokio::test]
+async fn the_network_toggle_opens_and_closes_a_second_listener() {
+    let _turn = TURN.lock().await;
+    let host = start("memory:", "network-toggle-app").await;
+
+    let (status, closed) = host.get_json("/api/host/network").await;
+    assert_eq!(status, StatusCode::OK, "{closed}");
+    assert_eq!(closed["allowed"], false, "{closed}");
+    assert_eq!(closed["started_in_network_mode"], false, "{closed}");
+    assert!(closed.get("addr").is_none() && closed.get("bearer").is_none());
+
+    // A mutation needs the loopback token, like every other.
+    let bare = host
+        .client
+        .post(host.url("/api/host/network"))
+        .json(&json!({ "allow": true }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bare.status(), StatusCode::UNAUTHORIZED);
+    for bad in [json!({}), json!({ "allow": true, "port": 1 })] {
+        let (status, body) = host.post("/api/host/network", bad).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "invalid-argument");
+    }
+
+    let (status, opened) = host
+        .post(
+            "/api/host/network",
+            json!({ "allow": true, "bearer": "lan-bearer" }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{opened}");
+    assert_eq!(opened["allowed"], true);
+    assert_eq!(opened["bearer"], "lan-bearer");
+    let addr = opened["addr"].as_str().unwrap().to_string();
+    assert!(addr.starts_with("0.0.0.0:"), "{addr}");
+    let port = opened["port"].as_u64().unwrap();
+    let net = format!("http://127.0.0.1:{port}");
+
+    // The loopback peer is treated exactly as on the first listener.
+    let status = host.client.get(format!("{net}/api/status")).send().await;
+    assert_eq!(status.unwrap().status(), StatusCode::OK);
+    let no_token = host
+        .client
+        .post(format!("{net}/api/host/network"))
+        .json(&json!({ "allow": false }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(no_token.status(), StatusCode::UNAUTHORIZED);
+    let on_net = host
+        .client
+        .post(format!("{net}/api/verb/layout-service_layout-tree"))
+        .bearer_auth(host.served.token())
+        .json(&json!({}))
+        .send()
+        .await
+        .unwrap();
+    assert_ne!(on_net.status(), StatusCode::UNAUTHORIZED);
+
+    // The state names the address and never the bearer.
+    let (_, state) = host.get_json("/api/host/network").await;
+    assert_eq!(state["allowed"], true, "{state}");
+    assert_eq!(state["addr"], addr);
+    assert!(state.get("bearer").is_none(), "{state}");
+
+    // Opening again is the same listener; a bearer in the body rotates.
+    let (_, again) = host
+        .post("/api/host/network", json!({ "allow": true }))
+        .await;
+    assert_eq!(again["addr"], opened["addr"], "{again}");
+    assert_eq!(again["bearer"], "lan-bearer");
+    let (_, rotated) = host
+        .post(
+            "/api/host/network",
+            json!({ "allow": true, "bearer": "next" }),
+        )
+        .await;
+    assert_eq!(rotated["addr"], opened["addr"], "{rotated}");
+    assert_eq!(rotated["bearer"], "next");
+
+    let (status, off) = host
+        .post("/api/host/network", json!({ "allow": false }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{off}");
+    assert_eq!(off["allowed"], false);
+    // The abort lands on the runtime; give it a moment to drop the socket.
+    let mut gone = false;
+    for _ in 0..50 {
+        if refused(&host.client, &format!("{net}/api/status")).await {
+            gone = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(gone, "the network listener still answers");
+    let (_, state) = host.get_json("/api/host/network").await;
+    assert_eq!(state["allowed"], false, "{state}");
+    // The first listener never stopped.
+    assert_eq!(host.get("/api/status").await.status(), StatusCode::OK);
+    // Closing twice is fine.
+    let (status, _) = host
+        .post("/api/host/network", json!({ "allow": false }))
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    host.served.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_remote_peer_needs_the_bearer_on_the_second_listener() {
+    let _turn = TURN.lock().await;
+    let Some(ip) = lan_ip() else {
+        eprintln!("skipped: this machine has no non-loopback address to dial");
+        return;
+    };
+    let host = start("memory:", "network-remote-app").await;
+    let (_, opened) = host
+        .post(
+            "/api/host/network",
+            json!({ "allow": true, "bearer": "lan-bearer" }),
+        )
+        .await;
+    let port = opened["port"].as_u64().unwrap();
+    let remote = format!("http://{ip}:{port}");
+    let call = |bearer: Option<&'static str>, method: Method, path: &'static str| {
+        let mut request = host.client.request(method, format!("{remote}{path}"));
+        if let Some(bearer) = bearer {
+            request = request.bearer_auth(bearer);
+        }
+        request.json(&json!({ "allow": false })).send()
+    };
+
+    let no_bearer = call(None, Method::GET, "/api/status").await.unwrap();
+    assert_eq!(no_bearer.status(), StatusCode::UNAUTHORIZED);
+    // The loopback token is not the network bearer.
+    let token: &'static str = Box::leak(host.served.token().to_string().into_boxed_str());
+    let wrong = call(Some(token), Method::GET, "/api/status").await.unwrap();
+    assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+    let ok = call(Some("lan-bearer"), Method::GET, "/api/status")
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), StatusCode::OK);
+    // A remote peer cannot close the door it came through.
+    let (status, body) = json_of(
+        call(Some("lan-bearer"), Method::POST, "/api/host/network")
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["code"], "loopback-only");
+
+    // Closing it refuses the next request even on a live connection, and the
+    // port stops answering.
+    let (_, off) = host
+        .post("/api/host/network", json!({ "allow": false }))
+        .await;
+    assert_eq!(off["allowed"], false);
+    let after = call(Some("lan-bearer"), Method::GET, "/api/status").await;
+    assert!(
+        after.map_or(true, |r| r.status() == StatusCode::UNAUTHORIZED),
+        "a closed listener must not admit the bearer"
+    );
+    host.served.shutdown().await;
+}

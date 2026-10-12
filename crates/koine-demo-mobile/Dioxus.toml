@@ -1,0 +1,19 @@
+# Read by `dx build --platform ios` / `dx serve --platform ios` run from this
+# directory (dioxus-cli 0.7.10; the keys are the ones its `dx config schema`
+# lists).
+[application]
+name = "koine-demo-mobile"
+
+[bundle]
+# The id `xcrun simctl launch` and `get_app_container` take
+# (scripts/tests/ios/run.sh).
+identifier = "com.koine.demo"
+publisher = "koine"
+
+# Info.plist keys merged into the generated one ([ios.plist]; dx writes a
+# `true` as <true/>). With both, the Files app shows "koine-demo-mobile" and
+# its Documents/koine-demo/ folder: the store, the settings and the loopback
+# token (docs/plan-koine-mobile.md M-D3).
+[ios.plist]
+UIFileSharingEnabled = true
+LSSupportsOpeningDocumentsInPlace = true

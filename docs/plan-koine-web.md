@@ -191,8 +191,10 @@ feature, on by default, gates `koine::verbs` and `koine::verb_surface`;
   not in CI; it is the developer's window, not a shipped app.
 - **Not now**: `fullstack` and `liveview` (the app already is the server;
   a second server beside it is the TypeScript-MCP mistake in a new coat),
-  mobile (the Apple apps are native), Blitz (experimental in 0.7). Each is
-  a feature flag on the same crate when wanted, not a redesign.
+  mobile (the Apple apps are native; a standalone koine app on an iPhone is
+  [plan-koine-mobile.md](plan-koine-mobile.md), the same crate behind its
+  `mobile` feature), Blitz (experimental in 0.7). Each is a feature flag on
+  the same crate when wanted, not a redesign.
 
 ### D7. The layout page performs the window tree, with pane frames
 

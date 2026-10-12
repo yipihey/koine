@@ -12,6 +12,7 @@
 //! | `GET /api/job`, `GET /api/job/<id>`, `POST /api/job/<id>/cancel` | the default job runner: what is running, a job's or routine's row (state, `progress`, `runs`, `line_count`), stopping it | here |
 //! | `GET /api/job/<id>/lines?after=<n>` | what the job has emitted (`job::emit`): the lines from index `n` on, `next`, `total`, `dropped`, `state` | here |
 //! | `GET /api/secret`, `PUT/DELETE /api/secret/<name>` | the secrets linked verbs declare (never a value) | [`secret`] |
+//! | `GET/POST /api/host/network` | whether the host also listens beyond loopback; `POST {"allow", "bearer"?}` opens or closes the second listener (loopback and the token only) | [`host`] |
 //! | `POST /mcp` | MCP over JSON-RPC | here |
 //!
 //! Every JSON answer outside the guard's own is the wire convention:
@@ -20,6 +21,7 @@
 //! maps the code to.
 
 mod blob;
+pub(crate) mod host;
 mod layout;
 mod secret;
 mod surface;
@@ -70,6 +72,10 @@ pub(crate) fn router(state: Shared) -> Router {
         .route(
             "/api/secret/{name}",
             axum::routing::put(secret::put).delete(secret::delete),
+        )
+        .route(
+            "/api/host/network",
+            get(host::network_state).post(host::network_set),
         )
         .route("/api/job", get(job_list))
         .route("/api/job/{id}", get(job_status))

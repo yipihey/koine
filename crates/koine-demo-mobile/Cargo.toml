@@ -1,0 +1,34 @@
+[package]
+name = "koine-demo-mobile"
+description = "The koine demo as an iPhone app: the host in-process, the koine-web page in a WebView (docs/plan-koine-mobile.md M-D1, M-D5). The scaffold's template for `scripts/new-app.sh --mobile`."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "koine-demo-mobile"
+path = "src/main.rs"
+
+[dependencies]
+koine-host = { workspace = true }
+surface-demo-service = { workspace = true }
+# By path, not `workspace = true`: a member cannot turn off a workspace
+# dependency's default features, and `web` (the default) is the browser build.
+koine-web = { path = "../koine-web", default-features = false }
+# Named here so `dx` finds the crate to be a dioxus app (it reads the direct
+# dependency and the `mobile` feature below). No features of its own: the
+# renderer is the `mobile` feature's.
+dioxus = { version = "0.7", default-features = false }
+koine-workspace-hack.workspace = true
+
+[features]
+# Off by default, so `cargo test --workspace` and `cargo clippy --workspace`
+# compile the whole of `main` without opening a window (`koine_web::launch`
+# prints a hint and returns when no renderer is on). `dx build --platform ios`
+# turns it on: dx enables a crate feature named `mobile` for the iOS platform.
+mobile = ["koine-web/mobile", "dioxus/mobile"]
+
+[lints]
+workspace = true

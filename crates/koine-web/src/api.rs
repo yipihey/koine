@@ -388,18 +388,34 @@ pub fn layout_verb_body(verb: &Verb) -> Result<Value, ApiError> {
         .map_err(|error| ApiError::new("bad-request", format!("layout verb: {error}")))
 }
 
-/// The origin the page is served from, and so the origin of every request.
-/// A browser build asks the window; a native build (tests) dials
-/// impress's own port.
+/// The origin of every request: the installed [`HostLink`](crate::HostLink)'s
+/// when there is one (a native app that linked its host, M-D2), else the
+/// window's (the page is served by the app), else impress's own port, which is
+/// what a native test dials.
 pub fn origin() -> String {
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(origin) = web_sys::window().and_then(|window| window.location().origin().ok()) {
-            return origin;
+    let window = {
+        #[cfg(target_arch = "wasm32")]
+        {
+            web_sys::window().and_then(|window| window.location().origin().ok())
         }
-    }
-    "http://localhost:23125".to_string()
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            None
+        }
+    };
+    origin_of(crate::host_link().as_ref(), window)
 }
+
+/// [`origin`]'s rule, pure: the link, else the window's origin, else the
+/// fallback.
+pub fn origin_of(link: Option<&crate::HostLink>, window: Option<String>) -> String {
+    link.map(|link| link.origin.trim_end_matches('/').to_string())
+        .or(window)
+        .unwrap_or_else(|| FALLBACK_ORIGIN.to_string())
+}
+
+/// impress's loopback port (`SiblingApp.descriptors`).
+const FALLBACK_ORIGIN: &str = "http://localhost:23125";
 
 async fn get(url: &str) -> Result<Value, ApiError> {
     let response = reqwest::Client::new()
@@ -517,6 +533,43 @@ pub async fn layout_verb(verb: &Verb, token: Option<&Token>) -> Result<LayoutVer
 mod tests {
     use super::*;
     use impress_surface::EventKind;
+
+    fn link(origin: &str) -> crate::HostLink {
+        crate::HostLink {
+            origin: origin.into(),
+            token: Some("t".into()),
+            app_id: "demo".into(),
+        }
+    }
+
+    #[test]
+    fn the_origin_is_the_link_then_the_window_then_the_fallback() {
+        let l = link("http://127.0.0.1:4000/");
+        assert_eq!(
+            origin_of(Some(&l), Some("http://win".into())),
+            "http://127.0.0.1:4000"
+        );
+        assert_eq!(origin_of(None, Some("http://win".into())), "http://win");
+        assert_eq!(origin_of(None, None), "http://localhost:23125");
+    }
+
+    #[test]
+    fn an_installed_link_is_what_origin_and_host_link_answer() {
+        use crate::{clear_link, host_link, install_link, LINK_TESTS};
+        let _guard = LINK_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        clear_link();
+        assert_eq!(host_link(), None);
+        assert_eq!(origin(), "http://localhost:23125");
+        let first = link("http://127.0.0.1:4001");
+        install_link(first.clone());
+        assert_eq!(host_link(), Some(first));
+        assert_eq!(origin(), "http://127.0.0.1:4001");
+        // A second install replaces the first.
+        install_link(link("http://127.0.0.1:4002"));
+        assert_eq!(origin(), "http://127.0.0.1:4002");
+        clear_link();
+        assert_eq!(origin(), "http://localhost:23125");
+    }
 
     fn tree_json() -> Value {
         json!({

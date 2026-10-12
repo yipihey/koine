@@ -23,6 +23,8 @@ cd crates/koine-web && dx serve --hotpatch     # the page, live against a runnin
 An app from a library: `scripts/new-app.sh stats --lib mini-stats --lib-path ../mini-stats` writes a cargo workspace with a service crate and a host crate over it. An agent turns the library's public functions into `#[impress_method]` verbs (the guide below, then `scripts/check-verb-coverage.sh` for what it missed), and `cargo run -p stats-host` serves them over HTTP and MCP, with a generated form per verb (`GET /api/verb/<name>/surface`) and the page at `/ui/`.
 `scripts/tests/e2e/run.sh` does exactly that over a scratch library and asserts each step, about 45 seconds once the dependencies are compiled.
 
+On an iPhone: `scripts/new-app.sh stats --lib mini-stats --lib-path ../mini-stats --mobile` also writes `crates/stats-mobile`, the same app as one iOS binary with the host in-process and the `koine-web` page in a WebView (`dx build --platform ios`, a Mac with Xcode). Anything on the phone, or a Mac on the same network, drives it through the same `/api/*` and `/mcp` with a bearer. `crates/koine-demo-mobile` is the template and `scripts/tests/ios/run.sh` the proof that an agent drives it on a simulator; the guide is [docs/mobile.md](docs/mobile.md) and the design [docs/plan-koine-mobile.md](docs/plan-koine-mobile.md).
+
 To give a Rust library verbs, generated surfaces and a page, follow [docs/capability.md](docs/capability.md); `scripts/new-app.sh <name> --lib <crate>` writes the crate it describes.
 
 `schema-refs.json` is the snapshot this workspace builds against. An impress-apps build sets `IMPRESS_SCHEMA_REFS` to the live manifest, so suite schema names are generated from the suite, not from this snapshot.

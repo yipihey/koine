@@ -31,6 +31,7 @@ members = [
     "crates/koine-mcp-host",
     "crates/koine-host",
     "crates/koine-window",
+    "crates/koine-demo-mobile",
     "crates/koine-workspace-hack",
 ]
 

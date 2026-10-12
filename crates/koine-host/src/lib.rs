@@ -42,8 +42,24 @@
 //! `GET`/`HEAD`/`OPTIONS` needs nothing and every other method needs this
 //! launch's token; a non-loopback peer needs [`Config::allow_network`] and
 //! the network bearer; no response carries an `Access-Control-*` header.
+//!
+//! # Network access at runtime
+//!
+//! A host binds one address at start. Network mode at start (`allow_network`
+//! with a concrete bind) is that address. A host that started on loopback —
+//! the shape of an app on a phone — can open a second listener on the same
+//! router with `POST /api/host/network {"allow": true, "bearer": "<optional>"}`
+//! (loopback and the loopback token only): it binds `0.0.0.0` on the host's
+//! port (any port when that one is taken), a non-loopback peer must present
+//! the bearer on every request, and the answer is
+//! `{"ok", "wire_version", "allowed": true, "addr", "port", "bearer"}`.
+//! `{"allow": false}` aborts that listener and the guard refuses what is left
+//! of its connections. `GET /api/host/network` answers the state without the
+//! bearer. Both listeners go through one guard reading one
+//! [`NetworkAccess`], so the policy cannot differ between them.
 
 pub mod cli;
+pub mod embed;
 pub mod feed;
 mod guard;
 pub mod manifest;
@@ -55,7 +71,7 @@ pub mod window;
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use impress_item::{AttributedStore, BlobStore, StoreCapabilities};
 use impress_pane_query::{process_manifest, KindManifest};
@@ -165,6 +181,7 @@ pub struct Served {
     token: String,
     token_path: PathBuf,
     runner: Arc<JobRunner>,
+    state: Arc<HostState>,
     feed: Option<feed::FeedHandle>,
     stop: Option<oneshot::Sender<()>>,
     task: Option<JoinHandle<()>>,
@@ -221,6 +238,7 @@ impl Served {
         if let Some(stop) = self.stop.take() {
             let _ = stop.send(());
         }
+        self.state.close_network();
         self.feed.take();
         self.runner.cancel_all();
         let _ = std::fs::remove_file(&self.token_path);
@@ -242,8 +260,10 @@ pub(crate) struct HostState {
     pub port: u16,
     pub bind: IpAddr,
     pub token: String,
-    pub allow_network: bool,
-    pub network_bearer: Option<String>,
+    /// Who may reach this host beyond loopback. Fixed at start when the
+    /// config asked for network mode; otherwise `POST /api/host/network`
+    /// opens and closes a second listener and updates it.
+    pub network: RwLock<NetworkAccess>,
     pub web_dir: Option<PathBuf>,
     pub blobs: Option<Arc<dyn BlobStore>>,
     pub runner: Arc<JobRunner>,
@@ -316,8 +336,12 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
         port: addr.port(),
         bind: config.bind,
         token: token.clone(),
-        allow_network: config.allow_network,
-        network_bearer: config.network_bearer.clone(),
+        network: RwLock::new(NetworkAccess {
+            allow: config.allow_network,
+            bearer: config.network_bearer.clone(),
+            started_in_network_mode: config.allow_network,
+            listener: None,
+        }),
         web_dir: config.web_dir.clone(),
         blobs: opened.blobs,
         runner: runner.clone(),
@@ -337,12 +361,7 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
         secrets: secret_source,
     });
 
-    let app = routes::router(state.clone())
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            guard::guard,
-        ))
-        .into_make_service_with_connect_info::<SocketAddr>();
+    let app = app(state.clone()).into_make_service_with_connect_info::<SocketAddr>();
     let (stop, stopped) = oneshot::channel::<()>();
     let task = tokio::spawn(async move {
         let served = axum::serve(listener, app).with_graceful_shutdown(async move {
@@ -358,10 +377,47 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
         token,
         token_path,
         runner,
+        state,
         feed: Some(feed),
         stop: Some(stop),
         task: Some(task),
     })
+}
+
+/// The routes behind the guard: what every listener of one host serves, the
+/// one it was started with and the one `POST /api/host/network` opens.
+pub(crate) fn app(state: Arc<HostState>) -> axum::Router {
+    routes::router(state.clone()).layer(axum::middleware::from_fn_with_state(state, guard::guard))
+}
+
+/// Whether, and with which bearer, a peer that is not loopback is admitted.
+/// The guard reads this on every request, so changing it changes every
+/// listener at once (a keep-alive connection from a closed listener is
+/// refused with the next request).
+pub(crate) struct NetworkAccess {
+    pub allow: bool,
+    pub bearer: Option<String>,
+    /// The config bound a concrete non-loopback address at start: network
+    /// mode is the host's whole shape and the route cannot change it.
+    pub started_in_network_mode: bool,
+    /// The second listener `POST /api/host/network` opened.
+    pub listener: Option<routes::host::NetworkListener>,
+}
+
+impl HostState {
+    /// Close the listener `POST /api/host/network` opened, if any, and stop
+    /// admitting remote peers. A no-op for a host started in network mode.
+    pub(crate) fn close_network(&self) {
+        let mut network = self.network.write().unwrap_or_else(|e| e.into_inner());
+        if network.started_in_network_mode {
+            return;
+        }
+        network.allow = false;
+        network.bearer = None;
+        if let Some(listener) = network.listener.take() {
+            listener.task.abort();
+        }
+    }
 }
 
 /// Network mode binds the one configured address and refuses to start

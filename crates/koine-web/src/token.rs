@@ -12,7 +12,7 @@
 //!    stored in `sessionStorage` (this tab only; never in the URL).
 //!
 //! Without one the page is read-only and says so. What is pure here
-//! ([`Token::new`], [`meta_token`], [`first`]) is tested natively; the DOM
+//! ([`Token::new`], [`meta_token`], [`first_token`]) is tested natively; the DOM
 //! reads go through `document::eval`.
 
 use std::fmt;
@@ -87,13 +87,83 @@ fn attribute(tag: &str, name: &str) -> Option<String> {
     None
 }
 
-/// The first token held: the meta element's, else storage's.
-pub fn first(meta: Option<Token>, stored: Option<Token>) -> Option<Token> {
-    meta.or(stored)
+/// Where a held token came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// Handed over in-process by the host the page is linked to.
+    Link,
+    /// The `<meta name="koine-token">` the serving app injected.
+    Meta,
+    /// `sessionStorage`: pasted into the field earlier in this tab.
+    Pasted,
 }
 
-/// What the page holds at load: the meta element, else `sessionStorage`.
+impl Source {
+    /// How `/host` words it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Source::Link => "handed over by the host (in-process)",
+            Source::Meta => "the page's meta tag (injected by the serving app)",
+            Source::Pasted => "pasted in this tab (sessionStorage)",
+        }
+    }
+}
+
+/// The first token held, and where it came from: the link's, else the meta
+/// element's, else storage's.
+pub fn first_sourced(
+    link: Option<&Token>,
+    meta: Option<Token>,
+    stored: Option<Token>,
+) -> Option<(Token, Source)> {
+    link.cloned()
+        .map(|token| (token, Source::Link))
+        .or_else(|| meta.map(|token| (token, Source::Meta)))
+        .or_else(|| stored.map(|token| (token, Source::Pasted)))
+}
+
+/// The first token held: the link's, else the meta element's, else storage's.
+pub fn first_token(
+    link: Option<&Token>,
+    meta: Option<Token>,
+    stored: Option<Token>,
+) -> Option<Token> {
+    first_sourced(link, meta, stored).map(|(token, _)| token)
+}
+
+/// The installed link's token, as a [`Token`] (refused like any other when it
+/// holds whitespace or a control character).
+pub fn link_token() -> Option<Token> {
+    crate::host_link()
+        .and_then(|link| link.token)
+        .as_deref()
+        .and_then(Token::new)
+}
+
+/// What the page holds at load: the link's token, else the meta element, else
+/// `sessionStorage`.
 pub async fn load() -> Option<Token> {
+    let link = link_token();
+    if link.is_some() {
+        // The host and the page are one program: no DOM to ask.
+        return first_token(link.as_ref(), None, None);
+    }
+    let (meta, stored) = read_dom().await;
+    first_token(None, meta, stored)
+}
+
+/// [`load`], with the place the token came from.
+pub async fn load_sourced() -> Option<(Token, Source)> {
+    let link = link_token();
+    if link.is_some() {
+        return first_sourced(link.as_ref(), None, None);
+    }
+    let (meta, stored) = read_dom().await;
+    first_sourced(None, meta, stored)
+}
+
+/// The meta element's token and `sessionStorage`'s.
+async fn read_dom() -> (Option<Token>, Option<Token>) {
     // `outerHTML` of <head> is the text `meta_token` reads; the page's head is
     // small and the read happens once.
     let head = eval_string("return document.head ? document.head.outerHTML : '';").await;
@@ -102,7 +172,7 @@ pub async fn load() -> Option<Token> {
         js_string(NAME)
     ))
     .await;
-    first(
+    (
         head.as_deref().and_then(meta_token),
         stored.as_deref().and_then(Token::new),
     )
@@ -185,9 +255,51 @@ mod tests {
     fn the_meta_element_outranks_storage_and_neither_is_read_only() {
         let a = Token::new("meta");
         let b = Token::new("stored");
-        assert_eq!(text(first(a.clone(), b.clone())), Some("meta".into()));
-        assert_eq!(text(first(None, b)), Some("stored".into()));
-        assert!(first(None, None).is_none());
+        assert_eq!(
+            text(first_token(None, a.clone(), b.clone())),
+            Some("meta".into())
+        );
+        assert_eq!(text(first_token(None, None, b)), Some("stored".into()));
+        assert!(first_token(None, None, None).is_none());
+    }
+
+    #[test]
+    fn the_link_outranks_the_meta_element_and_storage() {
+        let link = Token::new("linked").unwrap();
+        let held = first_sourced(Some(&link), Token::new("meta"), Token::new("stored"));
+        assert_eq!(
+            held.map(|(t, s)| (t.as_str().to_string(), s)),
+            Some(("linked".to_string(), Source::Link))
+        );
+        assert_eq!(
+            text(first_token(Some(&link), None, None)),
+            Some("linked".into())
+        );
+        let meta = first_sourced(None, Token::new("meta"), Token::new("stored"));
+        assert_eq!(meta.map(|(_, s)| s), Some(Source::Meta));
+        let stored = first_sourced(None, None, Token::new("stored"));
+        assert_eq!(stored.map(|(_, s)| s), Some(Source::Pasted));
+    }
+
+    #[test]
+    fn the_installed_links_token_is_the_one_load_answers() {
+        use crate::{clear_link, install_link, HostLink, LINK_TESTS};
+        let _guard = LINK_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        clear_link();
+        assert!(link_token().is_none());
+        install_link(HostLink {
+            origin: "http://127.0.0.1:1".into(),
+            token: Some("abc".into()),
+            app_id: "demo".into(),
+        });
+        assert_eq!(text(link_token()), Some("abc".into()));
+        install_link(HostLink {
+            origin: "http://127.0.0.1:1".into(),
+            token: Some("has space".into()),
+            app_id: "demo".into(),
+        });
+        assert!(link_token().is_none(), "a token a header cannot hold");
+        clear_link();
     }
 
     #[test]

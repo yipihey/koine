@@ -5,7 +5,9 @@
 #   scratch library `mini-stats` -> scripts/new-app.sh stats-app -> the edits an
 #   agent makes (two verbs and their selftest) -> check-verb-coverage.sh ->
 #   cargo test -> the host (--check, then served over HTTP, MCP, restarted) ->
-#   the page bundle (when `dx` is on this machine).
+#   the page bundle (when `dx` is on this machine) -> `new-app.sh --mobile`
+#   writes the iPhone crate and it type-checks (the iOS build itself is the
+#   macOS lane's: scripts/tests/ios/run.sh).
 #
 # Prints PASS/FAIL per assertion, exits non-zero on any FAIL, and cleans up
 # (kills the host, removes the scratch directory). The compiled dependencies
@@ -519,6 +521,30 @@ if [[ -x "$DX" ]]; then
 else
     skip "the page: dx is not on this machine (build koine-web and pass --web-dir to check /ui/)"
 fi
+
+# ================================================================ 8. the app on an iPhone
+# `new-app.sh --mobile` (docs/plan-koine-mobile.md M-D6): the scaffold writes
+# crates/<name>-mobile and the workspace resolves it. Compiling it for iOS is
+# the macOS lane's (.github/workflows/ci.yml, job `ios`); here it is checked
+# WITHOUT the `mobile` feature, which compiles all of `main` and opens no
+# window, so the names it uses from koine-host and koine-web are type-checked.
+mkdir -p "$TMP/mobile" && cd "$TMP/mobile" || exit 1
+must "new-app.sh phone-app --lib mini-stats --mobile" \
+    bash "$KOINE_PATH/scripts/new-app.sh" phone-app --lib mini-stats --lib-path "$LIB" --koine-path "$KOINE_PATH" --mobile
+PHONE="$TMP/mobile/phone-app"
+MOBILE_CRATE="$PHONE/crates/phone-app-mobile"
+for f in Cargo.toml src/main.rs Dioxus.toml; do
+    check "--mobile writes crates/phone-app-mobile/$f" test -s "$MOBILE_CRATE/$f"
+done
+check "the mobile crate's bundle id is com.phone-app.koine" grep -q 'identifier = "com.phone-app.koine"' "$MOBILE_CRATE/Dioxus.toml"
+check "the mobile crate asks for the Files app keys" grep -q 'UIFileSharingEnabled = true' "$MOBILE_CRATE/Dioxus.toml"
+check "the scaffold's README has \"On an iPhone\"" grep -q '^## On an iPhone' "$PHONE/README.md"
+check "the scaffold without --mobile has no mobile crate" test ! -e "$APP/crates/stats-app-mobile"
+cd "$PHONE" || exit 1
+cargo metadata --format-version 1 --no-deps >"$TMP/metadata.json" 2>"$TMP/metadata.err"
+check "cargo metadata lists phone-app-mobile" jq -e '.packages | map(.name) | index("phone-app-mobile") != null' "$TMP/metadata.json"
+check "cargo metadata lists the service and host too" jq -e '.packages | map(.name) | (index("phone-app-service") != null) and (index("phone-app-host") != null)' "$TMP/metadata.json"
+must "cargo check -p phone-app-mobile (no mobile feature)" cargo check -p phone-app-mobile
 
 summary
 [[ $FAILS -eq 0 ]]

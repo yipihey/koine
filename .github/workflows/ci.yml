@@ -2,7 +2,9 @@ name: koine
 
 on:
   push:
-    branches: [main]
+    # A `mobile*` branch runs the `ios` job so the lane can be watched before
+    # main moves (docs/plan-koine-mobile.md M-D5).
+    branches: [main, 'mobile*']
   pull_request:
     branches: [main]
 
@@ -32,3 +34,39 @@ jobs:
           cargo check -p koine-plot -p koine-dioxus -p koine-web --target wasm32-unknown-unknown
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # The app on an iPhone (docs/plan-koine-mobile.md M-D5, docs/mobile.md): build
+  # crates/koine-demo-mobile for the simulator with `dx`, install and launch it,
+  # and drive the host inside it from the runner. The Linux job cannot do this
+  # (no Xcode, no WKWebView); it type-checks the crate without its `mobile`
+  # feature as part of `cargo test --workspace`.
+  ios:
+    name: iOS simulator
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      DIOXUS_CLI_VERSION: 0.7.10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - name: iOS simulator target
+        run: rustup target add aarch64-apple-ios-sim
+      - name: Cache dx
+        id: dx-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/dx
+          key: dx-${{ runner.os }}-${{ runner.arch }}-${{ env.DIOXUS_CLI_VERSION }}
+      - name: Install dioxus-cli
+        if: steps.dx-cache.outputs.cache-hit != 'true'
+        run: cargo install dioxus-cli --version "$DIOXUS_CLI_VERSION" --locked
+      - name: Build the demo app for the simulator
+        working-directory: crates/koine-demo-mobile
+        run: dx build --platform ios --release --features mobile
+      - name: Drive the app on a simulator
+        run: |
+          APP="$(ls -d target/dx/koine-demo-mobile/release/ios/*.app | head -n 1)"
+          echo "built: $APP"
+          scripts/tests/ios/run.sh --app "$APP" --bundle-id com.koine.demo

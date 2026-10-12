@@ -12,6 +12,9 @@ pointed at, and a README that is the checklist. koine is a git dependency at
 `--koine-rev` (default: this checkout's HEAD, which must be pushed) or a path
 dependency with `--koine-path <checkout>`. It refuses a `<name>/` that exists
 and writes nothing in that case.
+`--mobile` also writes `crates/<name>-mobile` (the host in-process and the
+`koine-web` page in a WebView, bundle id `com.<name>.koine`; docs/mobile.md) and
+an "On an iPhone" section in the README; without it the output is unchanged.
 
 **`check-verb-coverage.sh`** answers "did I expose everything"
 (docs/plan-koine-host.md H-D7). Without arguments it is a census of this
@@ -31,3 +34,10 @@ generated surface created, rendered and dispatched, a restart, MCP), and, when
 assertion, non-zero exit on any FAIL, scratch directory removed. Compiled
 dependencies are kept in `target/e2e-app`, so the first run is the long one.
 Needs bash, cargo, curl, jq and python3.
+
+**`tests/ios/run.sh`** is the proof of docs/plan-koine-mobile.md M-D5: it boots an
+iOS simulator, installs the app `dx build --platform ios` made from
+`crates/koine-demo-mobile`, launches it, reads the loopback token from the app's
+data container and drives the host inside it from the Mac (status, a verb, the
+surface loop, MCP). PASS/FAIL per assertion. Needs macOS with Xcode, curl and jq;
+the `ios` job of `.github/workflows/ci.yml` runs it, and so can a person.

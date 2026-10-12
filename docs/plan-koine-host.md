@@ -81,6 +81,7 @@ Routes, each a call into the inventory through the pipeline:
 | `GET /ui/*` | the `koine-web` bundle from a directory (`Config.web_dir`), `index.html` with the loopback token for a loopback peer, exactly as `KoineWebRoutes` in impress-apps does |
 | `GET/PUT/DELETE /api/blob/<item>/<name>` | `BlobStore`, when the store declares `blobs` |
 | `/mcp` | the MCP host (H-D5) |
+| `GET/POST /api/host/network` | whether the host also listens beyond loopback; `POST {"allow", "bearer"?}` (loopback and the token only) opens or closes a second `0.0.0.0` listener on the same routes and guard (plan-koine-mobile M-D4) |
 
 The checks every impress server applies, applied here: a `Host` header that
 is not this machine is 400; a non-GET from loopback needs this launch's

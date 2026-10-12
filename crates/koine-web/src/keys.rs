@@ -13,9 +13,13 @@
 //! `document.activeElement` through `web-sys`, synchronously, because the
 //! handler must decide `prevent_default` before it returns (an Enter that is
 //! ours must not also click the focused button). `document::eval` is async
-//! and cannot do that. Off wasm there is no DOM to read, so the guard answers
-//! "editable" and the shortcuts stay off: never steal typing is the safe
-//! failure.
+//! and cannot do that. Off wasm there is no DOM to read synchronously (a
+//! `desktop` or `mobile` WebView is driven through `document::eval`, never
+//! `web-sys`), so the guard answers "editable" and the character shortcuts
+//! stay off: never steal typing is the safe failure. In a WebView the touch
+//! and pointer paths are the page's input; Tab (the WebView moves
+//! focus, and the page reads it back) and Enter on a focused button (the
+//! WebView clicks it) still work from a hardware keyboard.
 //!
 //! Tab and Shift+Tab are not handled here at all. The DOM's tab order is the
 //! tree's focus order (plan D2), so the browser moves focus; the page reads

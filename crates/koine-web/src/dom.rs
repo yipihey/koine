@@ -51,6 +51,17 @@ pub async fn focused_widget() -> Option<String> {
     eval_string(script).await.filter(|id| !id.is_empty())
 }
 
+/// Write `text` to the clipboard. `false` when the WebView refuses (no
+/// `navigator.clipboard`, or no user permission): the caller then shows the
+/// value selectable.
+pub async fn copy_to_clipboard(text: &str) -> bool {
+    let script = format!(
+        "try {{ await navigator.clipboard.writeText({}); return 'ok'; }} catch (e) {{ return ''; }}",
+        js_string(text)
+    );
+    eval_string(&script).await.as_deref() == Some("ok")
+}
+
 /// Wait `ms` milliseconds without blocking the page.
 pub async fn sleep(ms: u32) {
     let _ = document::eval(&format!(

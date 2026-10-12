@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[lib]
+name = "koine_web"
+path = "src/lib.rs"
+
 [[bin]]
 name = "koine-web"
 path = "src/main.rs"
@@ -43,6 +47,14 @@ dioxus-ssr = "0.7"
 default = ["web"]
 # The page in a browser: `dx serve`, `dx build --platform web`.
 web = ["dioxus/web"]
+# The page in a WebView (dioxus-desktop: WKWebView on macOS and iOS), for an
+# app that links its own host and installs a `HostLink` before `launch`
+# (docs/plan-koine-mobile.md). Build with `--no-default-features`; `dx build
+# --platform ios|macos` does. Neither pulls `web-sys` on a native target: the
+# DOM reads that need it are wasm-only and everything else goes through
+# `document::eval`.
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
 
 [lints]
 workspace = true
