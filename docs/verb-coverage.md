@@ -17,6 +17,10 @@ There is no second list.
 | Service | Crate | Verbs |
 |---|---|---:|
 | `surface-demo-service` | surface-demo-service | 2 |
+| `layout-service` | impress-layout-service | 36 |
+| `layout-selftest-service` | impress-layout-service | 1 |
+| `impress-surface-service` | impress-surface-service | 15 |
+| `surface-selftest-service` | impress-surface-service | 1 |
 <!-- verb-coverage:end -->
 
 `impress-settings` has no `impress_service_impl!` block in this repository,
