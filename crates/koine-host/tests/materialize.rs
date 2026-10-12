@@ -230,9 +230,20 @@ fn rows_without_an_id_or_a_refusal_or_no_rows_declaration_write_nothing() {
 /// The whole path: a host serves, a verb is called over HTTP, and its rows
 /// are records of the host's store afterwards (the pipeline's call site,
 /// the host's install at `serve`, the inventory manifest).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_verb_called_over_http_leaves_its_rows_in_the_hosts_store() {
+#[test]
+fn a_verb_called_over_http_leaves_its_rows_in_the_hosts_store() {
+    // The turn is taken outside the async body: a std guard must not be held
+    // across an await, and the runtime below is this test's alone.
     let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(call_over_http());
+}
+
+async fn call_over_http() {
     koine_host::ensure_linked();
     let workspace = tempfile::tempdir().unwrap();
     let served = koine_host::serve(koine_host::Config::new("memory:", workspace.path()))
