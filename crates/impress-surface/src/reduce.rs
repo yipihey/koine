@@ -186,17 +186,23 @@ pub fn reduce(
             )?;
         }
         EventKind::Click => {
-            if let NodeKind::Button(b) = &node.kind {
-                run_actions(
-                    &b.on_click,
-                    &mut new_state,
-                    (params, sources),
-                    &event_value,
-                    &mut effects,
-                )?;
-            }
-            // A click on anything else is a no-op: only `button` declares
-            // `on_click`, and the plan gives no other meaning to the event kind.
+            // `button`, and (plan-koine-tree-stream T-D4) `plot` and `image`
+            // declare `on_click`; the last two see `{{event.value.x}}` and
+            // `{{event.value.y}}`.
+            let on_click: &[Action] = match &node.kind {
+                NodeKind::Button(b) => &b.on_click,
+                NodeKind::Plot(p) => &p.on_click,
+                NodeKind::Image(i) => &i.on_click,
+                // A click on anything else is a no-op.
+                _ => &[],
+            };
+            run_actions(
+                on_click,
+                &mut new_state,
+                (params, sources),
+                &event_value,
+                &mut effects,
+            )?;
         }
         EventKind::Select => match &node.kind {
             NodeKind::Table(t) => {
@@ -220,6 +226,15 @@ pub fn reduce(
             NodeKind::Tree(t) => {
                 run_actions(
                     &t.on_select,
+                    &mut new_state,
+                    (params, sources),
+                    &event_value,
+                    &mut effects,
+                )?;
+            }
+            NodeKind::Graph(g) => {
+                run_actions(
+                    &g.on_select,
                     &mut new_state,
                     (params, sources),
                     &event_value,

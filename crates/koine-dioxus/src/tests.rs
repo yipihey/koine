@@ -16,8 +16,8 @@ fn tree(root: Value, focus_order: Value) -> RenderTree {
 /// level. Ids are plain so a substring count is an exact count.
 fn everything() -> RenderTree {
     let focus = [
-        "t-tabs", "t-table", "t-list", "t-tree", "f-text", "f-number", "f-slider", "f-select",
-        "f-toggle", "f-date", "f-color", "b-go",
+        "t-tabs", "t-table", "t-list", "t-tree", "t-graph", "f-text", "f-number", "f-slider",
+        "f-select", "f-toggle", "f-date", "f-color", "b-go",
     ];
     let root = json!({
         "id": "root",
@@ -47,6 +47,9 @@ fn everything() -> RenderTree {
                 { "id": "b", "label": "main.rs", "depth": 1, "has_children": false, "expanded": false, "row": { "id": "b", "parent": "a" } },
                 { "id": 7, "label": "docs", "depth": 0, "has_children": true, "expanded": false, "row": { "id": 7 } },
             ]}},
+            { "id": "t-graph", "node": { "kind": "graph",
+                "spec": { "nodes": [{ "id": "n1", "label": "one" }, { "id": "n2" }], "edges": [{ "source": "n1", "target": "n2" }] },
+                "svg": "<svg viewBox=\"0 0 100 50\"><g class=\"koine-graph-node\" data-id=\"n1\"><circle cx=\"10\" cy=\"10\" r=\"4\"/></g><g class=\"koine-graph-node\" data-id=\"n2\"><circle cx=\"50\" cy=\"20\" r=\"4\"/></g></svg>" } },
             { "id": "plot", "node": { "kind": "plot", "spec": { "series": [{ "x": [1, 2], "y": [3, 4] }] } } },
             { "id": "plot-bad", "node": { "kind": "plot", "spec": { "series": [{ "x": [1, 2] }] } } },
             { "id": "img-url", "node": { "kind": "image", "blob": null, "url": "https://example.test/a.png" } },
@@ -61,6 +64,8 @@ fn everything() -> RenderTree {
             { "id": "st-error", "node": { "kind": "status", "level": "error", "message": "bad" } },
             { "id": "st-warning", "node": { "kind": "status", "level": "warning", "message": "hmm" } },
             { "id": "st-info", "node": { "kind": "status", "level": "info", "message": "fyi" } },
+            { "id": "hl", "node": { "kind": "code", "language": "rust", "text": "fn a() {}\nlet b = 1;",
+                "spans": [[["keyword", "fn"], ["", " "], ["function", "a"], ["punctuation", "() {}"]], [["type", "let"], ["", " b = "], ["constant", "1"], ["punctuation", ";"]]] } },
             { "id": "log", "node": { "kind": "log", "lines": ["one", "two"] } },
             { "id": "kv", "node": { "kind": "kv", "pairs": { "a": 1, "b": "two" } } },
             { "id": "divider", "node": { "kind": "divider" } },
@@ -155,6 +160,8 @@ fn every_kind_renders_and_every_id_is_on_the_dom_exactly_once() {
         "repeat(3, minmax(0, 1fr))",
         "koine-spacer",
         "koine-plot",
+        "koine-graph",
+        "koine-hl-keyword",
         "data-koine-spec=",
         "src=\"https://example.test/a.png\"",
         "placeholder image: blob b-1",
@@ -532,4 +539,129 @@ fn a_bound_plot_is_drawn_as_svg_and_a_table_reads_an_envelope() {
     assert_eq!(html.matches("data-koine-row=").count(), 3, "{html}");
     assert!(html.contains("<th scope=\"col\">a</th>"), "{html}");
     assert!(html.contains("<th scope=\"col\">t</th>"), "{html}");
+}
+
+#[test]
+fn a_graph_is_its_svg_in_a_tab_stop_with_a_data_id_per_node() {
+    let html = render_html(&everything(), &web(), None);
+    let (tag, rest) = element(&html, "t-graph");
+    assert!(attr(tag, "class").unwrap().contains("koine-graph"), "{tag}");
+    assert_eq!(attr(tag, "tabindex"), Some("0"), "{tag}");
+    // The click handler is attached through the VDOM, not written to the html.
+    assert!(!tag.contains("onclick"), "{tag}");
+    let drawing = &rest[..rest.find("</div>").unwrap()];
+    assert!(drawing.starts_with("<svg"), "{drawing}");
+    for id in ["n1", "n2"] {
+        assert!(drawing.contains(&format!("data-id=\"{id}\"")), "{drawing}");
+    }
+    assert_eq!(drawing.matches("koine-graph-node").count(), 2, "{drawing}");
+}
+
+#[test]
+fn spans_become_classed_elements_and_plain_text_a_bare_node() {
+    let html = render_html(&everything(), &web(), None);
+    let (tag, rest) = element(&html, "hl");
+    assert_eq!(attr(tag, "data-language"), Some("rust"), "{tag}");
+    let block = &rest[..rest.find("</pre>").unwrap()];
+    for wanted in [
+        "<span class=\"koine-hl-keyword\">fn</span>",
+        "<span class=\"koine-hl-function\">a</span>",
+        "<span class=\"koine-hl-punctuation\">() {}</span>",
+        "<span class=\"koine-hl-type\">let</span>",
+        "<span class=\"koine-hl-constant\">1</span>",
+    ] {
+        assert!(block.contains(wanted), "{wanted} not in {block}");
+    }
+    // Plain pieces are text nodes, and the lines are joined by one newline.
+    assert!(block.contains("</span> <span"), "{block}");
+    assert!(block.contains("</span>\n<span"), "{block}");
+    assert_eq!(block.matches("<span").count(), 6, "{block}");
+    // Stripped of markup the block is the source.
+    let mut text = String::new();
+    let mut inside = false;
+    for c in block.chars() {
+        match c {
+            '<' => inside = true,
+            '>' => inside = false,
+            c if !inside => text.push(c),
+            _ => {}
+        }
+    }
+    assert_eq!(text, "fn a() {}\nlet b = 1;");
+}
+
+#[test]
+fn a_plot_or_image_is_a_tab_stop_only_when_the_resolver_made_it_one() {
+    let root = json!({ "id": "root", "node": { "kind": "column", "items": [
+        { "id": "p-click", "node": { "kind": "plot", "spec": { "series": [{ "x": [1, 2], "y": [3, 4] }] } } },
+        { "id": "p-bare", "node": { "kind": "plot", "spec": { "series": [{ "x": [1, 2], "y": [3, 4] }] } } },
+        { "id": "i-click", "node": { "kind": "image", "blob": null, "url": "https://example.test/a.png" } },
+        { "id": "i-bare", "node": { "kind": "image", "blob": null, "url": "https://example.test/b.png" } },
+    ]}});
+    let html = render_html(&tree(root, json!(["p-click", "i-click"])), &web(), None);
+    assert_eq!(tab_stops(&html), vec!["p-click", "i-click"], "{html}");
+}
+
+fn plot_frame() -> koine_plot::Frame {
+    let spec = koine_plot::parse_spec(&json!({
+        "series": [{ "x": [0, 10], "y": [0, 100] }],
+    }))
+    .unwrap();
+    koine_plot::frame(&spec)
+}
+
+#[test]
+fn a_click_maps_back_through_the_frame_to_data_coordinates() {
+    use super::map::plot_click_to_data;
+    let frame = plot_frame();
+    let (px, py) = frame.to_pixel(5.0, 50.0);
+    let at = plot_click_to_data(&frame, px, py, 1.0).unwrap();
+    let (x, y) = (at["x"].as_f64().unwrap(), at["y"].as_f64().unwrap());
+    assert!((x - 5.0).abs() < 1e-9 && (y - 50.0).abs() < 1e-9, "{at}");
+
+    // The SVG drawn at half its size: the element pixel is half the viewBox's.
+    let at = plot_click_to_data(&frame, px / 2.0, py / 2.0, 0.5).unwrap();
+    assert!((at["x"].as_f64().unwrap() - 5.0).abs() < 1e-9, "{at}");
+    assert!((at["y"].as_f64().unwrap() - 50.0).abs() < 1e-9, "{at}");
+
+    // A scale that is not a positive number is 1.
+    for scale in [0.0, -2.0, f64::NAN, f64::INFINITY] {
+        assert_eq!(
+            plot_click_to_data(&frame, px, py, scale),
+            plot_click_to_data(&frame, px, py, 1.0)
+        );
+    }
+
+    // Outside the plot area (the margin, past the edge) is no event.
+    assert_eq!(plot_click_to_data(&frame, 1.0, 1.0, 1.0), None);
+    assert_eq!(plot_click_to_data(&frame, frame.width + 5.0, py, 1.0), None);
+}
+
+#[test]
+fn a_click_on_a_log_axis_inverts_through_the_power() {
+    let spec = koine_plot::parse_spec(&json!({
+        "series": [{ "x": [10, 100], "y": [1, 10] }],
+        "x_axis": { "log_scale": true },
+    }))
+    .unwrap();
+    let frame = koine_plot::frame(&spec);
+    let (px, py) = frame.to_pixel(30.0, 5.0);
+    let at = super::map::plot_click_to_data(&frame, px, py, 1.0).unwrap();
+    assert!((at["x"].as_f64().unwrap() - 30.0).abs() < 1e-6, "{at}");
+}
+
+#[test]
+fn a_click_on_an_image_is_a_fraction_of_its_displayed_size() {
+    use super::map::image_click_to_fraction;
+    assert_eq!(
+        image_click_to_fraction(50.0, 75.0, 200.0, 100.0),
+        Some(json!({"x": 0.25, "y": 0.75}))
+    );
+    // A pointer on the border is clamped; an element with no size is no event.
+    assert_eq!(
+        image_click_to_fraction(-1.0, 101.0, 200.0, 100.0),
+        Some(json!({"x": 0.0, "y": 1.0}))
+    );
+    assert_eq!(image_click_to_fraction(1.0, 1.0, 0.0, 100.0), None);
+    assert_eq!(image_click_to_fraction(f64::NAN, 1.0, 10.0, 10.0), None);
 }

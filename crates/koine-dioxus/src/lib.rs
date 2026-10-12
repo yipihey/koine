@@ -25,6 +25,8 @@
 //! desktop. The `ssr` feature adds [`render_html`].
 
 mod map;
+#[cfg(target_arch = "wasm32")]
+mod pointer;
 
 use std::collections::BTreeMap;
 
@@ -86,6 +88,10 @@ pub(crate) fn font_class(sheet: &StyleSheet, slot: &str) -> Option<String> {
 pub(crate) struct Ctx<'a> {
     pub sheet: &'a StyleSheet,
     pub focused: Option<&'a str>,
+    /// The tree's `focus_order`. A `plot` or an `image` is a tab stop only
+    /// when it is in it (the resolver puts it there when it declares
+    /// `on_click`).
+    pub stops: &'a [String],
     pub on_event: EventHandler<Event>,
     /// The tab each `tabs` widget shows. It is the page's own memory of a
     /// gesture, not surface state: the grammar's `tabs` has no handler, and
@@ -139,6 +145,7 @@ pub fn Surface(
     let ctx = Ctx {
         sheet: &sheet,
         focused: focused.as_deref(),
+        stops: &tree.focus_order,
         on_event,
         active_tab,
         on_file,

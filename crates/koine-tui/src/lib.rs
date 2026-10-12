@@ -128,19 +128,40 @@ impl TextFrontend {
     /// `[id]` as the value, rather than the `click` a tree ignores: this
     /// frontend has no cursor inside a widget, so the first line is the
     /// outline's one reachable row. An empty tree sends the click.
+    ///
+    /// `Activate` on a `graph` is a `select` of its first node, `[id]`, for
+    /// the same reason (the nodes are listed as lines under `with_blocks`).
+    /// On a `plot` or an `image` it is a `click` whose value is `{"x": null,
+    /// "y": null}`: there is no pointer, and a handler can tell.
     pub fn key(&mut self, tree: &RenderTree, key: Key) -> Option<Event> {
         let event = self.cursor.event_for(tree, key)?;
         if event.kind == EventKind::Click {
-            if let Some(RenderKind::Tree { nodes, .. }) =
-                find(&tree.root, &event.widget).map(|node| &node.node)
-            {
-                if let Some(first) = nodes.first() {
+            match find(&tree.root, &event.widget).map(|node| &node.node) {
+                Some(RenderKind::Tree { nodes, .. }) => {
+                    if let Some(first) = nodes.first() {
+                        return Some(Event {
+                            widget: event.widget,
+                            kind: EventKind::Select,
+                            value: Value::Array(vec![first.id.clone()]),
+                        });
+                    }
+                }
+                Some(RenderKind::Graph { spec, .. }) => {
+                    if let Some(first) = spec.pointer("/nodes/0/id") {
+                        return Some(Event {
+                            widget: event.widget,
+                            kind: EventKind::Select,
+                            value: Value::Array(vec![first.clone()]),
+                        });
+                    }
+                }
+                Some(RenderKind::Plot { .. } | RenderKind::Image { .. }) => {
                     return Some(Event {
-                        widget: event.widget,
-                        kind: EventKind::Select,
-                        value: Value::Array(vec![first.id.clone()]),
+                        value: serde_json::json!({"x": null, "y": null}),
+                        ..event
                     });
                 }
+                _ => {}
             }
         }
         Some(event)
@@ -219,6 +240,21 @@ fn write_node(
         }
         return;
     }
+    if let (true, RenderKind::Graph { spec, .. }) = (draw_blocks, &node.node) {
+        // A graph is a header and then one line per node: `label (id)`.
+        out.push(format!("{mark}{pad}{}", line_of(node, sheet)));
+        let under = " ".repeat(focus_width);
+        for n in spec
+            .get("nodes")
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice)
+        {
+            let id = n.get("id").and_then(Value::as_str).unwrap_or_default();
+            let label = n.get("label").and_then(Value::as_str).unwrap_or(id);
+            out.push(format!("{under}{pad}  {label} ({id})"));
+        }
+        return;
+    }
     if let (true, RenderKind::Plot { spec }) = (draw_blocks, &node.node) {
         // A plot is a header line and then the sketch, one line each, under
         // the same indent. A spec that does not parse is the one line.
@@ -284,6 +320,12 @@ fn line_of(node: &RenderNode, sheet: &koine::style::StyleSheet) -> String {
         RenderKind::List { .. } => fill(sheet.value("list"), &[("label", label)]),
         // `write_node` prints the outline under `with_blocks`.
         RenderKind::Tree { nodes, .. } => format!("tree {}", nodes.len()),
+        RenderKind::Graph { spec, .. } => format!(
+            "graph {}",
+            spec.get("nodes")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len)
+        ),
         // `write_node` prints a plot's sketch itself.
         RenderKind::Plot { .. } => "plot".into(),
         RenderKind::Code { language, .. } => match language {
@@ -561,6 +603,7 @@ mod tests {
         let tree = node_tree(RenderKind::Code {
             language: Some("diff".into()),
             text: "@@ -1 +1 @@\n-old\n+new\n".into(),
+            spans: vec![],
         });
         assert_eq!(render(&tree), " code diff");
         let text = TextFrontend::new().with_blocks(true).render(&tree);
@@ -572,6 +615,7 @@ mod tests {
         let bare = node_tree(RenderKind::Code {
             language: None,
             text: "x".into(),
+            spans: vec![],
         });
         assert_eq!(render(&bare), " code");
         assert_eq!(
@@ -639,11 +683,94 @@ mod tests {
     }
 
     #[test]
+    fn highlighted_spans_do_not_change_the_text_performance() {
+        let plain = node_tree(RenderKind::Code {
+            language: Some("rust".into()),
+            text: "fn a() {}".into(),
+            spans: vec![],
+        });
+        let classed = node_tree(RenderKind::Code {
+            language: Some("rust".into()),
+            text: "fn a() {}".into(),
+            spans: vec![vec![
+                ("keyword".into(), "fn".into()),
+                (String::new(), " a() {}".into()),
+            ]],
+        });
+        let tui = TextFrontend::new().with_blocks(true);
+        assert_eq!(tui.render(&plain), tui.render(&classed));
+        assert_eq!(render(&plain), render(&classed));
+    }
+
+    fn network() -> RenderTree {
+        let mut tree = node_tree(RenderKind::Graph {
+            spec: serde_json::json!({
+                "nodes": [{"id": "1", "label": "root"}, {"id": "b"}],
+                "edges": [{"source": "1", "target": "b"}],
+            }),
+            svg: "<svg/>".into(),
+        });
+        tree.root.id = "net".into();
+        tree.focus_order = vec!["net".into()];
+        tree
+    }
+
+    #[test]
+    fn a_graph_is_a_header_until_blocks_are_on_and_then_a_line_per_node() {
+        let tree = network();
+        assert_eq!(render(&tree), ">graph 2");
+        let text = TextFrontend::new().with_blocks(true).render(&tree);
+        assert_eq!(
+            text.lines().collect::<Vec<_>>(),
+            vec![">graph 2", "   root (1)", "   b (b)"],
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn enter_on_a_graph_selects_its_first_node() {
+        let event = TextFrontend::new().key(&network(), Key::Activate).unwrap();
+        assert_eq!(event.widget, "net");
+        assert_eq!(event.kind, EventKind::Select);
+        assert_eq!(event.value, serde_json::json!(["1"]));
+
+        let mut empty = network();
+        empty.root.node = RenderKind::Graph {
+            spec: serde_json::json!({"nodes": [], "edges": []}),
+            svg: String::new(),
+        };
+        let event = TextFrontend::new().key(&empty, Key::Activate).unwrap();
+        assert_eq!(event.kind, EventKind::Click);
+    }
+
+    #[test]
+    fn enter_on_a_plot_or_an_image_clicks_with_no_position() {
+        for node in [
+            RenderKind::Plot {
+                spec: serde_json::json!({"series": []}),
+            },
+            RenderKind::Image {
+                blob: None,
+                url: Some(serde_json::json!("http://x/y.png")),
+            },
+        ] {
+            let mut tree = node_tree(node);
+            tree.root.id = "w".into();
+            tree.focus_order = vec!["w".into()];
+            let event = TextFrontend::new().key(&tree, Key::Activate).unwrap();
+            assert_eq!(event.widget, "w");
+            assert_eq!(event.kind, EventKind::Click);
+            assert_eq!(event.value, serde_json::json!({"x": null, "y": null}));
+        }
+    }
+
+    #[test]
     #[allow(deprecated)]
     fn with_plots_is_with_blocks() {
         let tree = node_tree(RenderKind::Code {
             language: None,
             text: "x".into(),
+            spans: vec![],
         });
         assert_eq!(
             TextFrontend::new().with_plots(true).render(&tree),

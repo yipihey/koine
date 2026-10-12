@@ -65,6 +65,9 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Parsing
 nom = "7.1"
+# Source highlighting for `impress-surface`'s `highlight` feature (the host
+# enables it; the browser bundle does not). The pure-Rust regex engine: no onig.
+syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy", "parsing"] }
 regex = "1.10"
 lazy_static = "1.4"
 

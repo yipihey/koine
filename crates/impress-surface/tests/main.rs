@@ -5,6 +5,7 @@
 
 mod contract;
 mod golden;
+mod graph;
 mod live;
 mod reduce_properties;
 mod schema_tests;

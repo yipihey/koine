@@ -12,6 +12,7 @@
    table title,year
    list
    tree 3
+   graph 2
    plot
    image
    image
@@ -25,6 +26,7 @@
    field file (none)
    code diff
    code
+   code rust
    status error: bad
    status warning: hmm
    status info: fyi

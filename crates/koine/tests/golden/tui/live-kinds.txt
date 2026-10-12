@@ -1,6 +1,8 @@
  column
 >  table id,v
    plot
+   graph 3
+   image
    code diff
    field file data.csv
    button More

@@ -21,6 +21,10 @@ koine-workspace-hack.workspace = true
 # uuid (a dependency of the grammar) refuses to build for wasm32 without `js`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { version = "1", features = ["js"] }
+# The click handlers read the DOM event the browser gave the page: the drawn
+# size of a plot or an image, and the `data-id` of the graph node under the
+# pointer (plan-koine-tree-stream T-D3, T-D4). Native builds never see it.
+web-sys = { version = "0.3", features = ["Element", "DomRect", "Event", "EventTarget", "MouseEvent"] }
 
 # The SSR tests run in the workspace's plain `cargo test --all-targets`
 # (CI's one job), so the string renderer is always there under test.

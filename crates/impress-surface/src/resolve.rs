@@ -132,15 +132,29 @@ pub enum RenderKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         bind: Option<String>,
     },
+    /// `graph{…}` (plan-koine-tree-stream T-D3): `spec` is the
+    /// `koine_plot::graph::GraphSpec` the rows became (ids as text), `svg`
+    /// its drawing (`render_graph_svg`: a `data-id` on every node group). A
+    /// click on a node sends `select` with `[id]`.
+    Graph {
+        spec: Value,
+        svg: String,
+    },
     Plot {
         spec: Value,
     },
     /// `code{language, text}` (plan-koine-live L-D7): `text` is the resolved
-    /// string, shown as written.
+    /// string, shown as written. `spans` (plan-koine-tree-stream T-D5) is
+    /// the same text highlighted: one list per line of `(class, text)`, the
+    /// class one of `highlight::CLASSES` or empty for plain text. Empty when
+    /// the resolver was built without the `highlight` feature, for a
+    /// language it does not know, and for a `diff`.
     Code {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         language: Option<String>,
         text: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        spans: Vec<Vec<(String, String)>>,
     },
     Image {
         blob: Option<Value>,
@@ -253,15 +267,26 @@ fn resolve_node(
         },
     };
 
-    if matches!(
-        kind,
-        RenderKind::Field { .. }
-            | RenderKind::Button { .. }
-            | RenderKind::Table { .. }
-            | RenderKind::List { .. }
-            | RenderKind::Tree { .. }
-            | RenderKind::Tabs { .. }
-    ) {
+    // A plot or an image is a stop only when it declares `on_click`: a
+    // keyboard has something to do there (a TUI sends `click` with null
+    // coordinates), and a surface without one keeps its focus order.
+    let clickable = match &node.kind {
+        NodeKind::Plot(p) => !p.on_click.is_empty(),
+        NodeKind::Image(i) => !i.on_click.is_empty(),
+        _ => false,
+    };
+    if clickable
+        || matches!(
+            kind,
+            RenderKind::Field { .. }
+                | RenderKind::Button { .. }
+                | RenderKind::Table { .. }
+                | RenderKind::List { .. }
+                | RenderKind::Tree { .. }
+                | RenderKind::Graph { .. }
+                | RenderKind::Tabs { .. }
+        )
+    {
         focus_order.push(id.clone());
     }
 
@@ -377,13 +402,26 @@ fn resolve_kind(
                 bind: t.bind.clone(),
             }
         }
+        NodeKind::Graph(g) => resolve_graph(g, ctx)?,
         NodeKind::Plot(p) => RenderKind::Plot {
             spec: resolve_plot(p, ctx)?,
         },
-        NodeKind::Code(c) => RenderKind::Code {
-            language: c.language.clone(),
-            text: value_to_display(&resolve_value(&c.text, ctx)?),
-        },
+        NodeKind::Code(c) => {
+            let text = value_to_display(&resolve_value(&c.text, ctx)?);
+            // A `diff` keeps its line classes (the renderers mark `+`, `-`
+            // and `@@`); every other named language is the highlighter's.
+            let spans = match c.language.as_deref() {
+                Some(language) if !language.eq_ignore_ascii_case("diff") => {
+                    crate::highlight::spans(language, &text)
+                }
+                _ => Vec::new(),
+            };
+            RenderKind::Code {
+                language: c.language.clone(),
+                text,
+                spans,
+            }
+        }
         NodeKind::Image(img) => RenderKind::Image {
             blob: img
                 .blob
@@ -436,6 +474,70 @@ fn resolve_kind(
             reason: Some(error.clone()),
             node: Some(raw.clone()),
         },
+    })
+}
+
+/// A graph: the node rows and edge rows built into a
+/// `koine_plot::graph::GraphSpec` (ids as text, a number as its text; a row
+/// without an id, or an edge missing an end, is skipped) and drawn. Rows that
+/// are not an array make the node a placeholder saying so, as a template that
+/// does not resolve does.
+fn resolve_graph(g: &crate::spec::Graph, ctx: &Context) -> Result<RenderKind, TemplateError> {
+    use koine_plot::graph::{GraphEdge, GraphNode, GraphSpec};
+
+    fn text(v: Option<&Value>) -> Option<String> {
+        match v? {
+            Value::String(s) => Some(s.clone()),
+            Value::Number(n) => Some(n.to_string()),
+            Value::Bool(b) => Some(b.to_string()),
+            _ => None,
+        }
+    }
+
+    let nodes = resolve_value(&g.nodes, ctx)?;
+    let edges = resolve_value(&g.edges, ctx)?;
+    let (Some(nodes), Some(edges)) = (
+        unwrap_rows(&nodes).0.as_array(),
+        unwrap_rows(&edges).0.as_array(),
+    ) else {
+        return Ok(RenderKind::Placeholder {
+            unknown_kind: None,
+            reason: Some(
+                "graph.nodes and graph.edges must each resolve to an array of rows".into(),
+            ),
+            node: None,
+        });
+    };
+    let id = g.id_field.as_deref().unwrap_or("id");
+    let label = g.label_field.as_deref().unwrap_or("label");
+    let source = g.source_field.as_deref().unwrap_or("source");
+    let target = g.target_field.as_deref().unwrap_or("target");
+
+    let spec = GraphSpec {
+        nodes: nodes
+            .iter()
+            .filter_map(|row| {
+                Some(GraphNode {
+                    id: text(row.get(id))?,
+                    label: text(row.get(label)),
+                })
+            })
+            .collect(),
+        edges: edges
+            .iter()
+            .filter_map(|row| {
+                Some(GraphEdge {
+                    source: text(row.get(source))?,
+                    target: text(row.get(target))?,
+                })
+            })
+            .collect(),
+        ..GraphSpec::default()
+    };
+    let svg = koine_plot::graph::render_graph_svg(&spec);
+    Ok(RenderKind::Graph {
+        spec: serde_json::to_value(&spec).unwrap_or(Value::Null),
+        svg,
     })
 }
 

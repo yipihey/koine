@@ -51,6 +51,7 @@
 //!   they exist to fire them.
 
 pub mod envelope;
+pub mod highlight;
 pub mod plan;
 pub mod reduce;
 pub mod resolve;
@@ -68,8 +69,9 @@ pub use reduce::{reduce, run_then, Effect, ReduceError};
 pub use resolve::{resolve, resolve_with_source_errors, RenderKind, RenderNode, RenderTree};
 pub use spec::{
     child_pointers, handler_pointers, walk_actions, walk_with_pointers, Action, Button, Event,
-    EventKind, FieldKind, Grid, Image, ListWidget, Node, NodeKind, PaneQuery, ParamDecl, Plot,
-    Section, Source, Status, SurfaceSpec, Tab, Table, Tree, When, NODE_KIND_NAMES, SURFACE_VERSION,
+    EventKind, FieldKind, Graph, Grid, Image, ListWidget, Node, NodeKind, PaneQuery, ParamDecl,
+    Plot, Section, Source, Status, SurfaceSpec, Tab, Table, Tree, When, NODE_KIND_NAMES,
+    SURFACE_VERSION,
 };
 pub use state_path::StatePathError;
 pub use template::{Context, Template, TemplateError};

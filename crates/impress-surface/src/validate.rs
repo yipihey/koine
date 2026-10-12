@@ -637,6 +637,30 @@ fn check_node(node: &Node, at: &str, scope: &Scope, problems: &mut Vec<Problem>)
                 }
             }
         }
+        NodeKind::Graph(g) => {
+            refs(&g.nodes, "graph/nodes");
+            refs(&g.edges, "graph/edges");
+            // Literal property names read off each row by the resolver, as
+            // the tree's are.
+            for (key, field) in [
+                ("id_field", &g.id_field),
+                ("label_field", &g.label_field),
+                ("source_field", &g.source_field),
+                ("target_field", &g.target_field),
+            ] {
+                if let Some(field) = field {
+                    if field.is_empty() || field.contains("{{") {
+                        problems.push(Problem::error(
+                            format!("{at}/graph/{key}"),
+                            format!(
+                                "graph.{key} must be a non-empty literal field name of the \
+                                 rows, not a template"
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
         NodeKind::Plot(p) => check_plot(p, at, scope, problems),
         NodeKind::Code(c) => {
             refs(&c.text, "code/text");

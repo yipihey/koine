@@ -264,6 +264,21 @@
 
 .koine-plot svg { max-width: 100%; height: auto; display: block; }
 
+/* A plot or an image that is clicked reports where; show it can be. */
+.koine-plot[tabindex], .koine-image[tabindex] { cursor: crosshair; }
+
+/* The graph (plan-koine-tree-stream T-D3): the SVG is the layout's drawing,
+   a node is a `g` with a `data-id` and a click on it selects. */
+
+.koine-graph {
+  min-height: 120px;
+  border: 1px dashed var(--koine-color-secondary);
+}
+
+.koine-graph svg { max-width: 100%; height: auto; display: block; }
+.koine-graph-node { cursor: pointer; }
+.koine-graph-node:hover circle { stroke: var(--koine-color-accent); stroke-width: 2; }
+
 /* A spec that did not parse: the error text in the warning colour. */
 .koine-plot-error {
   padding: 4px 8px;
@@ -293,6 +308,17 @@
 .koine-diff-del { color: var(--koine-color-error); }
 .koine-diff-hunk { color: var(--koine-color-secondary); font-weight: 600; }
 .koine-diff-ctx { color: inherit; }
+
+/* Highlighted source (plan-koine-tree-stream T-D5): the resolver classes each
+   span, the sheet colours the eight classes. Plain text is a bare text node. */
+.koine-hl-comment { color: var(--koine-color-secondary); font-style: italic; }
+.koine-hl-string { color: var(--koine-color-success, var(--koine-color-info)); }
+.koine-hl-keyword { color: var(--koine-color-accent); font-weight: 600; }
+.koine-hl-constant { color: var(--koine-color-warning); }
+.koine-hl-function { color: var(--koine-color-accent); }
+.koine-hl-type { color: var(--koine-color-info); }
+.koine-hl-variable { color: inherit; }
+.koine-hl-punctuation { color: var(--koine-color-secondary); }
 
 /* A kind this build cannot draw keeps its slot and says so. */
 

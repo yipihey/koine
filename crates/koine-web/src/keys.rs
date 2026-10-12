@@ -75,7 +75,7 @@ pub fn decide(
             KeyAction::Focus
         }
         Key::Activate => match cursor.event_for(tree, key) {
-            Some(event) => KeyAction::Event(event),
+            Some(event) => KeyAction::Event(no_position(tree, event)),
             None => KeyAction::Ignored,
         },
         Key::Left | Key::Right if layout_keys => match cursor.layout_verb_for(tree, key) {
@@ -86,6 +86,36 @@ pub fn decide(
         // The menu key names a widget, and the web has no menu yet.
         Key::Secondary => KeyAction::Ignored,
     }
+}
+
+/// A keyboard `click` on a `plot` or an `image` has no pointer: it carries
+/// `{"x": null, "y": null}` (plan-koine-tree-stream T-D4), the shape `koine-tui`
+/// sends, so a handler reading `{{event.value.x}}` finds a null, not a missing
+/// path. Any other event is as it was.
+fn no_position(tree: &RenderTree, mut event: Event) -> Event {
+    fn find<'a>(node: &'a RenderNode, id: &str) -> Option<&'a RenderNode> {
+        if node.id == id {
+            return Some(node);
+        }
+        let children: Vec<&RenderNode> = match &node.node {
+            RenderKind::Column { items }
+            | RenderKind::Row { items }
+            | RenderKind::Grid { items, .. } => items.iter().collect(),
+            RenderKind::Section { body, .. } => vec![body.as_ref()],
+            RenderKind::Tabs { tabs } => tabs.iter().map(|t| &t.body).collect(),
+            _ => Vec::new(),
+        };
+        children.into_iter().find_map(|child| find(child, id))
+    }
+    if event.kind == impress_surface::EventKind::Click
+        && matches!(
+            find(&tree.root, &event.widget).map(|node| &node.node),
+            Some(RenderKind::Plot { .. } | RenderKind::Image { .. })
+        )
+    {
+        event.value = serde_json::json!({"x": null, "y": null});
+    }
+    event
 }
 
 /// A tree with nothing in it: what a page without a surface asks [`decide`]
@@ -257,6 +287,44 @@ mod tests {
         };
         assert_eq!(event.widget, "c2");
         assert_eq!(event.kind, EventKind::Click);
+    }
+
+    #[test]
+    fn enter_on_a_plot_or_an_image_clicks_with_no_position() {
+        for node in [
+            RenderKind::Plot {
+                spec: serde_json::json!({"series": []}),
+            },
+            RenderKind::Image {
+                blob: None,
+                url: None,
+            },
+        ] {
+            let tree = RenderTree {
+                root: RenderNode {
+                    id: "c".into(),
+                    label: None,
+                    help: None,
+                    node: RenderKind::Column {
+                        items: vec![RenderNode {
+                            id: "w".into(),
+                            label: None,
+                            help: None,
+                            node,
+                        }],
+                    },
+                },
+                focus_order: vec!["w".into()],
+            };
+            let mut cursor = Cursor::new();
+            decide(&tree, &mut cursor, "j", false, true);
+            let KeyAction::Event(event) = decide(&tree, &mut cursor, "Enter", false, true) else {
+                panic!("Enter on a focused plot is an event");
+            };
+            assert_eq!(event.widget, "w");
+            assert_eq!(event.kind, EventKind::Click);
+            assert_eq!(event.value, serde_json::json!({"x": null, "y": null}));
+        }
     }
 
     #[test]

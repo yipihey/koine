@@ -15,6 +15,10 @@ default = []
 # `ParamDecl` a source and a param declaration embed directly — the same
 # forwarding `impress-layout`'s `schema` feature does for the same types.
 schema = ["dep:schemars", "impress-pane-query/schema"]
+# Fill `RenderKind::Code.spans` with classed spans for a language syntect knows
+# (plan-koine-tree-stream T-D5). Off by default so the browser bundle never
+# builds the grammars; the host enables it.
+highlight = ["dep:syntect"]
 
 [dependencies]
 # `PaneQuery` and `ParamDecl` are spelled once, in the pane-query algebra
@@ -26,6 +30,9 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 schemars = { workspace = true, optional = true }
+syntect = { workspace = true, optional = true }
+# A graph surface node resolves to this crate's layout and SVG (pure, wasm-clean).
+koine-plot = { workspace = true }
 koine-workspace-hack.workspace = true
 
 [dev-dependencies]

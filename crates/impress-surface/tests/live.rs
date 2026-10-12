@@ -266,7 +266,7 @@ fn a_code_node_round_trips_resolves_its_text_and_validates() {
     let s = spec(json!({"patch": "@@ -1 +1 @@\n-a\n+b"}), wire);
     no_errors(&s);
     match rendered(&s) {
-        RenderKind::Code { language, text } => {
+        RenderKind::Code { language, text, .. } => {
             assert_eq!(language.as_deref(), Some("diff"));
             assert_eq!(text, "@@ -1 +1 @@\n-a\n+b");
         }

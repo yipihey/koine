@@ -11,6 +11,9 @@
 //! `UPDATE_KOINE_GOLDENS=1 cargo test -p koine --test frontends` and review the
 //! diff: a change to a mapping is a reviewed golden change.
 
+// `everything()` is one `json!` literal; it has outgrown the default depth.
+#![recursion_limit = "256"]
+
 use std::path::PathBuf;
 
 use koine::cursor::{Cursor, Key};
@@ -38,8 +41,8 @@ fn tree_of(root: Value, focus_order: Value) -> RenderTree {
 /// level. The focus order is the one `resolve` would write, in document order.
 fn everything() -> RenderTree {
     let focus = [
-        "b-go", "t-tabs", "t-table", "t-list", "t-tree", "f-text", "f-number", "f-slider",
-        "f-select", "f-toggle", "f-date", "f-color", "f-file",
+        "b-go", "t-tabs", "t-table", "t-list", "t-tree", "t-graph", "f-text", "f-number",
+        "f-slider", "f-select", "f-toggle", "f-date", "f-color", "f-file",
     ];
     let root = json!({
         "id": "root",
@@ -69,6 +72,9 @@ fn everything() -> RenderTree {
                 { "id": "b", "label": "main.rs", "depth": 1, "has_children": false, "expanded": false, "row": { "id": "b", "parent": "a" } },
                 { "id": "c", "label": "docs", "depth": 0, "has_children": true, "expanded": false, "row": { "id": "c" } },
             ]}},
+            { "id": "t-graph", "node": { "kind": "graph",
+                "spec": { "nodes": [{ "id": "n1", "label": "one" }, { "id": "n2" }], "edges": [{ "source": "n1", "target": "n2" }] },
+                "svg": "<svg viewBox=\"0 0 100 50\"><line x1=\"10\" y1=\"10\" x2=\"50\" y2=\"20\"/><g class=\"koine-graph-node\" data-id=\"n1\"><circle cx=\"10\" cy=\"10\" r=\"4\"/></g><g class=\"koine-graph-node\" data-id=\"n2\"><circle cx=\"50\" cy=\"20\" r=\"4\"/></g></svg>" } },
             { "id": "plot", "node": { "kind": "plot", "spec": { "x": [1, 2], "y": [3, 4] } } },
             { "id": "img-url", "node": { "kind": "image", "blob": null, "url": "https://example.test/a.png" } },
             { "id": "img-blob", "node": { "kind": "image", "blob": "b-1", "url": null } },
@@ -82,6 +88,11 @@ fn everything() -> RenderTree {
             { "id": "f-file", "label": "Data", "node": { "kind": "field", "field": { "file": { "accept": ".csv,.xlsx" } }, "bind": "state.f", "value": null } },
             { "id": "code-diff", "node": { "kind": "code", "language": "diff", "text": "@@ -1,2 +1,2 @@\n context\n-old\n+new\n" } },
             { "id": "code-plain", "node": { "kind": "code", "text": "plain text" } },
+            { "id": "code-hl", "node": { "kind": "code", "language": "rust", "text": "fn main() {}\nlet s = \"hi\"; // greet",
+                "spans": [
+                    [["keyword", "fn"], ["", " "], ["function", "main"], ["punctuation", "() {}"]],
+                    [["type", "let"], ["", " s "], ["keyword", "="], ["", " "], ["string", "\"hi\""], ["punctuation", ";"], ["", " "], ["comment", "// greet"]]
+                ] } },
             { "id": "st-error", "node": { "kind": "status", "level": "error", "message": "bad" } },
             { "id": "st-warning", "node": { "kind": "status", "level": "warning", "message": "hmm" } },
             { "id": "st-info", "node": { "kind": "status", "level": "info", "message": "fyi" } },
@@ -127,11 +138,17 @@ fn live_kinds() -> RenderTree {
                 "next": "page-2"
             },
             "patch": "@@ -1 +1 @@\n-old\n+new\n",
-            "upload": { "blob": { "item": "s1", "name": "data.csv" } }
+            "upload": { "blob": { "item": "s1", "name": "data.csv" } },
+            "nodes": [{ "id": 1, "label": "root" }, { "id": 2, "label": "left" }, { "id": 3, "label": "right" }],
+            "edges": [{ "source": 1, "target": 2 }, { "source": 1, "target": 3 }]
         },
         "root": { "id": "live", "column": [
             { "id": "rows", "table": { "rows": "{{state.result}}", "columns": [] } },
-            { "id": "series", "plot": { "rows": "{{state.result}}", "x": "t", "y": ["v"] } },
+            { "id": "series", "plot": { "rows": "{{state.result}}", "x": "t", "y": ["v"],
+                "on_click": [{ "set": { "path": "state.at", "value": "{{event.value}}" } }] } },
+            { "id": "net", "graph": { "nodes": "{{state.nodes}}", "edges": "{{state.edges}}" } },
+            { "id": "pic", "image": { "url": "https://example.test/a.png",
+                "on_click": [{ "set": { "path": "state.at", "value": "{{event.value}}" } }] } },
             { "id": "patch", "code": { "language": "diff", "text": "{{state.patch}}" } },
             { "id": "upload", "bind": "state.upload", "field": { "file": { "accept": ".csv" } } },
             { "id": "more", "button": { "label": "More", "on_click": [] } }

@@ -30,6 +30,9 @@ impress-pane-query = { workspace = true }
 impress-layout = { workspace = true, features = ["schema"] }
 impress-layout-service = { workspace = true }
 impress-surface-service = { workspace = true }
+# Source highlighting: the resolver fills `code` spans; the browser bundle never
+# enables this (plan-koine-tree-stream T-D5).
+impress-surface = { workspace = true, features = ["highlight"] }
 impress-verb-surface = { workspace = true }
 koine-store = { workspace = true }
 koine-mcp-host = { workspace = true }

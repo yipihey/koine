@@ -5,7 +5,8 @@
 //! attribute, and an interaction is turned into an [`Event`] and handed to
 //! the host. What an event means is `impress_surface::reduce`'s.
 //!
-//! Focus: a `field`, `button`, `table`, `list`, `tree` or `tabs` node is one tab stop
+//! Focus: a `field`, `button`, `table`, `list`, `tree`, `graph` or `tabs` node (and a
+//! `plot` or `image` that declares `on_click`) is one tab stop
 //! (`tabindex="0"`), in the order the tree's `focus_order` lists them, so the
 //! DOM's tab order is the tree's. Rows and tab buttons are clicked, not
 //! tabbed: they carry `tabindex="-1"` so they stay out of that order.
@@ -14,7 +15,7 @@ use dioxus::prelude::*;
 use impress_surface::resolve::RenderTab;
 use impress_surface::tree::TreeNode;
 use impress_surface::{Event, EventKind, RenderKind, RenderNode};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::{font_class, Ctx, FileChosen};
 
@@ -104,20 +105,56 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
         } => table_node(id, label, help, rows, columns, id_field.as_deref(), ctx),
         RenderKind::List { rows } => list_node(id, label, help, rows, ctx),
         RenderKind::Tree { nodes, .. } => tree_node(id, label, help, nodes, ctx),
+        RenderKind::Graph { svg, .. } => {
+            let on_event = ctx.on_event;
+            let widget = id.to_string();
+            rsx! {
+                div {
+                    class: class("koine-graph", None, ctx, id),
+                    tabindex: 0,
+                    "data-koine-id": "{id}",
+                    "data-koine-focused": focused,
+                    aria_label: label,
+                    title: help,
+                    // One handler for the whole drawing: the node under the
+                    // pointer is found from the event's target (`data-id`).
+                    onclick: move |e| {
+                        if let Some(node) = graph_click(&e) {
+                            on_event.call(event(&widget, EventKind::Select, json!([node])));
+                        }
+                    },
+                    dangerous_inner_html: svg.clone(),
+                }
+            }
+        }
         RenderKind::Plot { spec } => {
             let spec_text = spec.to_string();
-            match koine_plot::render_svg_json(spec) {
-                Ok(svg) => rsx! {
-                    div {
-                        class: class("koine-plot", None, ctx, id),
-                        "data-koine-id": "{id}",
-                        "data-koine-focused": focused,
-                        "data-koine-spec": spec_text,
-                        aria_label: label,
-                        title: help,
-                        dangerous_inner_html: svg,
+            match koine_plot::parse_spec(spec) {
+                Ok(parsed) => {
+                    let svg = koine_plot::svg::render_svg(&parsed);
+                    let frame = koine_plot::frame(&parsed);
+                    let on_event = ctx.on_event;
+                    let widget = id.to_string();
+                    rsx! {
+                        div {
+                            class: class("koine-plot", None, ctx, id),
+                            tabindex: stop(ctx, id),
+                            "data-koine-id": "{id}",
+                            "data-koine-focused": focused,
+                            "data-koine-spec": spec_text,
+                            aria_label: label,
+                            title: help,
+                            // A click in the plot area is a `click` carrying the
+                            // data coordinates under it; outside it, nothing.
+                            onclick: move |e| {
+                                if let Some(at) = plot_click(&e, &frame) {
+                                    on_event.call(event(&widget, EventKind::Click, at));
+                                }
+                            },
+                            dangerous_inner_html: svg,
+                        }
                     }
-                },
+                }
                 // A spec that does not parse keeps its slot and names why.
                 Err(error) => rsx! {
                     div {
@@ -132,7 +169,11 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                 },
             }
         }
-        RenderKind::Code { language, text } => {
+        RenderKind::Code {
+            language,
+            text,
+            spans,
+        } => {
             let is_diff = language.as_deref() == Some("diff");
             let inner = language
                 .as_ref()
@@ -150,6 +191,23 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                             for (index , line) in text.lines().enumerate() {
                                 span { key: "{index}", class: diff_class(line), "{line}\n" }
                             }
+                        } else if !spans.is_empty() {
+                            // Highlighted: a classed `span` per piece, plain
+                            // text as a bare text node, a newline between lines.
+                            for (index , line) in spans.iter().enumerate() {
+                                Fragment { key: "{index}",
+                                    for (piece , (class , piece_text)) in line.iter().enumerate() {
+                                        if class.is_empty() {
+                                            Fragment { key: "{piece}", "{piece_text}" }
+                                        } else {
+                                            span { key: "{piece}", class: "koine-hl-{class}", "{piece_text}" }
+                                        }
+                                    }
+                                    if index + 1 < spans.len() {
+                                        "\n"
+                                    }
+                                }
+                            }
                         } else {
                             "{text}"
                         }
@@ -159,14 +217,24 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
         }
         RenderKind::Image { blob, url } => {
             if let Some(src) = url.as_ref().and_then(Value::as_str) {
+                let on_event = ctx.on_event;
+                let widget = id.to_string();
                 rsx! {
                     img {
                         class: class("koine-image", None, ctx, id),
+                        tabindex: stop(ctx, id),
                         "data-koine-id": "{id}",
                         "data-koine-focused": focused,
                         src: "{src}",
                         alt: label.clone().unwrap_or_default(),
                         title: help,
+                        // A click is a `click` carrying where in the displayed
+                        // image it landed, as fractions of its size.
+                        onclick: move |e| {
+                            if let Some(at) = image_click(&e) {
+                                on_event.call(event(&widget, EventKind::Click, at));
+                            }
+                        },
                     }
                 }
             } else {
@@ -174,6 +242,7 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                 rsx! {
                     div {
                         class: class("koine-placeholder", None, ctx, id),
+                        tabindex: stop(ctx, id),
                         "data-koine-id": "{id}",
                         "data-koine-focused": focused,
                         title: help,
@@ -734,6 +803,12 @@ fn event(widget: &str, kind: EventKind, value: Value) -> Event {
     }
 }
 
+/// `tabindex="0"` for a `plot` or `image` the resolver made a tab stop
+/// (it is in the tree's `focus_order`), no attribute otherwise.
+fn stop(ctx: &Ctx<'_>, id: &str) -> Option<i32> {
+    ctx.stops.iter().any(|s| s == id).then_some(0)
+}
+
 fn is_focused(ctx: &Ctx<'_>, id: &str) -> bool {
     ctx.focused == Some(id)
 }
@@ -749,6 +824,93 @@ fn class(base: &str, font: Option<String>, ctx: &Ctx<'_>, id: &str) -> String {
         out.push_str(" koine-focused");
     }
     out
+}
+
+/// A click on a plot, in data coordinates `{"x", "y"}`, or `None` outside the
+/// plot area (or when the page cannot say where the click landed).
+///
+/// In a browser the size the SVG is drawn at is read from the DOM (CSS scales
+/// it to fit, `max-width: 100%`): the scale is the drawn width over the frame's
+/// width, and the pixel is the pointer's offset from the drawn SVG's corner.
+/// Anywhere else the pointer's element coordinates are used at scale 1.
+fn plot_click(e: &MouseEvent, frame: &koine_plot::Frame) -> Option<Value> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let (px, py, drawn_width) = crate::pointer::plot_pixel(e)?;
+        plot_click_to_data(frame, px, py, drawn_width / frame.width)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let at = e.element_coordinates();
+        plot_click_to_data(frame, at.x, at.y, 1.0)
+    }
+}
+
+/// The mapping behind [`plot_click`], pure: a pixel `(px, py)` measured from
+/// the drawn SVG's top-left corner, in a drawing `scale` times the SVG's own
+/// viewBox units (1 when it is drawn at its natural size), to the
+/// `{"x", "y"}` data coordinates under it. A `scale` that is not a positive
+/// number is 1. `None` outside the plot area, as [`koine_plot::Frame::to_data`]
+/// answers.
+pub(crate) fn plot_click_to_data(
+    frame: &koine_plot::Frame,
+    px: f64,
+    py: f64,
+    scale: f64,
+) -> Option<Value> {
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
+    let (x, y) = frame.to_data(px / scale, py / scale)?;
+    Some(json!({ "x": x, "y": y }))
+}
+
+/// A click on an image as `{"x", "y"}`, fractions of its displayed size.
+fn image_click(e: &MouseEvent) -> Option<Value> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let (px, py, width, height) = crate::pointer::image_pixel(e)?;
+        image_click_to_fraction(px, py, width, height)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // Outside a browser the page cannot learn the displayed size.
+        let _ = e;
+        None
+    }
+}
+
+/// The fraction of a `width` by `height` element a pixel is at, each clamped
+/// to `0..=1`. `None` for an element with no size.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn image_click_to_fraction(px: f64, py: f64, width: f64, height: f64) -> Option<Value> {
+    if !(width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0) {
+        return None;
+    }
+    if !(px.is_finite() && py.is_finite()) {
+        return None;
+    }
+    Some(json!({
+        "x": (px / width).clamp(0.0, 1.0),
+        "y": (py / height).clamp(0.0, 1.0),
+    }))
+}
+
+/// The id of the graph node under a click: the `data-id` of the nearest
+/// element, from the event's target upward, that has one. `None` when the
+/// click was on the background (or outside a browser).
+fn graph_click(e: &MouseEvent) -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::pointer::data_id(e)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = e;
+        None
+    }
 }
 
 /// The class of one line of a `diff`: added (`+`), removed (`-`), a hunk

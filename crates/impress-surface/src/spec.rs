@@ -489,6 +489,37 @@ pub struct Tree {
     pub on_select: Vec<Action>,
 }
 
+/// `graph{nodes, edges, id_field, label_field, source_field, target_field,
+/// on_select}` (plan-koine-tree-stream T-D3): nodes and the edges between
+/// them, laid out and drawn as SVG. The resolver builds a
+/// `koine_plot::graph::GraphSpec` from the rows; a click on a node sends
+/// `select` with `[id]`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
+pub struct Graph {
+    /// A template to an array of objects, or to a `{rows, …}` envelope.
+    pub nodes: Value,
+    /// A template to an array of objects (one per edge), or to an envelope.
+    pub edges: Value,
+    /// The node field that identifies it (default `id`): a literal name. A
+    /// number is used as its text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id_field: Option<String>,
+    /// The node field a label shows (default `label`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_field: Option<String>,
+    /// The edge field naming the node it leaves (default `source`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_field: Option<String>,
+    /// The edge field naming the node it reaches (default `target`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_field: Option<String>,
+    /// Runs on a `select`; `{{event.value}}` is `[id]`.
+    #[serde(default)]
+    pub on_select: Vec<Action>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
@@ -510,6 +541,10 @@ pub struct Plot {
     /// each), literal names. A value that is not a JSON number is skipped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub y: Option<Value>,
+    /// Runs on a `click` (plan-koine-tree-stream T-D4); `{{event.value}}` is
+    /// `{"x": …, "y": …}` in data coordinates. A TUI sends `null` for both.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub on_click: Vec<Action>,
 }
 
 /// `code{language, text}` (plan-koine-live L-D7): a block of source or output
@@ -533,6 +568,11 @@ pub struct Image {
     pub blob: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<Value>,
+    /// Runs on a `click` (plan-koine-tree-stream T-D4); `{{event.value}}` is
+    /// `{"x": …, "y": …}`, fractions `0..1` of the displayed size. A TUI
+    /// sends `null` for both.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub on_click: Vec<Action>,
 }
 
 /// The `field` widget's inner tag (`field: { text|number|slider|select|toggle|date:
@@ -600,6 +640,7 @@ pub enum NodeKind {
     Table(Table),
     List(ListWidget),
     Tree(Tree),
+    Graph(Graph),
     Plot(Plot),
     Image(Image),
     Field(FieldKind),
@@ -636,8 +677,8 @@ pub enum NodeKind {
 /// Used by the manual `JsonSchema` impl below and by `schema_tests` (see
 /// `tests/spec_round_trip.rs`) to assert the generated schema mentions each one.
 pub const NODE_KIND_NAMES: &[&str] = &[
-    "column", "row", "grid", "section", "tabs", "text", "table", "list", "tree", "plot", "image",
-    "field", "button", "status", "log", "kv", "code", "divider", "spacer",
+    "column", "row", "grid", "section", "tabs", "text", "table", "list", "tree", "graph", "plot",
+    "image", "field", "button", "status", "log", "kv", "code", "divider", "spacer",
 ];
 
 /// A surface node: the common keys plus exactly one node-kind key (D3). See the
@@ -744,6 +785,7 @@ impl Node {
             NodeKind::Table(_) => "table",
             NodeKind::List(_) => "list",
             NodeKind::Tree(_) => "tree",
+            NodeKind::Graph(_) => "graph",
             NodeKind::Plot(_) => "plot",
             NodeKind::Image(_) => "image",
             NodeKind::Field(_) => "field",
@@ -917,6 +959,10 @@ impl NodeKind {
                 "tree".to_string(),
                 serde_json::to_value(t).unwrap_or(Value::Null),
             ),
+            NodeKind::Graph(g) => (
+                "graph".to_string(),
+                serde_json::to_value(g).unwrap_or(Value::Null),
+            ),
             NodeKind::Plot(p) => (
                 "plot".to_string(),
                 serde_json::to_value(p).unwrap_or(Value::Null),
@@ -979,6 +1025,7 @@ fn parse_kind(key: &str, raw: Value, original: &Value) -> NodeKind {
         "table" => body(key, raw, original, NodeKind::Table),
         "list" => body(key, raw, original, NodeKind::List),
         "tree" => body(key, raw, original, NodeKind::Tree),
+        "graph" => body(key, raw, original, NodeKind::Graph),
         "plot" => body(key, raw, original, NodeKind::Plot),
         "image" => body(key, raw, original, NodeKind::Image),
         "field" => body(key, raw, original, NodeKind::Field),
@@ -1103,6 +1150,7 @@ impl schemars::JsonSchema for Node {
             ("table", schema_json(gen.subschema_for::<Table>())),
             ("list", schema_json(gen.subschema_for::<ListWidget>())),
             ("tree", schema_json(gen.subschema_for::<Tree>())),
+            ("graph", schema_json(gen.subschema_for::<Graph>())),
             ("plot", schema_json(gen.subschema_for::<Plot>())),
             ("image", schema_json(gen.subschema_for::<Image>())),
             ("field", schema_json(gen.subschema_for::<FieldKind>())),
@@ -1256,6 +1304,9 @@ pub fn handler_pointers(node: &Node) -> Vec<(String, &[Action])> {
         NodeKind::Table(t) => out.push(("/table/on_select".to_string(), t.on_select.as_slice())),
         NodeKind::List(l) => out.push(("/list/on_select".to_string(), l.on_select.as_slice())),
         NodeKind::Tree(t) => out.push(("/tree/on_select".to_string(), t.on_select.as_slice())),
+        NodeKind::Graph(g) => out.push(("/graph/on_select".to_string(), g.on_select.as_slice())),
+        NodeKind::Plot(p) => out.push(("/plot/on_click".to_string(), p.on_click.as_slice())),
+        NodeKind::Image(i) => out.push(("/image/on_click".to_string(), i.on_click.as_slice())),
         NodeKind::Button(b) => out.push(("/button/on_click".to_string(), b.on_click.as_slice())),
         _ => {}
     }
