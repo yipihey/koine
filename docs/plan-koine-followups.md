@@ -171,4 +171,38 @@ history.
 
 ## Status
 
-Filled in as the packages land.
+F1, F3 and F4 are built on koine main. What landed, and where it differs
+from the decisions above:
+
+- **F-D1 (core).** `impress_service_core::secrets` is as decided. The
+  refusal is the pipeline's envelope `{ok: false, code: "missing-secret",
+  message}` from `prepare`, the same path as `unsupported-adverb` and strict
+  arguments, not a new `PipelineError` variant (every transport matches that
+  enum exhaustively). The CLI shows `Secrets:` and `Returns:` as a verb's
+  `--help` after-text; there was no listing that printed `returns_kind`
+  before.
+- **F-D2.** As decided, with two details: a select on a table carries
+  `{{event.value}}` (the array of ids every select sends), so the generated
+  form's `on_select` is `set state.selected = {{event.value}}`; and the
+  default column order is the output schema's property order as
+  `serde_json` holds it, which is alphabetical. `row_layout()` also reports
+  which property wraps the rows when the result is an object, so the form
+  reads `state.result.<that>`.
+- **F-D3.** `koine-plot` is `implore-core`'s `plot::types`, `plot::svg_render`
+  and `axis` moved verbatim (29 tests kept or added), plus `text`. The
+  original fixture `{"x": [1,2], "y": [3,4]}` parses: `PlotSpec` takes
+  defaults for every missing field and refuses no unknown one, so it is an
+  empty chart, not an error; a spec that fails is one with a series missing
+  `y`. The parser was left as it was: stricter would change what the wire
+  accepts. The TUI's sketch is an opt-in (`TextFrontend::with_plots`) the
+  binary turns on, because `render` promises one line per node and the
+  cursor and the frontends suite rely on it. The text sketch ignores
+  annotations and error bars.
+- **F-D4.** As decided. `FieldMutation` has no variant for priority or
+  visibility, so a change to only those is `Updated` with an empty mutation
+  list. `wait_until_watching(Duration)` lets a caller block until the first
+  scan is done. Dropping the store sets a flag and never joins the thread.
+- **F-D5.** As decided. A conflict copy of an operation row is reported and
+  not merged (an operation has nothing to merge); `Resolved` lists merges,
+  not the stale copies quietly filed; `with_merge_policy` swallows a resolve
+  error (the conflicts stay reported; `resolve_conflicts()` shows it).
