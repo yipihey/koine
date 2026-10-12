@@ -20,11 +20,14 @@
 //!   directory backends are; a host registers its own).
 //! * [`set_subtree_resolver`] / [`subtree_resolver`]: the same registry for
 //!   how a collection's descendants are found. The default is `RootOnly`.
+//! * [`install_blobs`] / [`blobs`]: the blob view of the store (plan-koine-live
+//!   L-D6). Installing it also fills `impress_service_core`'s blob slot, so a
+//!   verb that takes a `BlobRef` reads its bytes through [`BlobStore`].
 
 use std::any::{Any, TypeId};
 use std::sync::{Arc, RwLock};
 
-use impress_item::AttributedStore;
+use impress_item::{AttributedStore, BlobStore};
 use impress_pane_query_compile::{RootOnly, SubtreeResolver};
 
 /// A subtree resolver a process shares between threads.
@@ -193,6 +196,33 @@ pub fn current() -> Option<Arc<dyn AttributedStore>> {
     acquire().map(|(store, _)| store)
 }
 
+static BLOBS: RwLock<Option<Arc<dyn BlobStore>>> = RwLock::new(None);
+
+/// Adapts the port's [`BlobStore`] to the reader `impress-service-core` (which
+/// sits below the store) asks for.
+struct BlobAdapter(Arc<dyn BlobStore>);
+
+impl impress_service_core::BlobReader for BlobAdapter {
+    fn read(&self, item: &str, name: &str) -> Result<Option<Vec<u8>>, String> {
+        let id = item
+            .parse::<impress_item::ItemId>()
+            .map_err(|e| format!("blob item `{item}` is not a uuid: {e}"))?;
+        self.0.get_blob(id, name).map_err(|e| e.to_string())
+    }
+}
+
+/// Install the process's blob store, and with it the reader a verb's
+/// `BlobRef::read()` goes through. A later install replaces the earlier.
+pub fn install_blobs(store: Arc<dyn BlobStore>) {
+    impress_service_core::blob_ref::install_blob_reader(Arc::new(BlobAdapter(store.clone())));
+    *BLOBS.write().unwrap_or_else(|e| e.into_inner()) = Some(store);
+}
+
+/// The installed blob store, if the host installed one.
+pub fn blobs() -> Option<Arc<dyn BlobStore>> {
+    BLOBS.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 /// Install how a collection's descendants are found (a store with a
 /// collection tree resolves it; the default is the collection itself).
 pub fn set_subtree_resolver(resolver: SharedSubtreeResolver) {
@@ -334,6 +364,43 @@ mod tests {
         assert!(!Arc::ptr_eq(&seen.0, &installed));
         assert!(Arc::ptr_eq(&acquire().unwrap().0, &installed));
         reset();
+    }
+
+    #[test]
+    fn installed_blobs_answer_a_blob_ref_read() {
+        use impress_item::ItemStore;
+        use impress_service_core::{BlobError, BlobRef};
+        let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+        let store = Arc::new(MemoryStore::new());
+        let owner: impress_item::Item = serde_json::from_value(serde_json::json!({
+            "id": uuid::Uuid::new_v4(), "schema": "paper", "payload": {},
+            "created": "2026-01-01T00:00:00Z", "modified": "2026-01-01T00:00:00Z",
+            "author": "t", "author_kind": "Human", "logical_clock": 0,
+            "origin": null, "canonical_id": null, "tags": [], "flag": null,
+            "is_read": false, "is_starred": false, "priority": "normal",
+            "visibility": "private", "message_type": null, "produced_by": null,
+            "version": null, "batch_id": null, "references": [], "parent": null
+        }))
+        .unwrap();
+        let item = store.insert(owner).unwrap();
+        store.put_blob(item, "a.csv", b"x,y").unwrap();
+        install_blobs(store.clone());
+        assert!(blobs().is_some());
+        let blob = |item: String, name: &str| BlobRef {
+            item,
+            name: name.into(),
+        };
+        assert_eq!(blob(item.to_string(), "a.csv").read().unwrap(), b"x,y");
+        assert!(matches!(
+            blob(item.to_string(), "b.csv").read(),
+            Err(BlobError::NotFound { .. })
+        ));
+        assert!(matches!(
+            blob("not-a-uuid".into(), "a.csv").read(),
+            Err(BlobError::Store(_))
+        ));
+        impress_service_core::blob_ref::clear_blob_reader();
+        *BLOBS.write().unwrap() = None;
     }
 
     #[test]

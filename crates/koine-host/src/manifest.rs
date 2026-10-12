@@ -50,6 +50,25 @@ pub fn minimal() -> KindManifest {
     }
 }
 
+/// [`minimal`] plus every record kind the linked verbs declare: for each
+/// `VerbDescriptor` with `returns_kind`, `kinds[kind] = [kind]` unless the
+/// kind is already there (plan-koine-live L-D4). A kind a verb's rows are
+/// materialised as (`crate::materialize`) is then one a layout pane can
+/// query. Only the verbs linked into this binary count, so call it after
+/// [`crate::ensure_linked`].
+pub fn from_inventory() -> KindManifest {
+    let mut manifest = minimal();
+    for verb in impress_service_core::VerbDescriptor::iter() {
+        if let Some(kind) = verb.returns_kind {
+            manifest
+                .kinds
+                .entry(kind.to_string())
+                .or_insert_with(|| vec![kind.to_string()]);
+        }
+    }
+    manifest
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

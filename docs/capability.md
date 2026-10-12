@@ -727,6 +727,69 @@ are no expressions, conditionals or loops in it. The worked example is
 `impress_surface::validate` over it; copy that test beside your own surface.
 Do not write Swift, Dioxus or HTML for a capability.
 
+### Rows become records
+
+A verb with `returns_kind` and `rows(...)` does one more thing inside a host:
+when it answers `ok`, the host keeps its rows. Each row is upserted into the
+store as an item, so a layout pane can query it by kind, and a person can tag,
+star and select it, and it is still there offline. You write nothing for this.
+
+- **Where it happens.** After the handler, outside the effects check, in a
+  koine host only. A CLI or MCP process that is not a host installs no
+  materialiser (`impress_service_core::pipeline::materialize`), and for it
+  nothing changes: the verb answers and nothing is stored. The verb's
+  declared `effects` stay what the verb itself does; the host's copy is not
+  one of them.
+- **Which rows.** The result when it is an array of objects; the `rows` array
+  of the `{rows, next}` envelope; or the one array-of-objects property the
+  output schema names. A result with `"ok": false` has none.
+- **The id.** `uuid5(koine-rows, "<kind>:<row id>")`, where the row id is the
+  text of the field `rows(id = ...)` names (a string, a number or a boolean).
+  The same row is the same record on every refresh and on every host. A row
+  without that field is skipped, and the host warns how many.
+- **The record.** Schema ref: the kind (`returns_kind`), as
+  `koine_host::manifest::from_inventory` maps it; payload: the row's fields
+  plus `_verb`, the name of the verb that last answered it; author
+  `system:host`.
+- **What survives a refresh.** A record that exists gets a write for each
+  field that changed or is new, and nothing else. Its tags, stars, flags and
+  references survive; an unchanged row is no write; a field the verb stopped
+  sending stays. A record whose row has gone is never deleted, because a
+  verb's page is not the whole set.
+
+So choose `rows(id = ...)` for a field that names the thing, not the position
+in the page: an issue number, a bibcode, a path. A field that changes when
+the row moves (an index, a rank) makes a new record on every refresh.
+
+### A verb that takes a file
+
+A surface's `file` field (`field: {file: {accept: ".csv,.xlsx"}}`) uploads the
+chosen file to the host's blob store and sends the verb the reference
+`{"blob": {"item": "<id>", "name": "<file name>"}}`. Take it as
+`impress_service_core::BlobArg`, which is exactly that shape, and read the
+bytes with `read()`:
+
+```rust
+use impress_service_core::BlobArg;
+
+/// Import a table. `file` is the uploaded CSV.
+async fn import_table(&self, file: BlobArg) -> ImportResult {
+    let bytes = match file.read() {
+        Ok(bytes) => bytes,
+        Err(e) => return ImportResult::refused("file-unavailable", e.to_string()),
+    };
+    // ... parse bytes ...
+}
+```
+
+`BlobRef { item, name }` is the inner reference, for a verb that is handed one
+by another route (`BlobArg.blob`, or `BlobRef::from(arg)`); the form sends
+`BlobArg`. `read()` answers `BlobError`: `NotInstalled` when the process is
+not a host over a store that holds blobs (a bare CLI or MCP call: say so in
+the refusal, do not retry), `NotFound` when the upload is missing (upload
+again), `Store` when the store failed. The bytes are read whole; a verb that
+takes a very large file should say so in its `///`.
+
 ## 10. Checklist
 
 Tick every line; each is something you can look at or run.
@@ -760,6 +823,8 @@ Tick every line; each is something you can look at or run.
       `secrets::get`; no bearer is an argument.
 - [ ] A verb that returns rows declares `returns_kind` and `rows(id = "...")`,
       and the Tier A report passes its row-schema check.
+- [ ] A verb that takes a file takes a `BlobArg` and refuses `BlobError`
+      with a code that says what to do.
 - [ ] Every verb has an `#[impress_example]` with an `expect`.
 - [ ] `selftest.rs` calls verbs through `call::call`, covers a refusal and a
       misspelt argument, and `cargo test` is green.
