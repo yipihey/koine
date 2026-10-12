@@ -179,7 +179,7 @@ is not this machine is 400, a non-GET from loopback needs the token (401
 `Access-Control-*` header (a test asserts it). The default runner
 (`koine_host::runner::JobRunner`) writes a `task@1.0.0` row per job and runs
 the call on a tokio task; `GET /api/job/<id>` and `POST /api/job/<id>/cancel`
-read and stop it. `koine_host::manifest::minimal()` is the seven ui kinds
+read and stop it. `koine_host::manifest::minimal()` is the seven ui kinds (and, since plan-koine-tree-stream, the `task` kind)
 (layout, preset, surface, surface-state, surface-event, scenario, settings).
 `koine-mcp-host` is `impress-mcp-host` with every public item and test kept,
 `_meta.returns_kind` on a verb that declares one, and `handle_message` as the

@@ -6,7 +6,7 @@
 //! koine-host --store memory: --port 0 --check      # start, print, exit 0
 //! ```
 //!
-//! It links `surface-demo-service` (two verbs, `series` and `histogram`) and
+//! It links `surface-demo-service` (`series`, `histogram` and `tick`) and
 //! the two runtime crates; a bespoke app is this same `main` with its own
 //! service crate linked instead (`scripts/new-app.sh`). The flags and the run
 //! loop are `koine_host::cli`, shared with that scaffold.

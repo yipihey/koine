@@ -40,6 +40,10 @@ pub fn minimal() -> KindManifest {
         ("surface-event", refs::IMPRESS_UI_SURFACE_EVENT),
         ("scenario", refs::IMPRESS_SCENARIO),
         ("settings", refs::IMPRESS_SETTINGS),
+        // The runner's job rows (plan-koine-live L-D1, plan-koine-tree-stream
+        // T-D2): a surface's query source over `task` is the live view of a
+        // routine or of a job's emitted lines.
+        ("task", refs::TASK),
     ]
     .into_iter()
     .map(|(kind, schema)| (kind.to_string(), vec![schema.as_str().to_owned()]))
@@ -74,9 +78,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_seven_ui_kinds_map_to_their_canonical_refs() {
+    fn the_seven_ui_kinds_and_the_task_kind_map_to_their_canonical_refs() {
         let manifest = minimal();
-        assert_eq!(manifest.kinds.len(), 7);
+        assert_eq!(manifest.kinds.len(), 8);
+        assert_eq!(
+            manifest.schema_refs("task"),
+            Some(&[refs::TASK.as_str().to_owned()][..])
+        );
         assert_eq!(
             manifest.schema_refs("surface"),
             Some(&["impress/ui/surface@1.0.0".to_string()][..])
