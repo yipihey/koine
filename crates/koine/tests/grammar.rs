@@ -27,6 +27,7 @@ fn fixture(class: SafetyClass) -> VerbDescriptor {
         replay_full: false,
         supports: &[Adverb::Reversibly, Adverb::Within, Adverb::InBackground],
         adjective: None,
+        returns_kind: None,
         source: Source::Linked,
         handler: |_| Box::pin(async { Ok(Value::Null) }),
     }
@@ -93,4 +94,55 @@ fn the_adverb_vocabulary_is_the_six_the_grammar_lists() {
         ]
     );
     assert_eq!(Adverbs::KEY, "adverbs");
+}
+
+/// docs/grammar.md § Verbs return rows. A `returns_kind` is the pane-query
+/// kind id of a verb's rows. The macro can only check that it is well formed
+/// (`is_kind_id`: the host's manifest does not exist at expansion time); a
+/// host checks the rest against its own manifest, which this test does for a
+/// demo one.
+#[test]
+fn every_declared_returns_kind_is_a_well_formed_kind_id_and_a_demo_manifest_kind() {
+    use koine::pane_query::KindManifest;
+    use koine::verbs::is_kind_id;
+
+    let mut demo = KindManifest::default();
+    for kind in ["publication", "task", "collection"] {
+        demo.kinds
+            .insert(kind.to_string(), vec![format!("demo/{kind}")]);
+    }
+
+    // The linked inventory (empty in this test binary unless a service is
+    // linked; the rule is the same for each verb that is).
+    for verb in VerbDescriptor::iter() {
+        if let Some(kind) = verb.returns_kind {
+            assert!(
+                is_kind_id(kind),
+                "{}: returns_kind `{kind}` is not a well-formed kind id",
+                verb.name
+            );
+        }
+    }
+
+    // A declared kind is carried to the surface and the listing, and a host
+    // can resolve it: `publication` is in the demo manifest, `Publication!`
+    // is not even well formed.
+    let mut rows = fixture(SafetyClass::ReadOnly);
+    rows.output_schema = || json!({"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string"}}}});
+    rows.returns_kind = Some("publication");
+    assert!(is_kind_id(rows.returns_kind.unwrap()));
+    assert!(demo.schema_refs(rows.returns_kind.unwrap()).is_some());
+    assert_eq!(
+        rows.mcp_meta(),
+        Some(json!({"returns_kind": "publication"}))
+    );
+    let spec = koine::verb_surface::verb_surface(&rows);
+    assert!(
+        serde_json::to_string(&spec)
+            .unwrap()
+            .contains("Result (publication)"),
+        "the generated table is labelled with the kind"
+    );
+    assert!(!is_kind_id("Publication!"));
+    assert!(demo.schema_refs("nonesuch").is_none());
 }

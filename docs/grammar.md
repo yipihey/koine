@@ -19,6 +19,19 @@ file first.
 Nouns, pointing, verbs and consent are documented in their crates. This
 file defines the two parts added on 2026-10-11: adjectives and adverbs.
 
+A verb may also say which noun its rows are:
+`#[impress_method(returns_kind = "publication")]` puts the pane-query kind
+id on the descriptor (`VerbDescriptor::returns_kind`), shows it in the
+`tools/list` entry as `_meta.returns_kind` and labels the generated result
+table `Result (publication)`. A surface's table and a layout's pane for that
+kind then agree on columns, ids and selection, because both name the kind
+rather than guess at it. The macro checks the value is a well-formed kind id
+(lowercase letters, digits, `_` and `-`, starting with a letter); that it is
+a kind of the host's manifest is the host's check, since the manifest does
+not exist at expansion time. A bespoke app is surfaces over verbs: its
+layout's panes are `surface` panes, and no view kind is written in Swift or
+Dioxus for it.
+
 ## Adjectives
 
 An adjective narrows a set of records without changing any of them. The
@@ -211,3 +224,5 @@ reads the inverse the handler recorded, in the envelope layer.
 | A scenario `call` step's `adverbs` reach the caller | `impress-scenario` tests |
 | Every adverb key a surface example uses is in the pipeline's vocabulary | `koine` crate test |
 | The verb surface offers exactly the adverbs the descriptor accepts | `impress-verb-surface` tests |
+| The macro refuses a `returns_kind` that is not a kind id, and accepts one that is | `impress-service-macros` compile-fail test (`returns_kind_not_a_kind`) and pass case |
+| A declared `returns_kind` is a well-formed kind id, reaches `_meta` and labels the result table | `koine` crate test |

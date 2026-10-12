@@ -87,6 +87,13 @@
 //! method; the vocabulary is `tentatively | with_review | once | reversibly |
 //! within | in_background`. `#[impress_method(adjective(name = "stale", kinds
 //! = ["publication"]))]` declares the verb a derived adjective.
+//! `#[impress_method(returns_kind = "publication")]` (plan-koine-host H-D8)
+//! says which pane-query kind the rows of the verb's result are, so a
+//! surface's table and a layout's pane agree on columns, ids and selection.
+//! The value is checked to be a well-formed kind id (lowercase letters,
+//! digits, `_` and `-`, starting with a letter); the macro cannot check it
+//! against a host's kind manifest, which the host builds at runtime, so the
+//! descriptor test of the host does.
 //!
 //! Anything more elaborate (custom DTOs, error mapping nuances) is deferred to
 //! Phase 1+.
@@ -254,6 +261,10 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                     },
                     None => quote! { ::core::option::Option::None },
                 };
+                let returns_kind = match &overrides.returns_kind {
+                    Some(lit) => quote! { ::core::option::Option::Some(#lit) },
+                    None => quote! { ::core::option::Option::None },
+                };
                 metas.push(quote! {
                     ::impress_service_core::MethodMeta {
                         name: #method_name,
@@ -268,6 +279,7 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                         replay_full: #replay_full,
                         supports: #supports,
                         adjective: #adjective,
+                        returns_kind: #returns_kind,
                     }
                 });
             }
@@ -312,7 +324,8 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
 }
 
 /// What `#[impress_method(safety = …, idempotent = …, effects(…),
-/// deprecated(…), aliases = […], replay = full, supports(…), adjective(…)]`
+/// deprecated(…), aliases = […], replay = full, supports(…), adjective(…),
+/// returns_kind = "…"]`
 /// declares.
 #[derive(Default)]
 struct MethodOverrides {
@@ -338,6 +351,44 @@ struct MethodOverrides {
     /// `adjective(name = "…", kinds = […])`: this verb defines a derived
     /// adjective (docs/grammar.md § Adjectives).
     adjective: Option<(syn::LitStr, Vec<syn::LitStr>)>,
+    /// `returns_kind = "publication"`: the pane-query kind id of the rows the
+    /// result carries (plan-koine-host H-D8). Validated as a kind id.
+    returns_kind: Option<syn::LitStr>,
+}
+
+/// Whether `id` is a well-formed pane-query kind id: a lowercase ASCII
+/// letter, then lowercase letters, digits, `_` or `-`. The same rule as
+/// `impress_service_core::is_kind_id`; a proc-macro crate cannot depend on
+/// the crate it expands into, so the two are kept equal by the tests on both
+/// sides.
+fn is_kind_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+}
+
+/// `returns_kind = "publication"` inside `#[impress_method(…)]`.
+fn parse_returns_kind(meta: &syn::meta::ParseNestedMeta<'_>) -> syn::Result<syn::LitStr> {
+    let lit: syn::LitStr = meta.value()?.parse().map_err(|e| {
+        syn::Error::new(
+            e.span(),
+            "`returns_kind` takes a string literal naming the pane-query kind of the rows this \
+             verb returns, e.g. `returns_kind = \"publication\"`",
+        )
+    })?;
+    let value = lit.value();
+    if !is_kind_id(&value) {
+        return Err(syn::Error::new(
+            lit.span(),
+            format!(
+                "`{value}` is not a kind id; `returns_kind` names the pane-query kind of the \
+                 rows the verb returns, written the way the host's kind manifest spells it: \
+                 lowercase letters, digits, `_` or `-`, starting with a letter \
+                 (for example `returns_kind = \"publication\"`)"
+            ),
+        ));
+    }
+    Ok(lit)
 }
 
 const ADVERB_VOCABULARY: &str =
@@ -747,6 +798,9 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
             } else if meta.path.is_ident("adjective") {
                 out.adjective = Some(parse_adjective_attr(&meta)?);
                 Ok(())
+            } else if meta.path.is_ident("returns_kind") {
+                out.returns_kind = Some(parse_returns_kind(&meta)?);
+                Ok(())
             } else if meta.path.is_ident("replay") {
                 let mode: Ident = meta.value()?.parse()?;
                 if mode != "full" {
@@ -758,7 +812,7 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
                 Err(meta.error(
                     "unknown #[impress_method] key; `safety = …`, `idempotent = …`, \
                      `effects(…)`, `deprecated(…)`, `aliases = […]`, `budget_ms = …`, \
-                     `replay = full`, `supports(…)` or `adjective(…)`",
+                     `replay = full`, `supports(…)`, `adjective(…)` or `returns_kind = \"…\"`",
                 ))
             }
         })?;
@@ -1513,6 +1567,7 @@ fn expand_method(
                     #default_supports,
                 ),
                 adjective: ::impress_service_core::resolve_adjective(&#meta_table, #method_name_str),
+                returns_kind: ::impress_service_core::resolve_returns_kind(&#meta_table, #method_name_str),
                 since: #since,
                 deprecated: ::impress_service_core::resolve_deprecated(&#meta_table, #method_name_str),
                 aliases: ::impress_service_core::resolve_aliases(&#meta_table, #method_name_str),
@@ -1712,6 +1767,31 @@ mod tests {
         )
         .expect_err("name is required");
         assert!(err.to_string().contains("name"), "{err}");
+    }
+
+    #[test]
+    fn returns_kind_is_a_kind_id() {
+        for good in ["publication", "task", "email-message", "chat_message", "k2"] {
+            assert!(is_kind_id(good), "{good}");
+        }
+        for bad in ["", "Publication", "2k", "-k", "a b", "imbib/library", "a.b"] {
+            assert!(!is_kind_id(bad), "{bad}");
+        }
+        let expand_with = |attr: &str| {
+            expand(&format!(
+                r#"
+                pub trait EchoService: Send + Sync + 'static {{
+                    /// Echo.
+                    #[impress_method({attr})]
+                    async fn echo(&self, message: String) -> String;
+                }}
+                "#
+            ))
+        };
+        let tokens = expand_with(r#"returns_kind = "publication""#).expect("a kind id expands");
+        assert!(tokens.to_string().contains("\"publication\""));
+        let err = expand_with(r#"returns_kind = "Not A Kind""#).expect_err("refused");
+        assert!(err.to_string().contains("is not a kind id"), "{err}");
     }
 
     #[test]

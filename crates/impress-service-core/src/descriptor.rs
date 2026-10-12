@@ -366,6 +366,9 @@ pub struct MethodMeta {
     /// `#[impress_method(adjective(…))]`, when the verb defines a derived
     /// adjective.
     pub adjective: Option<AdjectiveDecl>,
+    /// `#[impress_method(returns_kind = "publication")]` (plan-koine-host
+    /// H-D8): the pane-query kind id of the rows the verb's result carries.
+    pub returns_kind: Option<&'static str>,
 }
 
 /// Find a method's captured facts by identifier. `const` because
@@ -455,6 +458,30 @@ pub const fn resolve_adjective(
     }
 }
 
+/// The pane-query kind id of the rows a method's result carries, if it
+/// declares one (`#[impress_method(returns_kind = "…")]`).
+pub const fn resolve_returns_kind(
+    table: &'static [MethodMeta],
+    method: &str,
+) -> Option<&'static str> {
+    match method_meta(table, method) {
+        Some(meta) => meta.returns_kind,
+        None => None,
+    }
+}
+
+/// Whether `id` is a well-formed pane-query kind id: a lowercase ASCII
+/// letter, then lowercase letters, digits, `_` or `-` (`publication`,
+/// `email-message`). The rule `#[impress_method(returns_kind = "…")]`
+/// enforces at expansion time (the macro keeps its own copy, since a
+/// proc-macro crate cannot depend on the crate it expands into); a host with
+/// a kind manifest checks the stronger "is a kind of mine".
+pub fn is_kind_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    chars.next().is_some_and(|c| c.is_ascii_lowercase())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+}
+
 /// The examples declared on a method (empty until G3 writes them).
 pub const fn resolve_examples(table: &'static [MethodMeta], method: &str) -> &'static [Example] {
     match method_meta(table, method) {
@@ -529,6 +556,9 @@ pub const fn resolve_aliases(
 ///   verb honors beyond the universal `tentatively`, `with_review`, `once`);
 /// - `adjective`: `#[impress_method(adjective(name = "…", kinds = […]))]`
 ///   (declared; marks the verb as a derived adjective);
+/// - `returns_kind`: `#[impress_method(returns_kind = "…")]` (declared; the
+///   pane-query kind id of the rows the result carries, so a surface's table
+///   and a layout's pane agree on columns, ids and selection);
 /// - `source`, `handler`: how the verb runs.
 pub struct VerbDescriptor {
     /// The qualified tool name, `<service>_<method>` in kebab case — the MCP
@@ -561,6 +591,9 @@ pub struct VerbDescriptor {
     pub supports: &'static [Adverb],
     /// The derived adjective this verb defines, if any.
     pub adjective: Option<AdjectiveDecl>,
+    /// The pane-query kind id of the rows this verb's result carries
+    /// (plan-koine-host H-D8); `None` for a verb that does not declare one.
+    pub returns_kind: Option<&'static str>,
     pub source: Source,
     pub handler: fn(Value) -> ServiceFuture,
 }
@@ -616,6 +649,15 @@ impl VerbDescriptor {
             "use": dep.alias_of.unwrap_or(self.name),
             "note": dep.note,
         }))
+    }
+
+    /// The additive MCP `_meta` object a `tools/list` entry carries beside
+    /// `annotations`: `{"returns_kind": "<kind>"}` when the verb declares
+    /// the kind of its rows, `None` otherwise. The CLI listing prints the
+    /// same key.
+    pub fn mcp_meta(&self) -> Option<Value> {
+        self.returns_kind
+            .map(|kind| json!({ "returns_kind": kind }))
     }
 
     /// The MCP `annotations` object (MCP 2025-03-26 tool annotations), read
@@ -684,6 +726,7 @@ mod tests {
             replay_full: false,
             supports: &[],
             adjective: None,
+            returns_kind: None,
         },
         MethodMeta {
             name: "set_flag",
@@ -702,6 +745,7 @@ mod tests {
             replay_full: false,
             supports: &[],
             adjective: None,
+            returns_kind: Some("publication"),
         },
     ];
 
@@ -745,6 +789,7 @@ mod tests {
                     name: "stale",
                     kinds: &["publication"],
                 }),
+                returns_kind: None,
             },
             MethodMeta {
                 name: "b",
@@ -759,6 +804,7 @@ mod tests {
                 replay_full: false,
                 supports: &[],
                 adjective: None,
+                returns_kind: None,
             },
         ];
         const DEFAULT: &[Adverb] = &[Adverb::Reversibly];
@@ -776,6 +822,22 @@ mod tests {
             "x"
         );
         assert_eq!(resolve_adjective(&T, "b"), None);
+    }
+
+    #[test]
+    fn returns_kind_resolves_and_defaults_to_none() {
+        assert_eq!(
+            resolve_returns_kind(&TABLE, "set_flag"),
+            Some("publication")
+        );
+        assert_eq!(resolve_returns_kind(&TABLE, "delete"), None);
+        assert_eq!(resolve_returns_kind(&TABLE, "missing"), None);
+        for good in ["publication", "task", "email-message", "chat_message"] {
+            assert!(is_kind_id(good), "{good}");
+        }
+        for bad in ["", "Publication", "2k", "-k", "a b", "imbib/library"] {
+            assert!(!is_kind_id(bad), "{bad}");
+        }
     }
 
     #[test]
@@ -905,10 +967,18 @@ mod tests {
             replay_full: false,
             supports: &[],
             adjective: None,
+            returns_kind: None,
             source: Source::Linked,
             handler,
         };
         assert_eq!(verb.deprecation_notice(), None);
+        assert_eq!(verb.mcp_meta(), None, "no returns_kind, no _meta");
+        verb.returns_kind = Some("publication");
+        assert_eq!(
+            verb.mcp_meta(),
+            Some(json!({"returns_kind": "publication"}))
+        );
+        verb.returns_kind = None;
         verb.deprecated = Some(Deprecation {
             since: "0.9.0",
             alias_of: None,
@@ -961,6 +1031,7 @@ mod tests {
             replay_full: false,
             supports: &[],
             adjective: None,
+            returns_kind: None,
             source: Source::Linked,
             handler,
         };
@@ -1020,6 +1091,7 @@ mod tests {
             replay_full: false,
             supports: &[],
             adjective: None,
+            returns_kind: None,
             source: Source::Linked,
             handler,
         };

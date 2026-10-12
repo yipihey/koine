@@ -36,10 +36,11 @@ pub mod wire;
 
 pub use adverb::{Adverb, Adverbs, Within};
 pub use descriptor::{
-    method_meta, resolve_adjective, resolve_aliases, resolve_budget_ms, resolve_deprecated,
-    resolve_effects, resolve_examples, resolve_idempotent, resolve_replay_full,
-    resolve_safety_class, resolve_supports, AdjectiveDecl, Deprecation, Effects, Example,
-    ExampleTier, Kind, MethodMeta, Reach, Safety, SafetyClass, Source, VerbDescriptor,
+    is_kind_id, method_meta, resolve_adjective, resolve_aliases, resolve_budget_ms,
+    resolve_deprecated, resolve_effects, resolve_examples, resolve_idempotent, resolve_replay_full,
+    resolve_returns_kind, resolve_safety_class, resolve_supports, AdjectiveDecl, Deprecation,
+    Effects, Example, ExampleTier, Kind, MethodMeta, Reach, Safety, SafetyClass, Source,
+    VerbDescriptor,
 };
 pub use descriptor_handle::{ExampleView, HandleSource, VerbHandle};
 pub use provider::{
@@ -456,6 +457,7 @@ mod tests {
             replay_full: false,
             supports: &[],
             adjective: None,
+            returns_kind: None,
             source: Source::Linked,
             handler: fixture_handler,
         };

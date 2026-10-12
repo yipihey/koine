@@ -16,7 +16,7 @@ pub struct EchoReply {
 #[impress_service]
 pub trait EchoService: Send + Sync + 'static {
     /// Echo a message back, prefixed with "echo: ".
-    #[impress_method]
+    #[impress_method(returns_kind = "reply")]
     #[impress_example(name = "hello", args = r#"{"message": "hi"}"#)]
     async fn echo(&self, message: String) -> EchoReply;
 

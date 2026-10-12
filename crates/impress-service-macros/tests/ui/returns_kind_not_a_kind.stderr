@@ -1,0 +1,5 @@
+error: `Publication!` is not a kind id; `returns_kind` names the pane-query kind of the rows the verb returns, written the way the host's kind manifest spells it: lowercase letters, digits, `_` or `-`, starting with a letter (for example `returns_kind = "publication"`)
+  --> tests/ui/returns_kind_not_a_kind.rs:18:37
+   |
+18 |     #[impress_method(returns_kind = "Publication!")]
+   |                                     ^^^^^^^^^^^^^^

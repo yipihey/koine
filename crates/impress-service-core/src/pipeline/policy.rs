@@ -473,6 +473,7 @@ mod tests {
             replay_full: false,
             supports: &[],
             adjective: None,
+            returns_kind: None,
             source: Source::Linked,
             handler,
         }
@@ -511,6 +512,7 @@ mod tests {
             replay_full: false,
             supports: &[],
             adjective: None,
+            returns_kind: None,
             source: Source::Linked,
             handler,
         }

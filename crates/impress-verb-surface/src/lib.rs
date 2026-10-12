@@ -28,7 +28,9 @@
 //! The output schema picks the result node bound to `state.result`:
 //! array-of-objects → `table`; a flat object (no array-typed properties) →
 //! `kv`; `string` → `text`; anything else → `text` of the raw JSON (no
-//! silent truncation — table 3's "otherwise" column).
+//! silent truncation — table 3's "otherwise" column). A verb that declares
+//! `returns_kind` (plan-koine-host H-D8) has its table labelled
+//! `Result (<kind>)`.
 //!
 //! # Safety (ADR-0035 D2, "review step inside the surface, state not a modal")
 //!
@@ -88,6 +90,7 @@ pub fn verb_surface(desc: &VerbDescriptor) -> SurfaceSpec {
         &example_args,
         true,
         &accepted_adverbs(desc.safety.class, |a| desc.supports(a)),
+        desc.returns_kind,
     )
 }
 
@@ -111,6 +114,7 @@ pub fn verb_surface_handle(desc: &VerbHandle) -> SurfaceSpec {
             || (desc.provider_status() == Some(ProviderStatus::Available)
                 && desc.deprecation_notice().is_none()),
         &accepted_adverbs(desc.safety().class, |a| desc.supports(a)),
+        desc.returns_kind(),
     )
 }
 
@@ -124,6 +128,7 @@ fn render_surface(
     example_args: &Value,
     available: bool,
     adverbs: &[Adverb],
+    returns_kind: Option<&str>,
 ) -> SurfaceSpec {
     let mut form_fields: Vec<Node> = Vec::new();
     let required = required_names(input_schema);
@@ -236,7 +241,7 @@ fn render_surface(
         column.push(run_button);
     }
 
-    column.push(result_node(output_schema));
+    column.push(result_node(output_schema, returns_kind));
 
     let mut state = Map::new();
     if let Some(props) = input_schema.get("properties").and_then(|p| p.as_object()) {
@@ -439,8 +444,18 @@ fn default_for(prop: &Value) -> Value {
 }
 
 /// Table 3: the output schema picks the result node.
-fn result_node(output_schema: &Value) -> Node {
-    let node_kind = match result_shape(output_schema) {
+///
+/// A verb that declares `returns_kind` (plan-koine-host H-D8) labels its
+/// table of rows with that kind, `Result (publication)`, so the reader and a
+/// layout pane agree on what a row is. Only a table is labelled: a flat
+/// object or a string is not "rows of" anything.
+fn result_node(output_schema: &Value, returns_kind: Option<&str>) -> Node {
+    let shape = result_shape(output_schema);
+    let label = match (&shape, returns_kind) {
+        (ResultShape::Table, Some(kind)) => format!("Result ({kind})"),
+        _ => "Result".to_string(),
+    };
+    let node_kind = match shape {
         ResultShape::Table => NodeKind::Table(impress_surface::spec::Table {
             rows: json!("{{state.result}}"),
             columns: table_columns(output_schema),
@@ -452,7 +467,7 @@ fn result_node(output_schema: &Value) -> Node {
     };
     Node::leaf(node_kind)
         .with_id("result-view")
-        .with_label("Result")
+        .with_label(label)
 }
 
 enum ResultShape {
@@ -677,9 +692,36 @@ mod tests {
             replay_full: false,
             supports: &[],
             adjective: None,
+            returns_kind: None,
             source: Source::Linked,
             handler: |_| Box::pin(async { Ok(Value::Null) }),
         }
+    }
+
+    fn result_label(spec: &SurfaceSpec) -> String {
+        let NodeKind::Column(children) = &spec.root.kind else {
+            panic!("root is a column");
+        };
+        let node = children
+            .iter()
+            .find(|n| n.id.as_deref() == Some("result-view"))
+            .expect("a result view");
+        node.label.clone().expect("a label")
+    }
+
+    #[test]
+    fn a_declared_returns_kind_labels_the_result_table_and_only_the_table() {
+        let mut d = desc("t-service_x", SafetyClass::ReadOnly, schema_output_list);
+        assert_eq!(result_label(&verb_surface(&d)), "Result");
+        d.returns_kind = Some("publication");
+        let spec = verb_surface(&d);
+        assert_eq!(result_label(&spec), "Result (publication)");
+        let problems = validate::validate(&spec);
+        assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
+        // A flat object is not rows of anything.
+        let mut flat = desc("t-service_x", SafetyClass::ReadOnly, schema_output_flat);
+        flat.returns_kind = Some("publication");
+        assert_eq!(result_label(&verb_surface(&flat)), "Result");
     }
 
     #[test]

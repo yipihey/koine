@@ -135,6 +135,22 @@ impl VerbHandle {
         }
     }
 
+    /// The pane-query kind id of the rows the verb's result carries
+    /// (`#[impress_method(returns_kind = "…")]`, plan-koine-host H-D8); a
+    /// provider's verbs declare none.
+    pub fn returns_kind(&self) -> Option<&'static str> {
+        match self {
+            Self::Linked(verb) => verb.returns_kind,
+            Self::Provider(_) => None,
+        }
+    }
+
+    /// The additive MCP `_meta` object for a `tools/list` entry; see
+    /// [`VerbDescriptor::mcp_meta`].
+    pub fn mcp_meta(&self) -> Option<Value> {
+        self.linked().and_then(VerbDescriptor::mcp_meta)
+    }
+
     pub fn replay_full(&self) -> bool {
         match self {
             Self::Linked(verb) => verb.replay_full,
