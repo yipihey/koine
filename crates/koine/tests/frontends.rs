@@ -321,17 +321,19 @@ fn j_j_focuses_the_same_node_on_both_and_marks_only_it() {
         if tree.focus_order.is_empty() {
             continue;
         }
+        // `Next` (Tab) walks the focus order from any widget; `j` stays inside
+        // a table, list or tree once one is focused (plan-koine-outline O-D1).
         let mut cursor = Cursor::new();
-        assert!(cursor.event_for(&tree, Key::Down).is_none());
-        assert!(cursor.event_for(&tree, Key::Down).is_none());
+        assert!(cursor.event_for(&tree, Key::Next).is_none());
+        assert!(cursor.event_for(&tree, Key::Next).is_none());
         let focused = cursor.focused_id(&tree).expect("a focused id").to_string();
         let expected = tree.focus_order[2 % tree.focus_order.len()].clone();
         assert_eq!(focused, expected, "{name}");
 
         // The text frontend keeps its own cursor and takes the same keys.
         let mut frontend = TextFrontend::new();
-        frontend.key(&tree, Key::Down);
-        frontend.key(&tree, Key::Down);
+        frontend.key(&tree, Key::Next);
+        frontend.key(&tree, Key::Next);
         assert_eq!(frontend.focused_id(&tree), Some(focused.as_str()), "{name}");
         let text = frontend.render(&tree);
         let marked: Vec<usize> = text
@@ -381,7 +383,7 @@ fn enter_on_a_focused_button_is_the_click_the_web_sends() {
             assert_eq!(cursor.event_for(&tree, Key::Activate), Some(click.clone()));
             let mut frontend = TextFrontend::new();
             while frontend.focused_id(&tree) != Some(node.id.as_str()) {
-                frontend.key(&tree, Key::Down);
+                frontend.key(&tree, Key::Next);
             }
             assert_eq!(frontend.key(&tree, Key::Activate), Some(click));
         }

@@ -85,6 +85,9 @@ pub fn decide(
         Key::Left | Key::Right => KeyAction::Ignored,
         // The menu key names a widget, and the web has no menu yet.
         Key::Secondary => KeyAction::Ignored,
+        // The row keys (plan-koine-outline O-D1) are Q2's to wire through
+        // `Cursor::reply_for`.
+        _ => KeyAction::Ignored,
     }
 }
 
