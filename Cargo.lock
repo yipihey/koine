@@ -3449,6 +3449,7 @@ dependencies = [
  "koine-store-dir",
  "koine-store-memory",
  "koine-workspace-hack",
+ "serde_json",
  "thiserror 2.0.21",
  "uuid",
 ]

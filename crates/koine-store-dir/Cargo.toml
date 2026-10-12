@@ -18,7 +18,15 @@ thiserror = { workspace = true }
 # second copy of predicate evaluation is a second definition of what a query
 # means. No other item of the memory crate is used here.
 koine-store-memory = { workspace = true }
+# Optional: the watcher (`DirStore::watch`), so two processes on one root hear
+# each other. inotify on Linux, FSEvents on macOS.
+notify = { workspace = true, optional = true }
 koine-workspace-hack.workspace = true
+
+[features]
+default = ["watch"]
+# `DirStore::watch` and `cross_process_events` (docs/plan-koine-followups.md F-D4).
+watch = ["dep:notify"]
 
 [dev-dependencies]
 # The suite every backend passes; tests/conformance.rs instantiates it.

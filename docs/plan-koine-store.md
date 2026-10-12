@@ -203,8 +203,8 @@ string and never names a backend.
   builtin manifest, which are impress-core's today; that move is its own
   plan and the headless host's first dependency.
 - Cross-process events for the directory store (a watcher), conflict
-  copies and merge, an S3 or WebDAV backend, an index for the directory
-  store.
+  copies and merge (both since done: see the last Status), an S3 or WebDAV
+  backend, an index for the directory store.
 
 ## Work packages
 
@@ -248,3 +248,37 @@ S0–S3 are built on koine main. What the suite established:
   exit and not a power loss; cross-process events, conflict copies and
   an index remain D8.
 
+### Status: D4.3 and D4.4 revisited (follow-ups F4)
+
+Both "a later change" notes above have landed (`docs/plan-koine-followups.md`
+F-D4, F-D5), in `koine-store-dir`:
+
+- **D4.3, the watcher.** `DirStore::watch()` (feature `watch`, on by default,
+  over `notify`) starts one thread that scans the root once, keeps every
+  record it has seen, and turns another handle's or process's writes into
+  `Created`, `Updated` (with the mutations `diff_items` finds), `Deleted` and
+  `OperationApplied` through the same subscriber list as in-process writes;
+  `cross_process_events` is true from the end of that first scan
+  (`wait_until_watching`). Changes are read after a 50 ms quiet window; an OS
+  rescan reconciles the cache against the disk. A handle's own writes are not
+  echoed: each commit records the `(id, clock)` of what it writes (a removal
+  is `(id, 0)`) before the files land, and the watcher skips a file that
+  carries one. The thread ends within a wake-up of the store being dropped.
+  `Updated` cannot name a change of priority or visibility, because
+  `FieldMutation` has no such variant. `koine_store::open("dir:<path>")`
+  starts the watcher; `?watch=0` does not. The suite gained
+  `cross_process_write_reaches_another_handle` (skipped, loudly, by a store
+  that does not declare the capability); the directory store's suite runs
+  with every handle watching.
+- **D4.4, the merge policy.** `MergePolicy` is `Report` (the default and the
+  old behaviour), `TakeCopy`, `KeepFile`, `Union` (`union_merge`) or
+  `Custom(Arc<dyn Merge>)`. `resolve_conflicts()` holds the writer lock,
+  writes the winner with a clock after both inputs as one journaled write
+  with a `Custom("merge-conflict", ..)` operation row, then files the copy
+  under `conflicts/` under its own name; it emits `Updated` (or `Created`
+  when the file was missing). A stale copy is filed quietly by any policy but
+  `Report`. `DirStore::open_with(root, policy)` resolves at open, and so does
+  `with_merge_policy` for what is already pending;
+  `dir:<path>?merge=union|take-copy|keep-file|report` names it by URL. A
+  conflict copy of an operation row is still only reported: an operation has
+  nothing to merge.

@@ -35,7 +35,7 @@
 //! # Skips are loud
 //!
 //! A case that needs a capability the store does not declare (`subscribe`,
-//! `durable`, `shared`) prints `SKIPPED <case>: <why>` and returns. It never
+//! `durable`, `shared`, `cross_process_events`) prints `SKIPPED <case>: <why>` and returns. It never
 //! passes without saying so. Run `cargo test -- --nocapture` to see them.
 //!
 //! # What the suite does not pin
@@ -183,6 +183,7 @@ macro_rules! __cases {
                 reopen_keeps_items_operations_and_deletions,
                 reopen_keeps_the_clock_monotonic,
                 two_handles_share_one_store,
+                cross_process_write_reaches_another_handle,
             ],
         }
     };

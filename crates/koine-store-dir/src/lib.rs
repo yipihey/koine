@@ -18,30 +18,45 @@
 //!   all-or-nothing across a crash. A *reader* can still observe a batch
 //!   half-applied while it runs; the journal is crash atomicity, not
 //!   isolation.
-//! - **D4.3** events are in-process; [`DirStore::clock_file`] is the cheap
-//!   "did another process write" probe (SQLite's `data_version`), and what
-//!   `ItemStore::change_token` answers. Every commit that writes or removes a
-//!   document moves it, including a delete. `metadata_get`/`metadata_set` and
-//!   `operations_for` keep the port's defaults (one `core/store-metadata` item
-//!   per key; a query over `op_target_id`).
+//! - **D4.3** events are in-process until [`DirStore::watch`] starts the
+//!   watcher (feature `watch`, on by default; `docs/plan-koine-followups.md`
+//!   F-D4), after which a write by another handle or process is announced
+//!   too and `cross_process_events` is true. [`DirStore::clock_file`] is the
+//!   cheap "did another process write" probe (SQLite's `data_version`), and
+//!   what `ItemStore::change_token` answers. Every commit that writes or
+//!   removes a document moves it, including a delete.
+//!   `metadata_get`/`metadata_set` and `operations_for` keep the port's
+//!   defaults (one `core/store-metadata` item per key; a query over
+//!   `op_target_id`).
 //! - **D4.4** two roots synced by a file tool are two stores with the same
 //!   ids. A `<id>.conflict-<n>.json` copy that carries a higher clock than
 //!   the file it sits beside is reported by [`DirStore::conflicts`]; both
-//!   files are left alone.
+//!   files are left alone, unless the store was given a [`MergePolicy`]
+//!   other than [`MergePolicy::Report`] (F-D5): then
+//!   [`DirStore::resolve_conflicts`] writes the winner, files the copy under
+//!   `conflicts/` and records a `merge-conflict` operation.
 //!
 //! Nothing is `fsync`ed: the store is durable across process exit, not across
 //! power loss.
 
+mod diff;
 mod fsio;
+mod merge;
 #[cfg(test)]
 mod tests;
+#[cfg(feature = "watch")]
+mod watch;
+
+pub use diff::diff_items;
+pub use merge::{union_merge, Merge, MergePolicy, Resolved};
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LockResult, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -357,7 +372,81 @@ impl Journal {
 /// Events a call produced, with the schema each is filtered by.
 type Events = Vec<(Option<String>, ItemEvent)>;
 
-type Subscribers = Mutex<Vec<(Option<String>, Sender<ItemEvent>)>>;
+type SubscriberList = Vec<(Option<String>, Sender<ItemEvent>)>;
+
+/// Who is listening. Shared (`Arc`) with the watcher thread, which announces
+/// what other processes wrote through the same list.
+#[derive(Default)]
+struct Subscribers(Mutex<SubscriberList>);
+
+impl Subscribers {
+    fn lock(&self) -> LockResult<MutexGuard<'_, SubscriberList>> {
+        self.0.lock()
+    }
+
+    /// Fan an event out to subscribers whose schema prefix matches `schema`
+    /// (`None`, either side, matches everything), pruning dead ones.
+    fn emit(&self, schema: Option<&str>, event: ItemEvent) {
+        let Ok(mut subs) = self.lock() else {
+            return;
+        };
+        subs.retain(|(prefix, tx)| {
+            let matches = match (prefix, schema) {
+                (None, _) | (_, None) => true,
+                (Some(prefix), Some(schema)) => schema.starts_with(prefix.as_str()),
+            };
+            !matches || tx.send(event.clone()).is_ok()
+        });
+    }
+}
+
+/// How many `(id, clock)` pairs of this handle's own writes are remembered.
+const OWN_WRITES_CAP: usize = 4096;
+
+/// The `(id, logical_clock)` of every record this handle wrote or removed in
+/// its last commits (a removal is `(id, 0)`: no stored record has clock 0), so
+/// the watcher can tell its own writes, which were announced in-process, from
+/// another process's. Bounded: the oldest are forgotten first.
+#[derive(Default)]
+struct OwnWrites(Mutex<OwnWritesInner>);
+
+#[derive(Default)]
+struct OwnWritesInner {
+    set: HashSet<(ItemId, u64)>,
+    order: VecDeque<(ItemId, u64)>,
+}
+
+impl OwnWrites {
+    fn record(&self, entries: impl IntoIterator<Item = (ItemId, u64)>) {
+        let Ok(mut inner) = self.0.lock() else {
+            return;
+        };
+        for entry in entries {
+            if inner.set.insert(entry) {
+                inner.order.push_back(entry);
+            }
+            if entry.1 != 0 {
+                // The id was written after being removed: the removal no
+                // longer describes the file.
+                inner.set.remove(&(entry.0, 0));
+            }
+        }
+        while inner.order.len() > OWN_WRITES_CAP {
+            if let Some(old) = inner.order.pop_front() {
+                inner.set.remove(&old);
+            }
+        }
+    }
+
+    /// Was `entry` one of ours? Forgets it when it was.
+    #[cfg(feature = "watch")]
+    fn take(&self, entry: (ItemId, u64)) -> bool {
+        self.0
+            .lock()
+            .map(|mut inner| inner.set.remove(&entry))
+            .unwrap_or(false)
+    }
+}
 
 /// The directory store. Cheap to hold; wrap it in an `Arc` to share it.
 pub struct DirStore {
@@ -366,8 +455,26 @@ pub struct DirStore {
     policy: Arc<dyn WritePolicy>,
     author: String,
     author_kind: ActorKind,
-    subscribers: Subscribers,
+    subscribers: Arc<Subscribers>,
     conflicts: Mutex<Vec<Conflict>>,
+    merge_policy: MergePolicy,
+    /// What this handle wrote lately, so the watcher does not echo it.
+    own_writes: Arc<OwnWrites>,
+    /// True while the watcher thread is delivering (after its first scan).
+    watching: Arc<AtomicBool>,
+    /// `watch()` has been called (and has not failed).
+    #[cfg(feature = "watch")]
+    watch_started: AtomicBool,
+    /// Set on drop; the watcher thread ends at its next wake-up.
+    stop: Arc<AtomicBool>,
+}
+
+impl Drop for DirStore {
+    fn drop(&mut self) {
+        // The watcher wakes every few tens of milliseconds, sees this and
+        // ends; dropping a store never waits for it.
+        self.stop.store(true, Ordering::SeqCst);
+    }
 }
 
 impl fmt::Debug for DirStore {
@@ -384,10 +491,21 @@ impl DirStore {
     /// root whose `format` is newer than [`FORMAT`]; completes any journal a
     /// crashed writer left; collects [`Self::conflicts`].
     pub fn open(root: impl AsRef<Path>) -> Result<DirStore, StoreError> {
+        Self::open_with(root, MergePolicy::Report)
+    }
+
+    /// [`DirStore::open`] with a [`MergePolicy`]: after the scan, a policy
+    /// other than `Report` resolves the conflicts it found
+    /// ([`DirStore::resolve_conflicts`]), so a synced root heals when the app
+    /// said how.
+    pub fn open_with(
+        root: impl AsRef<Path>,
+        merge_policy: MergePolicy,
+    ) -> Result<DirStore, StoreError> {
         let root = root.as_ref().to_path_buf();
         std::fs::create_dir_all(&root)
             .map_err(|e| storage(format!("create {}", root.display()), e))?;
-        let _lock = FileLock::exclusive(root.join("lock"))
+        let lock = FileLock::exclusive(root.join("lock"))
             .map_err(|e| storage("take the writer lock", e))?;
 
         let meta_path = root.join("koine-store.json");
@@ -428,11 +546,22 @@ impl DirStore {
             policy: Arc::new(NoPolicy),
             author: "system:local".into(),
             author_kind: ActorKind::System,
-            subscribers: Mutex::new(Vec::new()),
+            subscribers: Arc::new(Subscribers::default()),
             conflicts: Mutex::new(Vec::new()),
+            merge_policy,
+            own_writes: Arc::new(OwnWrites::default()),
+            watching: Arc::new(AtomicBool::new(false)),
+            #[cfg(feature = "watch")]
+            watch_started: AtomicBool::new(false),
+            stop: Arc::new(AtomicBool::new(false)),
         };
         store.replay_journals()?;
         *store.conflicts.lock().map_err(poisoned)? = store.scan_conflicts()?;
+        // `resolve_conflicts` takes the writer lock itself.
+        drop(lock);
+        if !matches!(store.merge_policy, MergePolicy::Report) {
+            store.resolve_conflicts()?;
+        }
         Ok(store)
     }
 
@@ -687,6 +816,16 @@ impl DirStore {
     }
 
     fn scan_conflicts(&self) -> Result<Vec<Conflict>, StoreError> {
+        Ok(self
+            .scan_copies()?
+            .into_iter()
+            .filter(|c| c.file_clock.is_none_or(|f| f < c.copy_clock))
+            .collect())
+    }
+
+    /// Every `<id>.conflict-<n>.json` beside its file, whatever the clocks say
+    /// (a copy at or below its file's clock is stale, not a conflict).
+    fn scan_copies(&self) -> Result<Vec<Conflict>, StoreError> {
         let mut dirs = self.item_dirs()?;
         dirs.push(self.root.join("operations"));
         let mut found = Vec::new();
@@ -713,15 +852,13 @@ impl DirStore {
                     continue;
                 };
                 let file_clock = clock_of(&file)?;
-                if file_clock.is_none_or(|c| c < copy_clock) {
-                    found.push(Conflict {
-                        id,
-                        file,
-                        file_clock,
-                        copy,
-                        copy_clock,
-                    });
-                }
+                found.push(Conflict {
+                    id,
+                    file,
+                    file_clock,
+                    copy,
+                    copy_clock,
+                });
             }
         }
         found.sort_by(|a, b| a.copy.cmp(&b.copy));
@@ -733,16 +870,7 @@ impl DirStore {
     /// Fan an event out to subscribers whose schema prefix matches `schema`
     /// (`None`, either side, matches everything), pruning dead ones.
     fn emit(&self, schema: Option<&str>, event: ItemEvent) {
-        let Ok(mut subs) = self.subscribers.lock() else {
-            return;
-        };
-        subs.retain(|(prefix, tx)| {
-            let matches = match (prefix, schema) {
-                (None, _) | (_, None) => true,
-                (Some(prefix), Some(schema)) => schema.starts_with(prefix.as_str()),
-            };
-            !matches || tx.send(event.clone()).is_ok()
-        });
+        self.subscribers.emit(schema, event);
     }
 
     fn emit_all(&self, events: Events) {
@@ -940,53 +1068,16 @@ impl Txn<'_> {
         let clock = self.hlc.next();
         let now = trunc_ms(Utc::now());
         let operation_id = Uuid::new_v4();
-        let retention = if spec.intent == OperationIntent::Routine
-            && spec.retention == RetentionTier::Compactable
-        {
-            routine_retention_for_schema(&target_schema)
-        } else {
-            spec.retention
-        };
-        let op_item = Item {
-            id: operation_id,
-            schema: SchemaRef::from_stored(OPERATION_SCHEMA.into()),
-            payload: build_operation_payload(
-                target_id,
-                &spec.op_type,
-                spec.intent,
-                spec.reason.as_deref(),
-                prev,
-            ),
-            created: now,
-            modified: now,
-            author: spec.author.clone(),
-            author_kind: spec.author_kind,
-            logical_clock: clock,
-            origin: Some(self.store.store_id.clone()),
-            canonical_id: None,
-            tags: vec![],
-            flag: None,
-            is_read: false,
-            is_starred: false,
-            priority: Priority::Normal,
-            visibility: Visibility::Private,
-            message_type: None,
-            produced_by: None,
-            version: None,
-            batch_id: spec.batch_id.clone(),
-            references: vec![],
-            parent: None,
-        };
-        self.rows.insert(
+        let op_row = operation_row(
+            self.store,
+            spec,
+            &target_schema,
+            clock,
+            now,
             operation_id,
-            Some(Row {
-                item: op_item,
-                op: Some(OpMeta {
-                    target: target_id,
-                    retention,
-                }),
-            }),
+            prev,
         );
+        self.rows.insert(operation_id, Some(op_row));
         self.mark_dirty(operation_id);
 
         let row = self
@@ -1070,6 +1161,21 @@ impl Txn<'_> {
             }
         }
         ids.extend(self.blob_removals.iter().copied());
+        // Before anything reaches the disk: the watcher must already know
+        // these files are ours when it sees them appear.
+        self.store.own_writes.record(
+            self.dirty
+                .iter()
+                .filter_map(|id| self.rows.get(id).and_then(Option::as_ref))
+                .map(|row| (row.item.id, row.item.logical_clock))
+                .chain(
+                    self.removes
+                        .iter()
+                        .filter_map(|rel| rel.rsplit('/').next())
+                        .filter_map(record_id)
+                        .map(|id| (id, 0)),
+                ),
+        );
         // A commit that wrote or removed a document must move the clock file
         // (it is `change_token`), even when nothing stamped a clock: a delete,
         // or rows that arrived with clocks of their own.
@@ -1105,6 +1211,63 @@ impl Txn<'_> {
         drop(self);
         store.emit_all(events);
         Ok(())
+    }
+}
+
+/// The `core/operation` row for `spec`, stamped `clock` at `now`: the
+/// operation's own record (`apply_op` and the merge both write one).
+fn operation_row(
+    store: &DirStore,
+    spec: &OperationSpec,
+    target_schema: &str,
+    clock: u64,
+    now: DateTime<Utc>,
+    operation_id: ItemId,
+    prev: Option<Value>,
+) -> Row {
+    let retention = if spec.intent == OperationIntent::Routine
+        && spec.retention == RetentionTier::Compactable
+    {
+        routine_retention_for_schema(target_schema)
+    } else {
+        spec.retention
+    };
+    let item = Item {
+        id: operation_id,
+        schema: SchemaRef::from_stored(OPERATION_SCHEMA.into()),
+        payload: build_operation_payload(
+            spec.target_id,
+            &spec.op_type,
+            spec.intent,
+            spec.reason.as_deref(),
+            prev,
+        ),
+        created: now,
+        modified: now,
+        author: spec.author.clone(),
+        author_kind: spec.author_kind,
+        logical_clock: clock,
+        origin: Some(store.store_id.clone()),
+        canonical_id: None,
+        tags: vec![],
+        flag: None,
+        is_read: false,
+        is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: spec.batch_id.clone(),
+        references: vec![],
+        parent: None,
+    };
+    Row {
+        item,
+        op: Some(OpMeta {
+            target: spec.target_id,
+            retention,
+        }),
     }
 }
 
@@ -1251,7 +1414,7 @@ impl ItemStore for DirStore {
             indexed_query: false,
             atomic_batch: true,
             subscribe: true,
-            cross_process_events: false,
+            cross_process_events: self.watching.load(Ordering::SeqCst),
             durable: true,
             shared: true,
             blobs: true,

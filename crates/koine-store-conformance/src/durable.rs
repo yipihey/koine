@@ -11,8 +11,12 @@
 //! returns. A store that declares `durable` or `shared` but was given no
 //! `reopen` arm fails, because the claim cannot be checked.
 
+use std::sync::mpsc::Receiver;
+use std::time::{Duration, Instant};
+
 use impress_item::{
-    AttributedStore, EdgeType, FieldMutation, GuardedWrite, ItemQuery, OperationType, Value,
+    AttributedStore, EdgeType, FieldMutation, GuardedWrite, ItemEvent, ItemId, ItemQuery,
+    OperationType, Value,
 };
 
 use crate::fixture::*;
@@ -183,6 +187,76 @@ pub fn two_handles_share_one_store(probe: &dyn AttributedStore, open: Open<'_>) 
     });
     assert_eq!(first.count(&all_of("burst")).unwrap(), 40);
     assert_eq!(second.count(&all_of("burst")).unwrap(), 40);
+}
+
+/// Wait for an event `want` accepts; the others are passed over.
+fn hear(rx: &Receiver<ItemEvent>, what: &str, want: impl Fn(&ItemEvent) -> bool) -> ItemEvent {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut passed = Vec::new();
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(left) {
+            Ok(event) if want(&event) => return event,
+            Ok(event) => passed.push(event),
+            Err(_) => panic!("no {what} within 5 s; heard {passed:?}"),
+        }
+    }
+}
+
+/// A store that declares `cross_process_events` announces another handle's
+/// writes: a row inserted, changed and deleted through one handle reaches a
+/// subscriber on a second (which stands in for a second process).
+///
+/// Skipped, loudly, when the store does not declare it, or when the handle
+/// the `reopen` arm hands out is not one that listens (a backend whose
+/// listening is opt-in starts it in that closure).
+pub fn cross_process_write_reaches_another_handle(probe: &dyn AttributedStore, open: Open<'_>) {
+    let case = "cross_process_write_reaches_another_handle";
+    if !probe.capabilities().cross_process_events {
+        return skip(case, "the store declares cross_process_events: false");
+    }
+    let Some(open) = opener(case, probe, open, true) else {
+        return;
+    };
+    let writer = open();
+    let listener = open();
+    if !listener.capabilities().cross_process_events {
+        return skip(
+            case,
+            "the handle the reopen arm opens does not declare cross_process_events",
+        );
+    }
+    let rx = listener.subscribe(ItemQuery::default()).expect("subscribe");
+
+    let id = insert(writer.as_ref(), "test", "From elsewhere");
+    let about = |event: &ItemEvent, id: ItemId| match event {
+        ItemEvent::Created(item) => item.id == id,
+        ItemEvent::Updated { id: got, .. } => *got == id,
+        ItemEvent::Deleted(got) => *got == id,
+        ItemEvent::OperationApplied { target_id, .. } => *target_id == id,
+    };
+    hear(
+        &rx,
+        "Created",
+        |e| matches!(e, ItemEvent::Created(item) if item.id == id),
+    );
+
+    writer
+        .update(id, vec![FieldMutation::SetStarred(true)])
+        .unwrap();
+    hear(&rx, "a change (OperationApplied or Updated)", |e| {
+        matches!(
+            e,
+            ItemEvent::OperationApplied { .. } | ItemEvent::Updated { .. }
+        ) && about(e, id)
+    });
+
+    writer.delete(id).unwrap();
+    hear(
+        &rx,
+        "Deleted",
+        |e| matches!(e, ItemEvent::Deleted(got) if *got == id),
+    );
 }
 
 /// A store that says it can tell about other processes' writes can also tell

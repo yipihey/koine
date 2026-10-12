@@ -1335,13 +1335,18 @@ fn two_handles_on_one_root_see_each_others_committed_writes() {
 }
 
 #[test]
-fn events_are_in_process_only() {
+fn without_the_watcher_events_are_in_process_only() {
     let root = TempRoot::new();
     let a = DirStore::open(root.path()).unwrap();
     let b = DirStore::open(root.path()).unwrap();
     let rx = a.subscribe(ItemQuery::default()).unwrap();
     b.insert(make_item("paper", "elsewhere")).unwrap();
-    assert!(rx.try_recv().is_err(), "cross_process_events is false");
+    std::thread::sleep(Duration::from_millis(200));
+    assert!(
+        rx.try_recv().is_err(),
+        "no watcher: cross_process_events is false"
+    );
+    assert!(!a.capabilities().cross_process_events);
     a.insert(make_item("paper", "here")).unwrap();
     assert!(rx.try_recv().is_ok());
 }
@@ -1552,4 +1557,714 @@ fn blob_names_are_validated() {
         store.list_blobs(id).unwrap(),
         vec![".hidden", "a..b", "v1.2.pdf"]
     );
+}
+
+// ── the watcher (F-D4) ──────────────────────────────────────────────────────
+
+#[cfg(feature = "watch")]
+mod watching {
+    use super::*;
+
+    const WAIT: Duration = Duration::from_secs(2);
+    const QUIET: Duration = Duration::from_millis(300);
+
+    /// Two handles on one root; the second watches.
+    fn watched_pair() -> (TempRoot, DirStore, DirStore) {
+        let root = TempRoot::new();
+        let a = DirStore::open(root.path()).unwrap();
+        let b = DirStore::open(root.path()).unwrap();
+        b.watch().unwrap();
+        assert!(b.wait_until_watching(Duration::from_secs(5)));
+        (root, a, b)
+    }
+
+    /// Everything heard from the first event (which must come within [`WAIT`])
+    /// until [`QUIET`] of silence.
+    fn settle(rx: &Receiver<ItemEvent>) -> Vec<ItemEvent> {
+        let mut seen = vec![rx
+            .recv_timeout(WAIT)
+            .unwrap_or_else(|_| panic!("no event within {WAIT:?}"))];
+        while let Ok(event) = rx.recv_timeout(QUIET) {
+            seen.push(event);
+        }
+        seen
+    }
+
+    fn silence(rx: &Receiver<ItemEvent>) {
+        if let Ok(event) = rx.recv_timeout(QUIET) {
+            panic!("expected silence, heard {event:?}");
+        }
+    }
+
+    #[test]
+    fn another_handles_writes_reach_the_watching_one() {
+        let (_root, a, b) = watched_pair();
+        assert!(b.capabilities().cross_process_events);
+        assert!(!a.capabilities().cross_process_events);
+        let rx = b.subscribe(ItemQuery::default()).unwrap();
+
+        // insert, into a schema folder that does not exist yet
+        let id = a.insert(make_item("paper", "first")).unwrap();
+        match settle(&rx).as_slice() {
+            [ItemEvent::Created(created)] => {
+                assert_eq!(created.id, id);
+                assert_eq!(
+                    created.payload.get("title"),
+                    Some(&Value::String("first".into()))
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // update: a payload change and a tag
+        a.update(
+            id,
+            vec![
+                FieldMutation::SetPayload("title".into(), Value::String("second".into())),
+                FieldMutation::AddTag("t".into()),
+            ],
+        )
+        .unwrap();
+        let events = settle(&rx);
+        let ops: Vec<ItemId> = a
+            .operations_for(id, None)
+            .unwrap()
+            .iter()
+            .map(|o| o.id)
+            .collect();
+        assert_eq!(ops.len(), 2);
+        let mut heard_ops = Vec::new();
+        let mut updates = Vec::new();
+        for event in events {
+            match event {
+                ItemEvent::OperationApplied {
+                    operation_id,
+                    target_id,
+                } => {
+                    assert_eq!(target_id, id);
+                    heard_ops.push(operation_id);
+                }
+                ItemEvent::Updated { id: got, mutations } => updates.push((got, mutations)),
+                other => panic!("{other:?}"),
+            }
+        }
+        heard_ops.sort();
+        let mut ops_sorted = ops.clone();
+        ops_sorted.sort();
+        assert_eq!(heard_ops, ops_sorted, "both operations are announced");
+        assert_eq!(
+            updates,
+            vec![(
+                id,
+                vec![
+                    FieldMutation::SetPayload("title".into(), Value::String("second".into())),
+                    FieldMutation::AddTag("t".into()),
+                ]
+            )]
+        );
+
+        // an operation applied directly
+        let op = a
+            .apply_operation(spec(id, OperationType::SetStarred(true)))
+            .unwrap();
+        let events = settle(&rx);
+        assert!(events.contains(&ItemEvent::OperationApplied {
+            operation_id: op,
+            target_id: id
+        }));
+        assert!(events.contains(&ItemEvent::Updated {
+            id,
+            mutations: vec![FieldMutation::SetStarred(true)]
+        }));
+
+        // a delete (the item's operations go quietly)
+        a.delete(id).unwrap();
+        assert_eq!(settle(&rx), vec![ItemEvent::Deleted(id)]);
+    }
+
+    #[test]
+    fn the_schema_prefix_filters_what_the_watcher_announces() {
+        let (_root, a, b) = watched_pair();
+        let papers = b.subscribe(q(Some("paper"), vec![])).unwrap();
+        let notes = b.subscribe(q(Some("note"), vec![])).unwrap();
+        let id = a.insert(make_item("note", "n")).unwrap();
+        assert!(matches!(settle(&notes).as_slice(), [ItemEvent::Created(c)] if c.id == id));
+        silence(&papers);
+    }
+
+    #[test]
+    fn what_existed_before_the_watcher_is_not_announced_but_changes_to_it_are() {
+        let root = TempRoot::new();
+        let a = DirStore::open(root.path()).unwrap();
+        let id = a.insert(make_item("paper", "old")).unwrap();
+        let b = DirStore::open(root.path()).unwrap();
+        let rx = b.subscribe(ItemQuery::default()).unwrap();
+        b.watch().unwrap();
+        b.watch().unwrap(); // idempotent
+        assert!(b.wait_until_watching(Duration::from_secs(5)));
+        silence(&rx);
+
+        a.update(id, vec![FieldMutation::SetRead(true)]).unwrap();
+        let events = settle(&rx);
+        assert!(events.contains(&ItemEvent::Updated {
+            id,
+            mutations: vec![FieldMutation::SetRead(true)]
+        }));
+        assert!(!events.iter().any(|e| matches!(e, ItemEvent::Created(_))));
+    }
+
+    #[test]
+    fn a_watching_handle_does_not_echo_its_own_writes() {
+        let root = TempRoot::new();
+        let a = DirStore::open(root.path()).unwrap();
+        a.watch().unwrap();
+        assert!(a.wait_until_watching(Duration::from_secs(5)));
+        let rx = a.subscribe(ItemQuery::default()).unwrap();
+
+        let id = a.insert(make_item("paper", "mine")).unwrap();
+        assert!(matches!(rx.try_recv(), Ok(ItemEvent::Created(c)) if c.id == id));
+        silence(&rx);
+
+        a.update(id, vec![FieldMutation::AddTag("t".into())])
+            .unwrap();
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(ItemEvent::OperationApplied { target_id, .. }) if target_id == id
+        ));
+        silence(&rx);
+
+        a.insert_batch(vec![make_item("paper", "x"), make_item("note", "y")])
+            .unwrap();
+        assert_eq!(drain_now(&rx).len(), 2);
+        silence(&rx);
+
+        a.delete(id).unwrap();
+        assert_eq!(rx.try_recv().unwrap(), ItemEvent::Deleted(id));
+        silence(&rx);
+
+        // and a later write by someone else is still heard exactly once
+        let other = DirStore::open(root.path()).unwrap();
+        let theirs = other.insert(make_item("paper", "theirs")).unwrap();
+        assert!(matches!(settle(&rx).as_slice(), [ItemEvent::Created(c)] if c.id == theirs));
+    }
+
+    fn drain_now(rx: &Receiver<ItemEvent>) -> Vec<ItemEvent> {
+        std::iter::from_fn(|| rx.try_recv().ok()).collect()
+    }
+
+    #[test]
+    fn dropping_the_store_ends_the_watcher() {
+        let (_root, _a, b) = watched_pair();
+        let watching = b.watching.clone();
+        assert!(watching.load(Ordering::SeqCst));
+        let started = std::time::Instant::now();
+        drop(b);
+        assert!(
+            started.elapsed() < Duration::from_millis(50),
+            "drop does not wait"
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while watching.load(Ordering::SeqCst) {
+            assert!(std::time::Instant::now() < deadline, "the thread ended");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn a_rescan_reconciles_the_cache_with_the_disk() {
+        let (root, a, _b) = watched_pair();
+        let kept = a.insert(make_item("paper", "kept")).unwrap();
+        let gone = a.insert(make_item("paper", "gone")).unwrap();
+        let rx = a.subscribe(ItemQuery::default()).unwrap();
+        // a worker with no OS events at all: only a reconcile can tell
+        let subscribers = a.subscribers.clone();
+        let mut worker =
+            crate::watch::testing::worker(root.path(), subscribers, Arc::new(OwnWrites::default()));
+        let other = DirStore::open(root.path()).unwrap();
+        let fresh = other.insert(make_item("note", "fresh")).unwrap();
+        other.delete(gone).unwrap();
+        other
+            .update(kept, vec![FieldMutation::AddTag("x".into())])
+            .unwrap();
+        drain_now(&rx);
+        worker.reconcile();
+        let events = drain_now(&rx);
+        assert!(events.contains(&ItemEvent::Deleted(gone)), "{events:?}");
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, ItemEvent::Created(c) if c.id == fresh)));
+        assert!(events.contains(&ItemEvent::Updated {
+            id: kept,
+            mutations: vec![FieldMutation::AddTag("x".into())]
+        }));
+        // and a second reconcile has nothing to say
+        worker.reconcile();
+        assert!(drain_now(&rx).is_empty());
+    }
+}
+
+// ── merge policies (F-D5) ───────────────────────────────────────────────────
+
+mod merging {
+    use super::*;
+
+    /// A root with one item and conflict copies beside it, written by hand as a
+    /// sync tool would. Returns the root's guard, the item's id and its file
+    /// clock; `edit` shapes the copy (its clock is the file's plus 1000).
+    struct Fixture {
+        root: TempRoot,
+        id: ItemId,
+        file_clock: u64,
+        copy: PathBuf,
+        stale: PathBuf,
+        other_item: ItemId,
+    }
+
+    fn fixture(edit: impl FnOnce(&mut serde_json::Value)) -> Fixture {
+        let root = TempRoot::new();
+        let store = DirStore::open(root.path()).unwrap();
+        let other_item = store.insert(make_item("paper", "cited")).unwrap();
+        let mut item = make_item("paper", "mine");
+        item.tags = vec!["a".into()];
+        item.payload.insert("only_file".into(), Value::Int(1));
+        item.payload
+            .insert("both".into(), Value::String("file".into()));
+        let id = store.insert(item).unwrap();
+        let (path, _) = store.locate(id).unwrap().unwrap();
+        let file_clock = store.logical_clock_of(id).unwrap().unwrap();
+        let mut doc: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        doc["logical_clock"] = (file_clock + 1000).into();
+        doc["payload"]["title"] = "theirs".into();
+        doc["payload"]["both"] = "copy".into();
+        doc["payload"]["only_copy"] = 2.into();
+        doc["tags"] = serde_json::json!(["b"]);
+        doc["is_starred"] = true.into();
+        edit(&mut doc);
+        let copy = path.with_file_name(format!("{id}.conflict-1.json"));
+        std::fs::write(&copy, serde_json::to_vec_pretty(&doc).unwrap()).unwrap();
+        doc["logical_clock"] = 1.into();
+        let stale = path.with_file_name(format!("{id}.conflict-2.json"));
+        std::fs::write(&stale, serde_json::to_vec(&doc).unwrap()).unwrap();
+        Fixture {
+            root,
+            id,
+            file_clock,
+            copy,
+            stale,
+            other_item,
+        }
+    }
+
+    fn title(store: &DirStore, id: ItemId) -> Value {
+        store
+            .get(id)
+            .unwrap()
+            .unwrap()
+            .payload
+            .get("title")
+            .unwrap()
+            .clone()
+    }
+
+    fn merge_operation(store: &DirStore, id: ItemId) -> Item {
+        let ops = store.operations_for(id, None).unwrap();
+        ops.into_iter()
+            .find(|o| {
+                o.payload.get("op_type") == Some(&Value::String("custom:merge-conflict".into()))
+            })
+            .expect("a merge-conflict operation")
+    }
+
+    /// Open under `Report` (the conflict is reported), subscribe, then set the
+    /// policy: `with_merge_policy` resolves what is pending.
+    fn resolve_with(f: &Fixture, policy: MergePolicy) -> (DirStore, Receiver<ItemEvent>) {
+        let store = DirStore::open(f.root.path()).unwrap();
+        assert_eq!(store.conflicts().len(), 1, "reported first");
+        let rx = store.subscribe(ItemQuery::default()).unwrap();
+        (store.with_merge_policy(policy), rx)
+    }
+
+    #[test]
+    fn union_merges_tags_payload_references_and_takes_the_rest_from_the_higher_clock() {
+        let mut file = make_item("paper", "f");
+        file.logical_clock = 10;
+        file.tags = vec!["a".into(), "both".into()];
+        file.payload
+            .insert("title".into(), Value::String("file".into()));
+        file.payload.insert("only_file".into(), Value::Int(1));
+        file.payload.insert("disputed".into(), Value::Int(1));
+        file.references = vec![cites(Uuid::from_u128(1))];
+        file.parent = Some(Uuid::from_u128(7));
+        file.is_read = true;
+        let mut copy = file.clone();
+        copy.logical_clock = 20;
+        copy.tags = vec!["both".into(), "b".into()];
+        copy.payload.insert("disputed".into(), Value::Int(2));
+        copy.payload.insert("only_copy".into(), Value::Int(3));
+        copy.payload.remove("only_file");
+        copy.references = vec![cites(Uuid::from_u128(2))];
+        copy.parent = Some(Uuid::from_u128(8));
+        copy.is_read = false;
+        copy.is_starred = true;
+        copy.modified = file.modified + chrono::Duration::seconds(5);
+
+        let merged = union_merge(&file, &copy);
+        assert_eq!(merged.tags, vec!["a", "b", "both"]);
+        assert_eq!(
+            merged.payload.get("disputed"),
+            Some(&Value::Int(2)),
+            "the copy is higher"
+        );
+        assert_eq!(merged.payload.get("only_file"), Some(&Value::Int(1)));
+        assert_eq!(merged.payload.get("only_copy"), Some(&Value::Int(3)));
+        assert_eq!(merged.parent, Some(Uuid::from_u128(8)));
+        assert!(!merged.is_read && merged.is_starred);
+        let targets: Vec<_> = merged.references.iter().map(|r| r.target).collect();
+        assert_eq!(targets, vec![Uuid::from_u128(1), Uuid::from_u128(2)]);
+        assert_eq!(merged.modified, copy.modified);
+        assert_eq!(merged.logical_clock, 20);
+
+        // the other way round, the file is the higher side
+        let mut file_higher = file.clone();
+        file_higher.logical_clock = 30;
+        let merged = union_merge(&file_higher, &copy);
+        assert_eq!(merged.payload.get("disputed"), Some(&Value::Int(1)));
+        assert_eq!(merged.parent, Some(Uuid::from_u128(7)));
+        assert_eq!(merged.logical_clock, 30);
+    }
+
+    #[test]
+    fn report_leaves_both_files_and_a_stale_copy_alone() {
+        let f = fixture(|_| {});
+        let store = DirStore::open(f.root.path()).unwrap();
+        assert_eq!(store.merge_policy().name(), "report");
+        assert!(store.resolve_conflicts().unwrap().is_empty());
+        assert_eq!(store.conflicts().len(), 1);
+        assert!(f.copy.is_file() && f.stale.is_file());
+        assert_eq!(title(&store, f.id), Value::String("mine".into()));
+        assert!(!f.root.path().join("conflicts").exists());
+    }
+
+    #[test]
+    fn take_copy_makes_the_copy_the_file_and_files_the_copy_and_the_stale_one() {
+        let f = fixture(|_| {});
+        let (store, rx) = resolve_with(&f, MergePolicy::TakeCopy);
+
+        let item = store.get(f.id).unwrap().unwrap();
+        assert_eq!(
+            item.payload.get("title"),
+            Some(&Value::String("theirs".into()))
+        );
+        assert_eq!(item.tags, vec!["b"]);
+        assert!(item.is_starred);
+        assert!(
+            item.logical_clock > f.file_clock + 1000,
+            "a fresh clock after both"
+        );
+        assert!(store.conflicts().is_empty());
+
+        // both copies are under conflicts/, by their own names
+        let filed = f.root.path().join("conflicts");
+        assert!(filed.join(format!("{}.conflict-1.json", f.id)).is_file());
+        assert!(filed.join(format!("{}.conflict-2.json", f.id)).is_file());
+        assert!(!f.copy.exists() && !f.stale.exists());
+
+        // the operation is on the item, with its custom type and data
+        let op = merge_operation(&store, f.id);
+        match op.payload.get("op_data") {
+            Some(Value::Object(data)) => {
+                assert_eq!(data.get("policy"), Some(&Value::String("take-copy".into())));
+                assert_eq!(
+                    data.get("file_clock"),
+                    Some(&Value::Int(f.file_clock as i64))
+                );
+                assert_eq!(
+                    data.get("copy_clock"),
+                    Some(&Value::Int(f.file_clock as i64 + 1000))
+                );
+                assert_eq!(
+                    data.get("copy"),
+                    Some(&Value::String(format!(
+                        "items/paper/{}.conflict-1.json",
+                        f.id
+                    )))
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(op.author, "system:local");
+        assert_eq!(
+            store
+                .operations_for(f.id, None)
+                .unwrap()
+                .iter()
+                .filter(|o| o.id == op.id)
+                .count(),
+            1
+        );
+
+        // exactly one event: the mutations that took the file to the winner
+        match drain_events(&rx).as_slice() {
+            [ItemEvent::Updated { id, mutations }] => {
+                assert_eq!(*id, f.id);
+                assert!(mutations.contains(&FieldMutation::SetPayload(
+                    "title".into(),
+                    Value::String("theirs".into())
+                )));
+                assert!(mutations.contains(&FieldMutation::AddTag("b".into())));
+                assert!(mutations.contains(&FieldMutation::RemoveTag("a".into())));
+                assert!(mutations.contains(&FieldMutation::SetStarred(true)));
+                assert!(mutations.contains(&FieldMutation::SetPayload(
+                    "only_copy".into(),
+                    Value::Int(2)
+                )));
+            }
+            other => panic!("{other:?}"),
+        }
+
+        // a reopen sees the merged item and a clock above both
+        let clock = item.logical_clock;
+        drop(store);
+        let again = DirStore::open(f.root.path()).unwrap();
+        assert_eq!(again.logical_clock_of(f.id).unwrap(), Some(clock));
+        assert!(again.conflicts().is_empty());
+        let fresh = again.insert(make_item("paper", "after")).unwrap();
+        assert!(again.logical_clock_of(fresh).unwrap().unwrap() > clock);
+    }
+
+    fn drain_events(rx: &Receiver<ItemEvent>) -> Vec<ItemEvent> {
+        std::iter::from_fn(|| rx.try_recv().ok()).collect()
+    }
+
+    #[test]
+    fn keep_file_keeps_the_content_and_files_the_copies() {
+        let f = fixture(|_| {});
+        let (store, rx) = resolve_with(&f, MergePolicy::KeepFile);
+        let item = store.get(f.id).unwrap().unwrap();
+        assert_eq!(
+            item.payload.get("title"),
+            Some(&Value::String("mine".into()))
+        );
+        assert_eq!(item.tags, vec!["a"]);
+        assert!(
+            item.logical_clock > f.file_clock + 1000,
+            "behind-the-copy no more"
+        );
+        assert!(store.conflicts().is_empty());
+        assert!(f
+            .root
+            .path()
+            .join("conflicts")
+            .join(format!("{}.conflict-1.json", f.id))
+            .is_file());
+        assert!(merge_operation(&store, f.id)
+            .payload
+            .contains_key("op_data"));
+        assert!(matches!(
+            drain_events(&rx).as_slice(),
+            [ItemEvent::Updated { mutations, .. }] if mutations.is_empty()
+        ));
+    }
+
+    #[test]
+    fn union_resolves_a_synced_root() {
+        let f = fixture(|doc| {
+            doc["references"] = serde_json::json!([]);
+        });
+        let (store, _rx) = resolve_with(&f, MergePolicy::Union);
+        let item = store.get(f.id).unwrap().unwrap();
+        assert_eq!(item.tags, vec!["a", "b"]);
+        // the copy is the higher clock: it wins the disputed keys
+        assert_eq!(
+            item.payload.get("title"),
+            Some(&Value::String("theirs".into()))
+        );
+        assert_eq!(
+            item.payload.get("both"),
+            Some(&Value::String("copy".into()))
+        );
+        assert_eq!(item.payload.get("only_file"), Some(&Value::Int(1)));
+        assert_eq!(item.payload.get("only_copy"), Some(&Value::Int(2)));
+        assert!(item.is_starred);
+        assert!(store.conflicts().is_empty());
+        assert!(merge_operation(&store, f.id)
+            .payload
+            .contains_key("op_data"));
+        let _ = f.other_item;
+    }
+
+    #[test]
+    fn a_custom_merge_decides() {
+        struct Shout;
+        fn text(v: &Value) -> String {
+            match v {
+                Value::String(s) => s.clone(),
+                other => format!("{other:?}"),
+            }
+        }
+        impl Merge for Shout {
+            fn merge(&self, file: &Item, copy: &Item) -> Item {
+                let mut out = file.clone();
+                out.payload.insert(
+                    "title".into(),
+                    Value::String(format!(
+                        "{}+{}",
+                        text(&file.payload["title"]),
+                        text(&copy.payload["title"])
+                    )),
+                );
+                // the store keeps the id and the file's schema whatever this says
+                out.id = Uuid::new_v4();
+                out
+            }
+        }
+        let f = fixture(|_| {});
+        let (store, _rx) = resolve_with(&f, MergePolicy::Custom(Arc::new(Shout)));
+        assert_eq!(title(&store, f.id), Value::String("mine+theirs".into()));
+        assert_eq!(store.count(&q(Some("paper"), vec![])).unwrap(), 2);
+        assert_eq!(format!("{:?}", store.merge_policy()), "Custom(..)");
+    }
+
+    #[test]
+    fn open_with_a_policy_resolves_at_open_and_resolve_conflicts_lists_them() {
+        let f = fixture(|_| {});
+        let store = DirStore::open_with(f.root.path(), MergePolicy::TakeCopy).unwrap();
+        assert!(store.conflicts().is_empty());
+        assert_eq!(title(&store, f.id), Value::String("theirs".into()));
+
+        // a second conflict, found by an explicit call
+        let (path, _) = store.locate(f.id).unwrap().unwrap();
+        let mut doc: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let file_clock = doc["logical_clock"].as_u64().unwrap();
+        doc["logical_clock"] = (file_clock + 5).into();
+        doc["payload"]["title"] = "later".into();
+        let copy = path.with_file_name(format!("{}.conflict-3.json", f.id));
+        std::fs::write(&copy, serde_json::to_vec(&doc).unwrap()).unwrap();
+        assert_eq!(store.rescan_conflicts().unwrap().len(), 1);
+        let resolved = store.resolve_conflicts().unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].id, f.id);
+        assert_eq!(resolved[0].policy, "take-copy");
+        assert_eq!(resolved[0].file_clock, Some(file_clock));
+        assert_eq!(resolved[0].copy_clock, file_clock + 5);
+        assert_eq!(
+            resolved[0].moved_copy,
+            f.root
+                .path()
+                .join("conflicts")
+                .join(format!("{}.conflict-3.json", f.id))
+        );
+        assert!(resolved[0].moved_copy.is_file());
+        assert_eq!(title(&store, f.id), Value::String("later".into()));
+        assert!(store.conflicts().is_empty());
+        assert_eq!(
+            store
+                .operations_for(f.id, None)
+                .unwrap()
+                .iter()
+                .filter(|o| o.payload.get("op_type")
+                    == Some(&Value::String("custom:merge-conflict".into())))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn a_missing_file_takes_the_copy_unless_the_policy_is_keep_file() {
+        for (policy, kept) in [
+            (MergePolicy::TakeCopy, true),
+            (MergePolicy::Union, true),
+            (MergePolicy::KeepFile, false),
+        ] {
+            let root = TempRoot::new();
+            let id = {
+                let store = DirStore::open(root.path()).unwrap();
+                let id = store.insert(make_item("paper", "lost")).unwrap();
+                let (path, _) = store.locate(id).unwrap().unwrap();
+                let copy = path.with_file_name(format!("{id}.conflict-1.json"));
+                std::fs::rename(&path, &copy).unwrap();
+                id
+            };
+            let store = DirStore::open(root.path()).unwrap();
+            assert_eq!(store.conflicts().len(), 1);
+            assert_eq!(store.conflicts()[0].file_clock, None);
+            let rx = store.subscribe(ItemQuery::default()).unwrap();
+            let store = store.with_merge_policy(policy);
+            assert_eq!(store.get(id).unwrap().is_some(), kept);
+            assert!(store.conflicts().is_empty());
+            let filed = root
+                .path()
+                .join("conflicts")
+                .join(format!("{id}.conflict-1.json"));
+            assert!(filed.is_file(), "the copy is always filed");
+            if kept {
+                assert!(matches!(rx.try_recv(), Ok(ItemEvent::Created(c)) if c.id == id));
+                // no operation: there was no file to record it on... the item
+                // has none until something is done to it
+                assert!(store.operations_for(id, None).unwrap().is_empty());
+            } else {
+                assert!(rx.try_recv().is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn a_stale_copy_is_filed_under_take_copy() {
+        let root = TempRoot::new();
+        let (id, stale) = {
+            let store = DirStore::open(root.path()).unwrap();
+            let id = store.insert(make_item("paper", "mine")).unwrap();
+            let (path, _) = store.locate(id).unwrap().unwrap();
+            let mut doc: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            doc["logical_clock"] = 1.into();
+            let stale = path.with_file_name(format!("{id}.conflict-1.json"));
+            std::fs::write(&stale, serde_json::to_vec(&doc).unwrap()).unwrap();
+            (id, stale)
+        };
+        // Report: untouched
+        let report = DirStore::open(root.path()).unwrap();
+        assert!(report.conflicts().is_empty() && stale.is_file());
+        drop(report);
+        // TakeCopy: filed, no operation, no event
+        let store = DirStore::open(root.path()).unwrap();
+        let rx = store.subscribe(ItemQuery::default()).unwrap();
+        let store = store.with_merge_policy(MergePolicy::TakeCopy);
+        assert!(!stale.exists());
+        assert!(root
+            .path()
+            .join("conflicts")
+            .join(format!("{id}.conflict-1.json"))
+            .is_file());
+        assert!(store.operations_for(id, None).unwrap().is_empty());
+        assert!(rx.try_recv().is_err());
+        assert_eq!(title(&store, id), Value::String("mine".into()));
+    }
+
+    #[test]
+    fn a_conflict_copy_of_an_operation_is_left_reported() {
+        let root = TempRoot::new();
+        let op = {
+            let store = DirStore::open(root.path()).unwrap();
+            let id = store.insert(make_item("paper", "p")).unwrap();
+            let op = store
+                .apply_operation(spec(id, OperationType::SetRead(true)))
+                .unwrap();
+            let path = root.path().join(op_rel(op));
+            let mut doc: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            doc["logical_clock"] = u64::MAX.into();
+            std::fs::write(
+                path.with_file_name(format!("{op}.conflict-1.json")),
+                serde_json::to_vec(&doc).unwrap(),
+            )
+            .unwrap();
+            op
+        };
+        let store = DirStore::open_with(root.path(), MergePolicy::Union).unwrap();
+        assert_eq!(store.conflicts().len(), 1);
+        assert_eq!(store.conflicts()[0].id, op);
+    }
 }

@@ -78,6 +78,10 @@ uniffi = { version = "0.28", default-features = false }
 # Test-only helpers shared by the runtime crates
 tempfile = "3"
 
+# Filesystem notifications (koine-store-dir `watch`): inotify on Linux, FSEvents on
+# macOS; the polling and kqueue backends are not wanted.
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
+
 # Async trait support (HTTP source plugins, service traits)
 async-trait = "0.1"
 # HTTP client (rustls so no OpenSSL dependency on macOS/Linux/CI)
