@@ -197,7 +197,15 @@ from the decisions above:
   accepts. The TUI's sketch is an opt-in (`TextFrontend::with_plots`) the
   binary turns on, because `render` promises one line per node and the
   cursor and the frontends suite rely on it. The text sketch ignores
-  annotations and error bars.
+  annotations and error bars. Two things in impress-apps are not what the
+  decision's last bullet assumed: the store record `impress-core` registers
+  as `plot-spec@1.0.0` wraps imprint's `impress-plot` FFI spec under
+  `spec_json` (`spec_kind` series/grid), a different grammar from the
+  surface node's (`surface-demo-service` and this crate speak implore's);
+  and the Swift `renderPlot` hook's default is a placeholder that no app
+  replaces yet. `implore-core`'s `render_plot_svg` FFI, over `koine-plot`
+  after F6, is the function an app installs that hook with. Reconciling the
+  two record grammars is not this plan's.
 - **F-D4.** As decided. `FieldMutation` has no variant for priority or
   visibility, so a change to only those is `Updated` with an empty mutation
   list. `wait_until_watching(Duration)` lets a caller block until the first
