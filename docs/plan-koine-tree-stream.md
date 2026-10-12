@@ -105,4 +105,31 @@ the page receives the spans in the tree.
 
 ## Status
 
-Filled in as the packages land.
+T1–T4 are built on koine main. What landed, and where it differs from the
+decisions above:
+
+- **T-D1.** As decided. Ids match by exact JSON (`1` and `"1"` differ); a
+  row without an id, or repeating one, is skipped; rows reachable only
+  round a cycle are promoted to roots so every row is drawn once. The
+  disclosure rebuilds the expanded list from the visible branches, so
+  collapsing a branch forgets its descendants' state: `plan-koine-outline.md`
+  O-D2 carries the whole list instead. Enter on a tree selects the first
+  visible node in the TUI and is a plain click on the web; the row cursor
+  (O-D1) is what makes Enter act on a chosen row.
+- **T-D2.** As decided. `lines` is a JSON array on the task row and
+  `line_count` the total; `dropped` is always in the route's answer. The
+  minimal manifest gained the `task` kind so a query source can read a
+  job's row. The e2e drives `tick` through the stock host, since the
+  scaffolded app does not link the demo service.
+- **T-D3.** As decided; the layout is O(n²) per iteration, fine for
+  hundreds of nodes. A click on a node selects on the web through the DOM
+  event's target; the TUI's Enter selects the first node.
+- **T-D4.** As decided. The web reads the drawn SVG's bounding rect for the
+  scale; off the browser (SSR, tests) the Dioxus element coordinates at
+  scale 1. A plot or image with a handler is a keyboard stop. A log-axis
+  plot whose data spans more than about twenty times its minimum does not
+  map clicks: `compute_bounds` pads linearly and can push the minimum to
+  zero, which is `koine-plot`'s to fix and would change the SVG.
+- **T-D5.** As decided. syntect's default pack has no `toml` or
+  `typescript`; Rust's `let` is classed `type` (the grammar's
+  `storage.type`); spans are left empty past 2000 lines or 200 KB.
