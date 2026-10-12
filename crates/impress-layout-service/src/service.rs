@@ -800,7 +800,7 @@ pub trait LayoutService: Send + Sync + 'static {
     /// count by construction. `bindings` are the ids only the host knows
     /// (`dismissed_library`, `exploration_library`), uuid strings; a bad one
     /// is `invalid-argument`.
-    #[impress_method(replay = full, safety = read_only, effects(reads = ["imbib/library", "imbib/collection", "collection", "manuscript-collection", "figure-collection", "imbib/bibliography-entry", "imbib/smart-search", "impress/artifact/code", "impress/artifact/dataset", "impress/artifact/general", "impress/artifact/media", "impress/artifact/note", "impress/artifact/poster", "impress/artifact/presentation", "impress/artifact/webpage"]))]
+    #[impress_method(replay = full, safety = read_only, effects(reads = ["imbib/library", "imbib/collection", "collection", "manuscript-collection", "figure-collection", "imbib/bibliography-entry", "imbib/smart-search", "impress/artifact/code", "impress/artifact/dataset", "impress/artifact/general", "impress/artifact/media", "impress/artifact/note", "impress/artifact/poster", "impress/artifact/presentation", "impress/artifact/webpage", any("a row's count is store.count of its own compiled query; the collection kind spans four refs, so its query is schemaless")]))]
     #[impress_example(
         name = "imbib-sidebar",
         args = r#"{"app_id":"imbib"}"#,
