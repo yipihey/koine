@@ -30,6 +30,7 @@ members = [
     "crates/koine-store",
     "crates/koine-mcp-host",
     "crates/koine-host",
+    "crates/koine-window",
     "crates/koine-workspace-hack",
 ]
 
@@ -126,6 +127,11 @@ koine-store-conformance = { path = "crates/koine-store-conformance" }
 koine-store = { path = "crates/koine-store" }
 koine-mcp-host = { path = "crates/koine-mcp-host" }
 koine-host = { path = "crates/koine-host" }
+koine-window = { path = "crates/koine-window" }
+# `--window` (koine-window): the system-browser fallback, and the optional native window.
+webbrowser = "1"
+wry = "0.53"
+tao = "0.34"
 impress-settings = { path = "crates/impress-settings" }
 
 # implore crates

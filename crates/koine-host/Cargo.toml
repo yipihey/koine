@@ -35,7 +35,12 @@ koine-store = { workspace = true }
 koine-mcp-host = { workspace = true }
 # The demo verbs the binary links (the library itself names no domain).
 surface-demo-service = { workspace = true }
+koine-window = { workspace = true }
 koine-workspace-hack.workspace = true
+
+[features]
+# A native `--window` (webkit2gtk on Linux); without it `--window` opens the browser.
+window-webview = ["koine-window/webview"]
 
 [dev-dependencies]
 reqwest = { workspace = true }

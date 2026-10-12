@@ -1,0 +1,22 @@
+[package]
+name = "koine-window"
+description = "Opens a koine host's page: a native WebView when built with `webview`, the system browser otherwise."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# A native window (wry + tao): macOS and Windows out of the box, Linux needs
+# webkit2gtk and gtk3 development files. Off by default so CI never needs them.
+webview = ["dep:wry", "dep:tao"]
+
+[dependencies]
+webbrowser = { workspace = true }
+thiserror = { workspace = true }
+wry = { workspace = true, optional = true }
+tao = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[lints]
+workspace = true

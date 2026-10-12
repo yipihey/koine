@@ -566,6 +566,9 @@ The guide is `docs/capability.md` in the koine checkout. Tick these in order.
    http://localhost:__PORT__/ui/ is then the app. Author a surface by hand only
    for a layout the generated one cannot say (docs/capability.md, "What the
    generated surface shows").
+   `cargo run -p __HOST_CRATE__ -- --window` serves and opens the page; a native
+   window needs `--features window-webview` (webkit2gtk on Linux); otherwise it
+   opens your browser.
 
 `schema-refs.json` is the manifest `effects` kinds are checked against
 (`.cargo/config.toml` points the macros at it). Add a kind of record your app
