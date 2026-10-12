@@ -51,6 +51,7 @@ pub mod materialize;
 mod routes;
 pub mod runner;
 pub mod secrets;
+pub mod window;
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -104,8 +105,9 @@ pub struct Config {
 }
 
 impl Config {
-    /// A loopback host on an OS-chosen port with the [`manifest::minimal`]
-    /// kinds, no page and no network access.
+    /// A loopback host on an OS-chosen port with the [`manifest::from_inventory`]
+    /// kinds (the minimal ui kinds plus every `returns_kind` a linked verb
+    /// declares), no page and no network access.
     pub fn new(store_url: impl Into<String>, workspace: impl Into<PathBuf>) -> Self {
         Self {
             store_url: store_url.into(),
@@ -115,7 +117,7 @@ impl Config {
             device: impress_layout_service::current_device(),
             workspace: workspace.into(),
             web_dir: None,
-            manifest: Arc::new(manifest::minimal()),
+            manifest: Arc::new(manifest::from_inventory()),
             allow_network: false,
             network_bearer: None,
             secrets_dir: None,
@@ -279,7 +281,12 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
     })?;
 
     koine_store::process::install(store.clone());
+    if let Some(blobs) = opened.blobs.clone() {
+        koine_store::process::install_blobs(blobs);
+    }
     process_manifest::install(config.manifest.clone());
+    // L-D4: a linked verb's rows become records of this store.
+    materialize::install(store.clone(), config.manifest.clone());
     let runner = Arc::new(JobRunner::new(
         store.clone(),
         tokio::runtime::Handle::current(),

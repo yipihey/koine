@@ -49,6 +49,9 @@ OPTIONS:
                              (default: <workspace>/secrets)
     --keychain               also read and write secrets in the macOS keychain
                              (service koine); the environment and --secrets-dir win
+    --window                 open the page at /ui/ in a window: a native WebView when
+                             built with --features window-webview, else the browser;
+                             the host stops when the native window closes
     --check                  start, print the URL and verb count, stop, exit 0
     -h, --help               this text
 ";
@@ -59,6 +62,8 @@ pub struct Cli {
     pub config: Config,
     /// Start, print, stop, exit 0 (`--check`).
     pub check: bool,
+    /// Open the page in a window after serving (`--window`, L-D9).
+    pub window: bool,
 }
 
 /// What the flags default from outside the command line. [`Env::process`] is
@@ -136,6 +141,7 @@ pub fn parse_with_env(
     let mut secrets_dir: Option<PathBuf> = None;
     let mut keychain = false;
     let mut check = false;
+    let mut window = false;
     while let Some(flag) = args.next() {
         let (flag, inline) = match flag.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => {
@@ -174,6 +180,7 @@ pub fn parse_with_env(
             "--secrets-dir" => secrets_dir = Some(PathBuf::from(value("--secrets-dir")?)),
             "--keychain" => keychain = true,
             "--check" => check = true,
+            "--window" => window = true,
             other => return Err(format!("unknown option {other} (see --help)")),
         }
     }
@@ -195,7 +202,11 @@ pub fn parse_with_env(
     config.network_bearer = bearer;
     config.secrets_dir = secrets_dir;
     config.keychain = keychain;
-    Ok(Some(Cli { config, check }))
+    Ok(Some(Cli {
+        config,
+        check,
+        window,
+    }))
 }
 
 /// Everything a host binary's `main` does: logging, the flags, [`serve`], the
@@ -216,10 +227,6 @@ pub fn main(app_id: &str) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    runtime.block_on(run_main(app_id))
-}
-
-async fn run_main(app_id: &str) -> ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -247,16 +254,43 @@ async fn run_main(app_id: &str) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    run(cli, &program).await
+    let served = match runtime.block_on(start(&cli, &program)) {
+        Ok(served) => served,
+        Err(code) => return code,
+    };
+    if cli.check {
+        runtime.block_on(served.shutdown());
+        return ExitCode::SUCCESS;
+    }
+    // `--window` (L-D9): the native WebView's event loop must own the main
+    // thread, which is this one, outside `block_on`; the server keeps
+    // answering on the runtime's worker threads meanwhile. The browser
+    // fallback returns at once and the host then waits as without the flag.
+    if cli.window {
+        if cli.config.web_dir.is_none() {
+            eprintln!("{program}: --window without --web-dir: the page will answer 503");
+        }
+        let url = format!("{}/ui/", served.url());
+        match crate::window::open_after_serve(&url, &cli.config.app_id) {
+            Ok(koine_window::Opened::WebView) => {
+                runtime.block_on(served.shutdown());
+                return ExitCode::SUCCESS;
+            }
+            Ok(koine_window::Opened::Browser) => println!("  opened {url} in the browser"),
+            Err(error) => eprintln!("{program}: {error}"),
+        }
+    }
+    runtime.block_on(wait_then_shutdown(served))
 }
 
-/// Serve `cli.config`, print where, and wait (or stop at once for `--check`).
-pub async fn run(cli: Cli, program: &str) -> ExitCode {
-    let mut served = match serve(cli.config.clone()).await {
+/// Serve `cli.config` and print where. The banner names the page and the
+/// token path; `Err` is the exit code to return.
+async fn start(cli: &Cli, program: &str) -> Result<crate::Served, ExitCode> {
+    let served = match serve(cli.config.clone()).await {
         Ok(served) => served,
         Err(error) => {
             eprintln!("{program}: {error}");
-            return ExitCode::FAILURE;
+            return Err(ExitCode::FAILURE);
         }
     };
     let verbs = impress_service_core::call::descriptors().count();
@@ -270,16 +304,36 @@ pub async fn run(cli: Cli, program: &str) -> ExitCode {
         Some(dir) => println!("  page: {}/ui/ (from {})", served.url(), dir.display()),
         None => println!("  page: none (pass --web-dir to serve /ui)"),
     }
-    if cli.check {
-        served.shutdown().await;
-        return ExitCode::SUCCESS;
-    }
+    Ok(served)
+}
+
+/// Wait for Ctrl-C or the server's end, then stop.
+async fn wait_then_shutdown(mut served: crate::Served) -> ExitCode {
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {}
         _ = served.wait() => {}
     }
     served.shutdown().await;
     ExitCode::SUCCESS
+}
+
+/// Serve `cli.config`, print where, and wait (or stop at once for `--check`).
+/// `--window` is [`main`]'s alone: a native window needs the main thread.
+pub async fn run(cli: Cli, program: &str) -> ExitCode {
+    let served = match start(&cli, program).await {
+        Ok(served) => served,
+        Err(code) => return code,
+    };
+    if cli.check {
+        served.shutdown().await;
+        return ExitCode::SUCCESS;
+    }
+    if cli.window {
+        eprintln!(
+            "{program}: --window is only honoured by cli::main (the window needs the main thread)"
+        );
+    }
+    wait_then_shutdown(served).await
 }
 
 #[cfg(test)]

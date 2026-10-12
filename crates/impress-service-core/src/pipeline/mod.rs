@@ -979,6 +979,12 @@ where
             }
         };
         let result = apply_deprecation_notice(verb, prepared.requested_name.as_deref(), result);
+        // L-D4: a linked verb's rows become records when a host installed a
+        // materialiser; after the handler, outside the effects check, never
+        // failing the call.
+        if let (Some(linked), Ok(value)) = (verb.linked(), &result) {
+            materialize::after_verb(linked, value);
+        }
         adverb_envelope(verb, &mut prepared, result)
     };
     finish(verb, prepared, &result);
@@ -1024,6 +1030,12 @@ where
             })
         };
         let result = apply_deprecation_notice(verb, prepared.requested_name.as_deref(), result);
+        // L-D4: a linked verb's rows become records when a host installed a
+        // materialiser; after the handler, outside the effects check, never
+        // failing the call.
+        if let (Some(linked), Ok(value)) = (verb.linked(), &result) {
+            materialize::after_verb(linked, value);
+        }
         adverb_envelope(verb, &mut prepared, result)
     };
     finish(verb, prepared, &result);
