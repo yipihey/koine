@@ -2904,6 +2904,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "tracing",
  "uuid",
 ]
 
@@ -3297,6 +3298,8 @@ name = "koine-store"
 version = "0.1.0"
 dependencies = [
  "impress-item",
+ "impress-pane-query-compile",
+ "impress-service-core",
  "koine-store-dir",
  "koine-store-memory",
  "koine-workspace-hack",

@@ -55,6 +55,7 @@
 //!   type this crate does not and must not know about) carries natively.
 
 pub mod adjective;
+pub mod process_manifest;
 pub use adjective::{
     expand, Adjective, AdjectiveRegistry, AdjectiveUse, DerivedAdjective, Expanded,
 };

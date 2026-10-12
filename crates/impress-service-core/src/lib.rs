@@ -25,6 +25,7 @@ pub mod descriptor_handle;
 pub mod dispatch;
 pub mod job;
 pub mod lifecycle;
+pub mod loopback_token;
 pub mod pipeline;
 pub mod provider;
 pub mod refusal;

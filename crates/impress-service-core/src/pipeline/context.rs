@@ -266,6 +266,17 @@ pub fn store_override<T: Any + Send + Sync>() -> Option<Arc<T>> {
     erased.downcast::<T>().ok()
 }
 
+/// The store the current call was told to use, still type-erased. A trait
+/// object cannot be downcast out of `dyn Any`, so a caller that wants the
+/// store as a port widens it itself (`koine_store::process` keeps the table
+/// of concrete store types it knows how to widen).
+pub fn store_override_erased() -> Option<Arc<dyn Any + Send + Sync>> {
+    CURRENT
+        .try_with(|c| c.store_override.clone())
+        .ok()
+        .flatten()
+}
+
 /// Run `future` with `context` current.
 pub async fn scope<F: std::future::Future>(context: Arc<CallContext>, future: F) -> F::Output {
     REPORTED_REFUSAL

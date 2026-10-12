@@ -16,6 +16,8 @@
 //! impress-core's to register — and [`schemes`] lists what this process can
 //! open.
 
+pub mod process;
+
 use std::collections::BTreeMap;
 use std::sync::RwLock;
 
