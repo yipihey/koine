@@ -3370,6 +3370,7 @@ dependencies = [
  "impress-service-core",
  "impress-surface",
  "impress-surface-service",
+ "impress-verb-surface",
  "koine-mcp-host",
  "koine-store",
  "koine-workspace-hack",

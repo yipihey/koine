@@ -12,7 +12,7 @@
 #   ├── README.md                     the agent's checklist, in order
 #   └── crates/
 #       ├── <name>-service/           dto.rs, service.rs, selftest.rs
-#       └── <name>-host/              main.rs: links the service, lists its verbs
+#       └── <name>-host/              main.rs: links the service, calls koine_host::cli::main
 #
 # Usage:
 #   scripts/new-app.sh <name> --lib <crate-name> [--lib-path <path>]
@@ -121,6 +121,7 @@ else
 fi
 KOINE_CORE_DEP="$(koine_dep impress-service-core)"
 KOINE_MACROS_DEP="$(koine_dep impress-service-macros)"
+KOINE_HOST_DEP="$(koine_dep koine-host)"
 
 # ---------------------------------------------------------------- the library
 PUBLIC_FNS="//   (no --lib-path given: list the library's public API with \`cargo doc --open\` or docs.rs)"
@@ -171,6 +172,7 @@ emit() {
     body="${body//__KOINE_WHERE__/$KOINE_WHERE}"
     body="${body//__KOINE_CORE_DEP__/$KOINE_CORE_DEP}"
     body="${body//__KOINE_MACROS_DEP__/$KOINE_MACROS_DEP}"
+    body="${body//__KOINE_HOST_DEP__/$KOINE_HOST_DEP}"
     body="${body//__PUBLIC_FNS__/$PUBLIC_FNS}"
     printf '%s\n' "$body" >"$path"
 }
@@ -189,7 +191,8 @@ edition = "2021"
 [workspace.dependencies]
 __KOINE_CORE_DEP__
 __KOINE_MACROS_DEP__
-# K4: koine-host (`koine_host::serve`) joins these two once it is published.
+# The host: `koine_host::cli::main` is the whole of the host binary's main.
+__KOINE_HOST_DEP__
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = "0.8"
@@ -495,42 +498,23 @@ edition.workspace = true
 
 [dependencies]
 __SERVICE_CRATE__ = { path = "../__SERVICE_CRATE__" }
-impress-service-core.workspace = true
-# K4: koine-host.workspace = true
+koine-host.workspace = true
 EOF
 
 emit "crates/__HOST_CRATE__/src/main.rs" <<'EOF'
 //! The host of __NAME__.
 //!
 //! Linking `__SERVICE_CRATE__` is what puts its verbs in the process-wide
-//! inventory; everything a host serves is a call into that inventory.
+//! inventory; everything the host serves (`POST /api/verb/<name>`,
+//! `GET /api/verb/<name>/surface`, `/api/surface/*`, `/ui/`, `/mcp`) is a call
+//! into that inventory. The flags are `koine_host::cli`'s; run it with
+//! `--help`.
 
-use impress_service_core::call;
-
-fn main() {
+fn main() -> std::process::ExitCode {
+    // Each keeps its crate's verbs through the link.
+    koine_host::ensure_linked();
     __SERVICE_SNAKE__::ensure_linked();
-
-    // K4: koine-host does not exist yet. When it does, this whole body is
-    //
-    //     koine_host::serve(koine_host::Config {
-    //         port: __PORT__,
-    //         store: "dir:./data".into(),
-    //         ..Default::default()
-    //     })
-    //
-    // which serves POST /api/verb/<name>, /api/surface/*, /ui/ and /mcp over
-    // this same inventory. Until then, list what is linked.
-    let mut verbs: Vec<_> = call::descriptors().collect();
-    verbs.sort_by(|a, b| a.name().cmp(b.name()));
-    println!("__NAME__: {} verbs linked", verbs.len());
-    for verb in verbs {
-        let first_line = verb.description().lines().next().unwrap_or("");
-        println!(
-            "  {:<44} {:<12} {first_line}",
-            verb.name(),
-            verb.safety().class.to_string()
-        );
-    }
+    koine_host::cli::main("__NAME__")
 }
 EOF
 
@@ -563,13 +547,21 @@ The guide is `docs/capability.md` in the koine checkout. Tick these in order.
    `scripts/check-verb-coverage.sh --lib <library dir> --service
    crates/__SERVICE_CRATE__` and either cover each item or give it a reasoned
    `[[exclude]]` line in `crates/__SERVICE_CRATE__/verb-exclusions.toml`.
-7. **Run the host.** `cargo run -p __HOST_CRATE__` lists the linked verbs now.
-   With `koine-host` (plan-koine-host K4) the same command serves them on
-   port __PORT__; the K4 marker in `crates/__HOST_CRATE__/src/main.rs` is the
-   one line to change.
-8. **Open `/ui/`.** http://localhost:__PORT__/ui/ shows the generated surface
-   of every verb. Author a surface by hand only for a layout the generated one
-   cannot say (docs/capability.md, "What the generated surface shows").
+7. **Check the host.** `cargo run -p __HOST_CRATE__ -- --check` starts it,
+   prints the URL, the verb count and the token path, and exits 0. The count is
+   every verb you wrote plus the runtimes' own.
+8. **Run it and look.** `cargo run -p __HOST_CRATE__` serves on port __PORT__
+   (`--port 0` lets the OS choose; `--store memory:` keeps nothing; the default
+   store is `dir:$KOINE_WORKSPACE/store`, else `~/.koine/store`). Then
+   `curl localhost:__PORT__/api/status`, and
+   `curl localhost:__PORT__/api/verb/__TOOL__/surface` is the generated form for
+   a verb; `POST` its `spec` to `/api/surface` and it is a surface (`GET
+   /api/surface/<id>/render`, `POST .../dispatch`). For the page, build
+   `crates/koine-web` in the koine checkout (`dx build --platform web
+   --release`) and start the host with `--web-dir <its public/ directory>`;
+   http://localhost:__PORT__/ui/ is then the app. Author a surface by hand only
+   for a layout the generated one cannot say (docs/capability.md, "What the
+   generated surface shows").
 
 `schema-refs.json` is the manifest `effects` kinds are checked against
 (`.cargo/config.toml` points the macros at it). Add a kind of record your app

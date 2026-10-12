@@ -21,3 +21,13 @@ with `--service <service-crate-dir>` as well it matches each to a verb or to a
 reasoned `[[exclude]]` line in `verb-exclusions.toml`, and exits 1 on any item
 that is neither. Read-only; needs bash and python3. `scripts/tests/coverage/run.sh`
 runs it over fixtures.
+
+**`tests/e2e/run.sh`** is the proof of docs/plan-koine-host.md K7: it writes a
+scratch library (`mini-stats`), scaffolds `stats-app` over it, makes the edits
+an agent makes (two verbs, their DTOs and selftest), checks coverage, runs
+`cargo test`, starts the app's host and drives it with curl (a verb, a verb's
+generated surface created, rendered and dispatched, a restart, MCP), and, when
+`dx` is installed, builds `koine-web` and checks `/ui/`. PASS/FAIL per
+assertion, non-zero exit on any FAIL, scratch directory removed. Compiled
+dependencies are kept in `target/e2e-app`, so the first run is the long one.
+Needs bash, cargo, curl, jq and python3.

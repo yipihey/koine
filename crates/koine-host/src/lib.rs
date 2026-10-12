@@ -38,6 +38,7 @@
 //! launch's token; a non-loopback peer needs [`Config::allow_network`] and
 //! the network bearer; no response carries an `Access-Control-*` header.
 
+pub mod cli;
 mod guard;
 pub mod manifest;
 mod routes;

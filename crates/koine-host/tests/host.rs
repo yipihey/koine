@@ -324,6 +324,69 @@ async fn no_response_carries_a_cors_header() {
 
 // ------------------------------------------------------------------ surface
 
+#[tokio::test]
+async fn a_verb_has_a_generated_surface_that_runs_it() {
+    let _turn = TURN.lock().await;
+    let host = start("memory:", "verb-surface-app").await;
+
+    let (status, answer) = host
+        .get_json("/api/verb/surface-demo-service_histogram/surface")
+        .await;
+    assert_eq!(status, 200, "{answer}");
+    assert_eq!(answer["ok"], true);
+    assert_eq!(answer["wire_version"], 1);
+    let spec = answer["spec"].clone();
+    assert_eq!(spec["name"], "Run surface-demo-service_histogram");
+    assert!(spec["state"].get("result").is_some(), "{spec}");
+    assert!(
+        spec.to_string().contains("\"run\""),
+        "the Run button: {spec}"
+    );
+
+    // It is a surface like any other: create, render, click Run.
+    let (status, created) = host.post("/api/surface", spec).await;
+    assert_eq!(status, 200, "{created}");
+    let id = created["id"].as_str().expect("an id").to_string();
+    let (status, rendered) = host.get_json(&format!("/api/surface/{id}/render")).await;
+    assert_eq!(status, 200, "{rendered}");
+    assert!(
+        rendered["tree"].to_string().contains("\"run\""),
+        "{rendered}"
+    );
+    let (status, dispatched) = host
+        .post(
+            &format!("/api/surface/{id}/dispatch"),
+            json!({ "widget": "run", "kind": "click" }),
+        )
+        .await;
+    assert_eq!(status, 200, "{dispatched}");
+    assert_eq!(dispatched["ok"], true, "{dispatched}");
+
+    // What a text input sends is characters: typed into the raw-JSON `values`
+    // field, `[1, 2, 3, 4]` must reach the verb as the array it spells.
+    for event in [
+        json!({ "widget": "arg-values", "kind": "change", "value": "[1, 2, 3, 4]" }),
+        json!({ "widget": "arg-bins", "kind": "change", "value": 2 }),
+        json!({ "widget": "run", "kind": "click" }),
+    ] {
+        let (status, dispatched) = host
+            .post(&format!("/api/surface/{id}/dispatch"), event)
+            .await;
+        assert_eq!(status, 200, "{dispatched}");
+    }
+    let (status, state) = host.get_json(&format!("/api/surface/{id}/state")).await;
+    assert_eq!(status, 200, "{state}");
+    assert_eq!(state["state"]["values"], json!([1, 2, 3, 4]), "{state}");
+    assert_ne!(state["state"]["result"]["ok"], false, "{state}");
+    assert_eq!(state["state"]["result"]["counts"], json!([2, 2]), "{state}");
+
+    let (status, missing) = host.get_json("/api/verb/nope_nothing/surface").await;
+    assert_eq!(status, 404, "{missing}");
+    assert_eq!(missing["code"], "not-found");
+
+    host.served.shutdown().await;
+}
+
 fn explorer() -> Value {
     serde_json::to_value(impress_surface::example_signal_explorer()).unwrap()
 }

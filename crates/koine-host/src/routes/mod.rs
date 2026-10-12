@@ -6,6 +6,7 @@
 //! | `/api/surface`, `/api/surface/*` | the surface route table | [`surface`] |
 //! | `GET /api/layout/{tree,layouts}`, `POST /api/layout/{verb,op}` | the layout verbs | [`layout`] |
 //! | `POST /api/verb/<name>` | one verb, through the pipeline | here |
+//! | `GET /api/verb/<name>/surface` | the generated form for that verb (`verb_surface`) | here |
 //! | `GET /ui`, `/ui/*` | the `koine-web` bundle | [`ui`] |
 //! | `GET/PUT/DELETE /api/blob/<item>/<name>` | the store's blobs | [`blob`] |
 //! | `GET /api/job/<id>`, `POST /api/job/<id>/cancel` | the default job runner | here |
@@ -53,6 +54,7 @@ pub(crate) fn router(state: Shared) -> Router {
         .route("/api/layout/verb", post(layout::verb))
         .route("/api/layout/op", post(layout::op))
         .route("/api/verb/{name}", post(verb))
+        .route("/api/verb/{name}/surface", get(verb_surface))
         .route(
             "/api/blob/{item}/{name}",
             get(blob::get)
@@ -180,6 +182,32 @@ async fn verb(Path(name): Path<String>, body: Bytes) -> Response {
         result.body_json,
     )
         .into_response()
+}
+
+/// `GET /api/verb/<name>/surface`: the generated form for one linked verb
+/// (`impress_verb_surface::verb_surface_handle`): a field per argument, a Run
+/// button and a result view. `POST` it to `/api/surface` to create the
+/// surface, then `render`, `dispatch` and `state` it like any other. 404 for
+/// a verb that is not linked (or whose name is an alias, which this answers
+/// under its canonical name).
+async fn verb_surface(Path(name): Path<String>) -> Response {
+    match call::find(&name) {
+        Some(handle) => json_response(
+            200,
+            &json!({
+                "ok": true,
+                "wire_version": WIRE_VERSION,
+                "verb": handle.name(),
+                "spec": impress_verb_surface::verb_surface_handle(&handle),
+            }),
+        ),
+        None => refusal(
+            codes::NOT_FOUND,
+            format!(
+                "no verb {name}: is its crate linked? (GET /api/status counts the linked verbs)"
+            ),
+        ),
+    }
 }
 
 fn job_id(raw: &str) -> Result<impress_item::ItemId, Box<Response>> {

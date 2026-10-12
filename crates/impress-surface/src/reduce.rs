@@ -43,7 +43,9 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use crate::spec::{walk_with_ids, Action, Event, EventKind, Node, NodeKind, SurfaceSpec};
+use crate::spec::{
+    walk_with_ids, Action, Event, EventKind, FieldKind, Node, NodeKind, SurfaceSpec,
+};
 use crate::state_path::{self, StatePathError};
 use crate::template::{resolve_value, Context, Template, TemplateError};
 
@@ -151,7 +153,7 @@ pub fn reduce(
             let bind = node.bind.clone().ok_or_else(|| ReduceError::NotBindable {
                 widget: event.widget.clone(),
             })?;
-            state_path::write(&mut new_state, &bind, event.value.clone())?;
+            state_path::write(&mut new_state, &bind, change_value(node, &event.value))?;
             run_actions(
                 &node.on_change,
                 &mut new_state,
@@ -208,6 +210,27 @@ pub fn reduce(
     }
 
     Ok((new_state, effects))
+}
+
+/// What a `change` writes into state. A text field marked `raw_json` (the
+/// generated form's field for an array or object argument,
+/// `impress-verb-surface`) holds a JSON value, but every renderer's text input
+/// sends the characters the person typed: a string that parses as JSON is
+/// stored as the value it spells, so `[1, 2, 3]` typed into the field is the
+/// array `[1, 2, 3]` when Run sends it. Text that is not JSON is stored as
+/// typed, and the verb refuses it by name.
+fn change_value(node: &Node, value: &Value) -> Value {
+    let raw_json = matches!(
+        &node.kind,
+        NodeKind::Field(FieldKind::Text(options))
+            if options.get("raw_json").and_then(Value::as_bool) == Some(true)
+    );
+    match value {
+        Value::String(text) if raw_json => {
+            serde_json::from_str(text).unwrap_or_else(|_| value.clone())
+        }
+        _ => value.clone(),
+    }
 }
 
 fn event_kind_str(kind: EventKind) -> &'static str {
@@ -558,6 +581,45 @@ mod tests {
                     payload: serde_json::json!({"id": "y"}),
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn a_raw_json_text_field_stores_the_json_typed_into_it() {
+        use crate::spec::FieldKind;
+        let field = |options: Value| {
+            Node::leaf(NodeKind::Field(FieldKind::Text(options)))
+                .with_id("f")
+                .with_bind("state.v")
+        };
+        let change = |text: &str| Event {
+            widget: "f".to_string(),
+            kind: EventKind::Change,
+            value: Value::String(text.to_string()),
+        };
+        let run = |options: Value, text: &str| {
+            let mut spec = star_button_spec(serde_json::json!({"v": null}));
+            spec.root = field(options);
+            reduce(
+                &spec,
+                &spec.state,
+                &Value::Null,
+                &Value::Null,
+                &change(text),
+            )
+            .unwrap()
+            .0["v"]
+                .clone()
+        };
+        let raw = serde_json::json!({"raw_json": true});
+        assert_eq!(run(raw.clone(), "[1, 2, 3]"), serde_json::json!([1, 2, 3]));
+        assert_eq!(run(raw.clone(), "{\"a\": 1}"), serde_json::json!({"a": 1}));
+        // Not JSON: kept as typed, for the verb to refuse by name.
+        assert_eq!(run(raw, "[1, 2"), serde_json::json!("[1, 2"));
+        // An ordinary text field keeps its characters, JSON-looking or not.
+        assert_eq!(
+            run(serde_json::json!({}), "[1, 2]"),
+            serde_json::json!("[1, 2]")
         );
     }
 }

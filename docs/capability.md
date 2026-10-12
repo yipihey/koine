@@ -65,8 +65,10 @@ and `schemars` itself, not only through `impress-service-core`.
 
 Verbs register themselves in the inventory only in a binary that links the
 crate. A host `main` must refer to something in the service crate for the
-linker to keep it; `ensure_linked()` is that something. A verb missing from
-the list of a running host is almost always this.
+linker to keep it; `ensure_linked()` is that something. The scaffold's host
+`main` already calls it, then `koine_host::cli::main("<app>")`, which is the
+whole of the host (flags, serve, banner); `cargo run -p <app>-host -- --check`
+prints the verb count. A verb missing from that count is almost always this.
 
 ## 3. A verb, in full
 
@@ -615,12 +617,19 @@ in a browser or a terminal, with no code from you:
 
 - one field per argument: text for a `string`, a select for an enum, a
   number, a toggle, a date for a date-shaped `format`, and a raw-JSON text
-  field for anything structured; each prefilled from the verb's first example;
+  field for anything structured (type the JSON, `[1, 2, 3]`; the surface
+  stores what it spells, and text that is not JSON is stored as typed and the
+  verb refuses it); each prefilled from the verb's first example;
 - one toggle per adverb the verb accepts;
 - a result view chosen by the output schema: a `Vec` of flat objects is a
   table, a flat object a key-value list, a `string` text, anything else raw
   JSON;
 - for a `destructive` or `external` verb, Run hidden behind a confirmation.
+
+A running host serves any verb's form as data: `GET
+/api/verb/<name>/surface` answers `{ok, wire_version, verb, spec}`; `POST` the
+`spec` to `/api/surface` and it is a surface like any other (`render`,
+`dispatch`, `state`), which `/ui/` shows.
 
 So the shape of the DTOs is the shape of the page. A descriptive field name,
 a `///` on each field and an example per verb are the whole design work for
@@ -668,6 +677,6 @@ Tick every line; each is something you can look at or run.
 - [ ] Every verb has an `#[impress_example]` with an `expect`.
 - [ ] `selftest.rs` calls verbs through `call::call`, covers a refusal and a
       misspelt argument, and `cargo test` is green.
-- [ ] The host `main` calls `ensure_linked()`, and a running host lists every
-      verb of the service.
+- [ ] The host `main` calls `ensure_linked()`, and `cargo run -p <app>-host --
+      --check` counts every verb of the service (and the runtimes' own).
 - [ ] I opened `/ui/` and used one verb's generated form to completion.

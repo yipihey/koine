@@ -77,6 +77,7 @@ Routes, each a call into the inventory through the pipeline:
 | `/api/surface/*` | the surface route table (H-D3) |
 | `/api/layout/{tree,verb,op,layouts}` | the layout route table |
 | `POST /api/verb/<name>` | one verb by name, strict, through the pipeline |
+| `GET /api/verb/<name>/surface` | the generated form for that verb (`verb_surface`: a field per argument, a Run button, a result view) as `{ok, wire_version, verb, spec}`; 404 for a verb that is not linked. `POST` the `spec` to `/api/surface` and it is a surface like any other |
 | `GET /ui/*` | the `koine-web` bundle from a directory (`Config.web_dir`), `index.html` with the loopback token for a loopback peer, exactly as `KoineWebRoutes` in impress-apps does |
 | `GET/PUT/DELETE /api/blob/<item>/<name>` | `BlobStore`, when the store declares `blobs` |
 | `/mcp` | the MCP host (H-D5) |
@@ -213,3 +214,53 @@ public triage `/mcp` uses.
   `<workspace>/automation/…`, as the plan says; the suite's Rust clients look
   under `<container>/workspace/automation/` and otherwise take
   `IMPRESS_APP_TOKEN`. The binary prints the token path.
+
+K7 is built: `scripts/tests/e2e/run.sh`, the proof that an agent with koine and
+a library gets a bespoke app, and the three pieces it needed.
+
+- *`GET /api/verb/<name>/surface`* answers `{ok, wire_version, verb, spec}`
+  from `verb_surface_handle` (404 for a verb that is not linked); the spec is
+  `POST`ed to `/api/surface` like any other.
+- *`koine_host::cli`* is the flags and run loop (`parse`, `usage`, `run`,
+  `main(app_id)`), used by the `koine-host` binary and by the scaffold's
+  `<name>-host` `main`, which is four lines: `koine_host::ensure_linked()`,
+  `<name>_service::ensure_linked()`, `koine_host::cli::main("<name>")`. The
+  scaffold's README checklist gives the real commands (`-- --check`, `cargo run
+  -p <name>-host`, the surface route, `--web-dir`).
+- *The script* writes `mini-stats` (`mean`, `histogram`), runs `new-app.sh stats-app
+  --lib mini-stats --lib-path … --koine-path <this checkout>`, edits `dto.rs`,
+  `service.rs` and `selftest.rs` as the guide says (two verbs, `Estimate` and
+  `Counts` results, one example each, selftests for both and a refusal; `echo`
+  kept), then asserts: `check-verb-coverage.sh` covered 2 / uncovered 0;
+  `cargo test` green; `<name>-host -- --check` exits 0; a host on a free port
+  over `dir:<tmp>/store` with its token read from its file; `/api/status` names
+  the app (56 verbs: the app's three, the runtimes' own); `mean` of `[1,2,3]`
+  answers 2, an empty list and a misspelt argument are refused
+  `invalid-argument`; the histogram's generated surface is created, rendered,
+  its `values` and `bins` fields changed, Run clicked, and the counts are in
+  `state.result`; `GET /api/surface` lists it, and after stopping and starting
+  the host on the same root it is still listed with its result; MCP
+  `tools/list` has the three verbs and `tools/call` runs one; a POST without
+  the token is 401; and, with `dx` present, `koine-web` builds and `/ui/`
+  carries the token meta with the JS asset served as `text/javascript`.
+  49 assertions, 43 s warm (the first run compiles the host's dependency tree
+  into `target/e2e-app`: minutes).
+- *What an agent still does by hand:* choose which functions become verbs; write
+  the DTOs, the `methods = [...]` list with a `///` per argument, an example per
+  verb and the selftest; decide `effects` and `safety`; fix the compile errors
+  the compiler reports. Nothing in the scaffold needed editing to build,
+  serve or restart.
+- *What the run showed missing, and the fixes.* (1) A person typing `[1, 2, 3, 4]`
+  into a generated form's raw-JSON field ran the verb with the string
+  `"[1, 2, 3, 4]"` and was refused `invalid-argument: expected a sequence`
+  (every renderer's text input sends characters, and `raw_json` was a hint no
+  one read), so any verb with an array argument had a form that could not be
+  run by typing; `impress-surface`'s reducer now stores a `raw_json` field's text
+  as the JSON it spells (text that is not JSON stays text, and the verb refuses
+  it by name), with a unit test and a host test. (2) The scaffold's host
+  printed a verb list and its README pointed at a K4 marker; it is now the
+  four-line `main` above. (3) The guide said nothing of the surface route or of
+  `--check`; section 2, 9 and the checklist now do. The remaining gap is that a
+  raw-JSON field's *initial* value for a verb with no example is the string
+  `"{}"`, which is wrong for an array argument until the person types; the
+  example prefill (which the guide asks for on every verb) avoids it.
