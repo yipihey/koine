@@ -21,7 +21,7 @@
 //! copy of "find the descriptor, run its handler" both of those re-export
 //! (review RS-S21), and only maps its error onto a [`Refusal`].
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -1244,7 +1244,11 @@ impl SurfaceRuntime {
         // Consecutive `publish`/`open` effects are one layout gesture (one
         // step, one undo entry, all or none); see this method's docs.
         let mut gesture: Option<Gesture> = None;
-        for effect in effects {
+        // A queue, not a list: a call that carries `then` (the rest of its
+        // handler) pushes what that decides on to the front, so it runs
+        // before the effects that followed the call.
+        let mut queue: VecDeque<Effect> = effects.into();
+        while let Some(effect) = queue.pop_front() {
             match effect {
                 Effect::Publish { .. } | Effect::Open { .. } => {
                     let index = outcomes.len();
@@ -1297,8 +1301,35 @@ impl SurfaceRuntime {
                     if !matches!(effect, Effect::Refresh { .. }) {
                         flush_gesture(executor, gesture.take(), &mut outcomes, actor).await;
                     }
+                    let then = match &effect {
+                        Effect::Call { then, .. } => then.clone(),
+                        _ => Vec::new(),
+                    };
                     let outcome = self.run_effect(executor, effect, actor).await;
+                    let landed = outcome.ok;
                     outcomes.push(outcome);
+                    // The rest of the handler sees the call's result: `into`
+                    // is written, so reduce what followed against that state.
+                    // A call that failed leaves it unrun.
+                    if landed && !then.is_empty() {
+                        match impress_surface::reduce::run_then(
+                            &mut self.state,
+                            &then,
+                            &self.params,
+                            &sources,
+                            event,
+                        ) {
+                            Ok(more) => {
+                                for effect in more.into_iter().rev() {
+                                    queue.push_front(effect);
+                                }
+                            }
+                            Err(e) => outcomes.push(EffectOutcomeDto::failed(
+                                "then",
+                                Refusal::new(e.code(), e.to_string()),
+                            )),
+                        }
+                    }
                 }
             }
         }
@@ -1394,6 +1425,7 @@ impl SurfaceRuntime {
                 mut args,
                 into,
                 adverbs,
+                ..
             } => {
                 // Adverbs ride beside the arguments under one reserved key; the
                 // pipeline strips it (`Adverbs::take_from`).
@@ -2278,6 +2310,151 @@ mod call_verb_tests {
         );
     }
 
+    /// An executor that answers every call with the same page and keeps the
+    /// arguments of the calls it saw.
+    struct PagesExecutor {
+        page: Value,
+        seen: std::sync::Mutex<Vec<Value>>,
+        fail: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl Executor for PagesExecutor {
+        async fn call_verb(&self, _name: &str, args: Value) -> super::Result<Value> {
+            self.seen.lock().unwrap().push(args);
+            if self.fail {
+                return Err(impress_service_core::Refusal::new(
+                    "verb-failed",
+                    "no more pages",
+                ));
+            }
+            Ok(self.page.clone())
+        }
+
+        async fn run_query(
+            &self,
+            _query: &PaneQuery,
+            _decls: &[ParamDecl],
+            _bindings: &Bindings,
+        ) -> super::Result<Value> {
+            unreachable!("fixture has no query")
+        }
+
+        async fn apply_layout(
+            &self,
+            _pane: &super::PaneHandle,
+            _verbs: Vec<Verb>,
+            _actor: ActorKind,
+        ) -> super::Result<()> {
+            unreachable!("fixture has no layout effect")
+        }
+
+        async fn emit(
+            &self,
+            _surface: impress_item::item::ItemId,
+            _host: &str,
+            _name: &str,
+            _payload: Value,
+            _actor: ActorKind,
+        ) -> super::Result<u64> {
+            unreachable!("fixture has no emit effect")
+        }
+    }
+
+    /// The generated More button of a paged verb (`impress-verb-surface`):
+    /// call with the cursor, add the rows, take `next`.
+    fn paged_surface() -> SurfaceSpec {
+        serde_json::from_value(json!({
+            "surface": "1.0",
+            "name": "Paged",
+            "state": {
+                "query": "dark",
+                "result": { "rows": [{"id": "a"}, {"id": "b"}], "next": "c2" },
+                "more": null
+            },
+            "root": { "column": [
+                { "id": "result-view", "table": {
+                    "rows": "{{state.result}}", "columns": [] } },
+                { "id": "more", "button": { "label": "More", "on_click": [
+                    { "call": {
+                        "verb": "any-service_page",
+                        "args": { "query": "{{state.query}}", "cursor": "{{state.result.next}}" },
+                        "into": "state.more"
+                    } },
+                    { "append": { "path": "state.result.rows", "value": "{{state.more.rows}}" } },
+                    { "set": { "path": "state.result.next", "value": "{{state.more.next}}" } }
+                ] } }
+            ] }
+        }))
+        .unwrap()
+    }
+
+    async fn press_more(
+        executor: &PagesExecutor,
+    ) -> (SurfaceRuntime, Vec<crate::dto::EffectOutcomeDto>) {
+        let store = Arc::new(MemoryStore::new());
+        let surfaces = SurfaceStore::new(store);
+        let row = surfaces
+            .create(&paged_surface(), None, &[], ActorKind::Agent)
+            .unwrap();
+        let mut runtime = SurfaceRuntime::load(
+            row.id,
+            "fixture-host".into(),
+            row,
+            None,
+            Arc::new(impress_pane_query_compile::test_support::builtin_manifest()),
+        );
+        runtime.render(executor).await;
+        let event: Event = serde_json::from_value(json!({
+            "widget": "more", "kind": "click", "value": null
+        }))
+        .unwrap();
+        let (_, outcomes) = runtime
+            .dispatch(executor, &surfaces, &event, ActorKind::Agent)
+            .await
+            .unwrap();
+        (runtime, outcomes)
+    }
+
+    /// One press of More: the call goes out with the cursor the table last
+    /// showed, then (its `into` written) the page is appended and `next` taken.
+    #[tokio::test]
+    async fn one_press_of_more_appends_the_page_and_takes_its_cursor() {
+        let executor = PagesExecutor {
+            page: json!({ "rows": [{"id": "c"}], "next": null }),
+            seen: Default::default(),
+            fail: false,
+        };
+        let (runtime, outcomes) = press_more(&executor).await;
+        assert!(outcomes.iter().all(|o| o.ok), "{outcomes:?}");
+        assert_eq!(
+            *executor.seen.lock().unwrap(),
+            vec![json!({"query": "dark", "cursor": "c2"})]
+        );
+        assert_eq!(
+            runtime.state["result"],
+            json!({ "rows": [{"id": "a"}, {"id": "b"}, {"id": "c"}], "next": null })
+        );
+        assert_eq!(runtime.state["more"]["rows"], json!([{"id": "c"}]));
+    }
+
+    /// A call that failed leaves the rest of its handler unrun.
+    #[tokio::test]
+    async fn a_failed_call_leaves_the_rest_of_the_handler_unrun() {
+        let executor = PagesExecutor {
+            page: Value::Null,
+            seen: Default::default(),
+            fail: true,
+        };
+        let (runtime, outcomes) = press_more(&executor).await;
+        assert_eq!(outcomes.len(), 1);
+        assert!(!outcomes[0].ok);
+        assert_eq!(
+            runtime.state["result"],
+            json!({ "rows": [{"id": "a"}, {"id": "b"}], "next": "c2" })
+        );
+    }
+
     /// An executor that records the arguments `call_verb` was handed.
     struct RecordingExecutor(std::sync::Mutex<Option<Value>>);
 
@@ -2342,6 +2519,7 @@ mod call_verb_tests {
                     args: json!({"id": "x"}),
                     into: None,
                     adverbs: Some(json!({"tentatively": true})),
+                    then: Vec::new(),
                 },
                 ActorKind::Agent,
             )
@@ -2359,6 +2537,7 @@ mod call_verb_tests {
                     args: json!({"id": "x"}),
                     into: None,
                     adverbs: None,
+                    then: Vec::new(),
                 },
                 ActorKind::Agent,
             )

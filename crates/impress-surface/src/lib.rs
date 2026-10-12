@@ -63,7 +63,7 @@ mod example;
 
 pub use example::{example_job_monitor, example_paper_triage, example_signal_explorer};
 pub use plan::{plan, CachedSource, SourceCache, SourceRequest, SourceRequestKind};
-pub use reduce::{reduce, Effect, ReduceError};
+pub use reduce::{reduce, run_then, Effect, ReduceError};
 pub use resolve::{resolve, resolve_with_source_errors, RenderKind, RenderNode, RenderTree};
 pub use spec::{
     child_pointers, handler_pointers, walk_actions, walk_with_pointers, Action, Button, Event,

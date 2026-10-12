@@ -1200,28 +1200,39 @@ mod tests {
         assert!(spec.state.get("more").is_none());
     }
 
-    /// The More actions run as written: the call's arguments read the cursor
-    /// the table last showed, `append` adds rows and `set` takes `next`.
-    /// (`state.more` is filled here by hand: `into` is written by the runtime
-    /// when the call lands, after `reduce` has run the handler.)
+    /// One press of More through `reduce` and `run_then`, the way the runtime
+    /// does it: `reduce` leaves the call (cursor read from the table's
+    /// `next`) with `append` and `set` riding on it, the runtime writes
+    /// `state.more` when the call lands, and `run_then` finishes the handler.
     #[test]
-    fn the_more_actions_reduce_as_written() {
+    fn pressing_more_calls_then_appends_and_takes_next() {
         let mut spec = verb_surface(&paged_verb());
         spec.state["result"] = json!({"rows": [{"bibcode": "a"}], "next": "c2"});
-        spec.state["more"] = json!({"rows": [{"bibcode": "b"}], "next": null});
         let event = impress_surface::spec::Event {
             widget: "more".to_string(),
             kind: impress_surface::spec::EventKind::Click,
             value: Value::Null,
         };
-        let (state, effects) =
+        let (mut state, effects) =
             impress_surface::reduce(&spec, &spec.state, &Value::Null, &Value::Null, &event)
                 .unwrap();
-        assert!(matches!(
-            effects.first(),
-            Some(impress_surface::Effect::Call { args, into, .. })
-                if args["cursor"] == json!("c2") && into.as_deref() == Some("state.more")
-        ));
+        // Nothing appended yet: the page does not exist until the call lands.
+        assert_eq!(state["result"]["rows"], json!([{"bibcode": "a"}]));
+        let [impress_surface::Effect::Call {
+            args, into, then, ..
+        }] = effects.as_slice()
+        else {
+            panic!("one call, got {effects:?}")
+        };
+        assert_eq!(args["cursor"], json!("c2"));
+        assert_eq!(into.as_deref(), Some("state.more"));
+        assert_eq!(then.len(), 2);
+
+        // The call lands.
+        state["more"] = json!({"rows": [{"bibcode": "b"}], "next": null});
+        let more = impress_surface::run_then(&mut state, then, &Value::Null, &Value::Null, &event)
+            .unwrap();
+        assert!(more.is_empty());
         assert_eq!(
             state["result"],
             json!({"rows": [{"bibcode": "a"}, {"bibcode": "b"}], "next": null})

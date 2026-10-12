@@ -63,6 +63,18 @@ pub enum Effect {
         /// Resolved adverbs, opaque to this layer (`docs/grammar.md` § Adverbs).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         adverbs: Option<Value>,
+        /// What the handler does after this call has landed (plan-koine-live
+        /// L-D5). Set only when the call has an `into` and actions follow it
+        /// in the handler: they may read the call's result, which exists only
+        /// once the runtime has executed it and written `into`, so `reduce`
+        /// stops there and leaves them here, unrun. The runtime runs them
+        /// with [`run_then`] against the state it then holds, and only if the
+        /// call succeeded. With `each`, they ride on the last call of the
+        /// fan-out: they run once, after the whole fan-out. A fan-out of no
+        /// elements has no call to wait for, so they run at once, in
+        /// `reduce`.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        then: Vec<Action>,
     },
     /// `ids` is the resolved value to publish: either the literal path the
     /// action named (walked the same way `bind` is), or — when the action gave
@@ -148,11 +160,7 @@ pub fn reduce(
 
     let mut new_state = state.clone();
     let mut effects = Vec::new();
-    let event_value = serde_json::json!({
-        "widget": event.widget,
-        "kind": event_kind_str(event.kind),
-        "value": event.value,
-    });
+    let event_value = event_json(event);
 
     match event.kind {
         EventKind::Change => {
@@ -218,6 +226,39 @@ pub fn reduce(
     Ok((new_state, effects))
 }
 
+/// The `{{event.…}}` root: the event as a handler's templates see it.
+fn event_json(event: &Event) -> Value {
+    serde_json::json!({
+        "widget": event.widget,
+        "kind": event_kind_str(event.kind),
+        "value": event.value,
+    })
+}
+
+/// Run the actions an [`Effect::Call`] carried in `then`, after the runtime
+/// has executed the call and written its `into` into `state`. `params` and
+/// `sources` are the ones the handler saw, `event` the one that triggered it.
+/// Returns the effects those actions decided on (a further call, a publish…),
+/// for the runtime to run in order before whatever followed the first call;
+/// a further call with an `into` carries the rest of `then` the same way.
+pub fn run_then(
+    state: &mut Value,
+    then: &[Action],
+    params: &Value,
+    sources: &Value,
+    event: &Event,
+) -> Result<Vec<Effect>, ReduceError> {
+    let mut effects = Vec::new();
+    run_actions(
+        then,
+        state,
+        (params, sources),
+        &event_json(event),
+        &mut effects,
+    )?;
+    Ok(effects)
+}
+
 /// What a `change` writes into state. A text field marked `raw_json` (the
 /// generated form's field for an array or object argument,
 /// `impress-verb-surface`) holds a JSON value, but every renderer's text input
@@ -258,8 +299,20 @@ fn run_actions(
     event_value: &Value,
     effects: &mut Vec<Effect>,
 ) -> Result<(), ReduceError> {
-    for action in actions {
+    for (index, action) in actions.iter().enumerate() {
+        let before = effects.len();
         run_action(action, state, roots, event_value, effects)?;
+        // A call that writes `into` is a point the rest of the handler must
+        // wait at: see [`Effect::Call::then`].
+        if matches!(action, Action::Call { into: Some(_), .. }) && effects.len() > before {
+            let rest = &actions[index + 1..];
+            if !rest.is_empty() {
+                if let Some(Effect::Call { then, .. }) = effects.last_mut() {
+                    *then = rest.to_vec();
+                    return Ok(());
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -326,6 +379,7 @@ fn run_action(
                     args: resolved_args,
                     into: into.clone(),
                     adverbs: resolved_adverbs,
+                    then: Vec::new(),
                 });
             }
             Some(each_path) => {
@@ -341,6 +395,7 @@ fn run_action(
                         args: resolved_args,
                         into: into.clone(),
                         adverbs: resolved_adverbs,
+                        then: Vec::new(),
                     });
                 }
             }
@@ -478,12 +533,14 @@ mod tests {
                     args: serde_json::json!({"id": "a", "starred": true}),
                     into: None,
                     adverbs: None,
+                    then: Vec::new(),
                 },
                 Effect::Call {
                     verb: "triage-service_set-starred".to_string(),
                     args: serde_json::json!({"id": "b", "starred": true}),
                     into: None,
                     adverbs: None,
+                    then: Vec::new(),
                 },
             ]
         );
@@ -627,6 +684,95 @@ mod tests {
                 },
             ]
         );
+    }
+
+    fn call_then_spec(into: Option<&str>, each: Option<&str>, state: Value) -> SurfaceSpec {
+        let mut spec = star_button_spec(state);
+        spec.root = Node::leaf(NodeKind::Button(Button {
+            label: "Go".to_string(),
+            on_click: vec![
+                Action::Set {
+                    path: "state.before".to_string(),
+                    value: serde_json::json!(1),
+                },
+                Action::Call {
+                    verb: "v_x".to_string(),
+                    args: serde_json::json!({"id": if each.is_some() { "{{item}}" } else { "x" }}),
+                    into: into.map(str::to_string),
+                    each: each.map(str::to_string),
+                    adverbs: None,
+                },
+                Action::Set {
+                    path: "state.after".to_string(),
+                    value: serde_json::json!("{{state.got}}"),
+                },
+            ],
+        }))
+        .with_id("star-btn");
+        spec
+    }
+
+    #[test]
+    fn the_actions_after_a_call_with_into_ride_on_its_effect_unrun() {
+        let spec = call_then_spec(Some("state.got"), None, serde_json::json!({"got": null}));
+        let (state, effects) =
+            reduce(&spec, &spec.state, &Value::Null, &Value::Null, &click()).unwrap();
+        // Before the call: run now. After it: not yet.
+        assert_eq!(state["before"], serde_json::json!(1));
+        assert!(state.get("after").is_none(), "{state}");
+        let Effect::Call { then, .. } = &effects[0] else {
+            panic!("a call")
+        };
+        assert_eq!(then.len(), 1);
+
+        // The runtime writes `into`, then runs the rest against that state.
+        let mut state = state;
+        state["got"] = serde_json::json!("page-2");
+        let more = run_then(&mut state, then, &Value::Null, &Value::Null, &click()).unwrap();
+        assert!(more.is_empty());
+        assert_eq!(state["after"], serde_json::json!("page-2"));
+    }
+
+    #[test]
+    fn a_call_without_into_or_with_nothing_after_it_carries_nothing() {
+        let spec = call_then_spec(None, None, serde_json::json!({"got": 7}));
+        let (state, effects) =
+            reduce(&spec, &spec.state, &Value::Null, &Value::Null, &click()).unwrap();
+        assert_eq!(state["after"], serde_json::json!(7));
+        assert!(matches!(&effects[0], Effect::Call { then, .. } if then.is_empty()));
+
+        let mut spec = call_then_spec(Some("state.got"), None, serde_json::json!({"got": 7}));
+        if let NodeKind::Button(b) = &mut spec.root.kind {
+            b.on_click.pop();
+        }
+        let (_, effects) =
+            reduce(&spec, &spec.state, &Value::Null, &Value::Null, &click()).unwrap();
+        assert!(matches!(&effects[0], Effect::Call { then, .. } if then.is_empty()));
+    }
+
+    #[test]
+    fn under_each_the_rest_rides_on_the_last_call_and_an_empty_fan_out_runs_it_now() {
+        let spec = call_then_spec(
+            Some("state.got"),
+            Some("state.selected"),
+            serde_json::json!({"selected": ["a", "b"], "got": 1}),
+        );
+        let (state, effects) =
+            reduce(&spec, &spec.state, &Value::Null, &Value::Null, &click()).unwrap();
+        assert!(state.get("after").is_none());
+        assert_eq!(effects.len(), 2);
+        assert!(matches!(&effects[0], Effect::Call { then, .. } if then.is_empty()));
+        assert!(matches!(&effects[1], Effect::Call { then, .. } if then.len() == 1));
+
+        let spec = call_then_spec(
+            Some("state.got"),
+            Some("state.selected"),
+            serde_json::json!({"selected": [], "got": 1}),
+        );
+        let (state, effects) =
+            reduce(&spec, &spec.state, &Value::Null, &Value::Null, &click()).unwrap();
+        assert!(effects.is_empty());
+        assert_eq!(state["after"], serde_json::json!(1));
     }
 
     #[test]
