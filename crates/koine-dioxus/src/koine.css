@@ -224,6 +224,16 @@
   border: 1px dashed var(--koine-color-secondary);
 }
 
+.koine-plot svg { max-width: 100%; height: auto; display: block; }
+
+/* A spec that did not parse: the error text in the warning colour. */
+.koine-plot-error {
+  padding: 4px 8px;
+  color: var(--koine-status-warning, var(--koine-color-warning));
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
 .koine-image { max-width: 100%; }
 
 /* A kind this build cannot draw keeps its slot and says so. */

@@ -12,6 +12,7 @@ members = [
     "crates/impress-verb-surface",
     "crates/koine",
     "crates/koine-style-file",
+    "crates/koine-plot",
     "crates/koine-tui",
     "crates/koine-dioxus",
     "crates/koine-web",
@@ -100,6 +101,7 @@ impress-workflow = { path = "crates/impress-workflow" }
 impress-verb-surface = { path = "crates/impress-verb-surface" }
 koine = { path = "crates/koine" }
 koine-style-file = { path = "crates/koine-style-file" }
+koine-plot = { path = "crates/koine-plot" }
 koine-tui = { path = "crates/koine-tui" }
 koine-dioxus = { path = "crates/koine-dioxus" }
 koine-web = { path = "crates/koine-web" }

@@ -14,6 +14,7 @@ dioxus-ssr = { version = "0.7", optional = true }
 # tokio and `inventory`, which a browser cannot build (plan D5).
 koine = { path = "../koine", default-features = false }
 impress-surface = { workspace = true }
+koine-plot = { workspace = true }
 serde_json = { workspace = true }
 koine-workspace-hack.workspace = true
 

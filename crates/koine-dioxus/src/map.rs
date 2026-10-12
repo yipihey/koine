@@ -99,16 +99,31 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
         RenderKind::Table { rows, columns } => table_node(id, label, help, rows, columns, ctx),
         RenderKind::List { rows } => list_node(id, label, help, rows, ctx),
         RenderKind::Plot { spec } => {
-            let spec = spec.to_string();
-            rsx! {
-                div {
-                    class: class("koine-plot", None, ctx, id),
-                    "data-koine-id": "{id}",
-                    "data-koine-focused": focused,
-                    "data-koine-spec": spec,
-                    aria_label: label,
-                    title: help,
-                }
+            let spec_text = spec.to_string();
+            match koine_plot::render_svg_json(spec) {
+                Ok(svg) => rsx! {
+                    div {
+                        class: class("koine-plot", None, ctx, id),
+                        "data-koine-id": "{id}",
+                        "data-koine-focused": focused,
+                        "data-koine-spec": spec_text,
+                        aria_label: label,
+                        title: help,
+                        dangerous_inner_html: svg,
+                    }
+                },
+                // A spec that does not parse keeps its slot and names why.
+                Err(error) => rsx! {
+                    div {
+                        class: class("koine-plot koine-plot-error", None, ctx, id),
+                        "data-koine-id": "{id}",
+                        "data-koine-focused": focused,
+                        "data-koine-spec": spec_text,
+                        aria_label: label,
+                        title: help,
+                        "{error}"
+                    }
+                },
             }
         }
         RenderKind::Image { blob, url } => {

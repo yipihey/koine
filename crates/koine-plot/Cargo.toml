@@ -1,0 +1,23 @@
+[package]
+name = "koine-plot"
+description = "The plot spec koine places and the renderers that draw it: SVG for a page, text for a terminal. Pure Rust, builds for wasm32."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# Derive `schemars::JsonSchema` on every spec type, so an agent can be handed
+# the JSON Schema of `plot-spec@1.0.0` without reading Rust source.
+schema = ["dep:schemars"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+schemars = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[lints]
+workspace = true

@@ -120,6 +120,10 @@ pub fn render(tree: &RenderTree) -> String {
     TextFrontend::new().render(tree)
 }
 
+/// The size of the sketch a `plot` node prints.
+const PLOT_COLS: usize = 60;
+const PLOT_ROWS: usize = 14;
+
 fn write_node(
     node: &RenderNode,
     indent: usize,
@@ -138,6 +142,19 @@ fn write_node(
         " ".repeat(focus_width)
     };
     let pad = " ".repeat(indent);
+    if let RenderKind::Plot { spec } = &node.node {
+        // A plot is a header line and then the sketch, one line each, under
+        // the same indent. A spec that does not parse is the one line.
+        match koine_plot::render_text_json(spec, PLOT_COLS, PLOT_ROWS) {
+            Ok(sketch) => {
+                out.push(format!("{mark}{pad}plot"));
+                let under = " ".repeat(focus_width);
+                out.extend(sketch.lines().map(|line| format!("{under}{pad}  {line}")));
+            }
+            Err(error) => out.push(format!("{mark}{pad}plot: {error}")),
+        }
+        return;
+    }
     out.push(format!("{mark}{pad}{}", line_of(node, sheet)));
     let child_indent = indent + indent_of(node, sheet);
     for child in children_of(node) {
@@ -188,6 +205,7 @@ fn line_of(node: &RenderNode, sheet: &koine::style::StyleSheet) -> String {
             )
         }
         RenderKind::List { .. } => fill(sheet.value("list"), &[("label", label)]),
+        // `write_node` prints a plot's sketch itself.
         RenderKind::Plot { .. } => "plot".into(),
         RenderKind::Image { .. } => "image".into(),
         RenderKind::Field { value, .. } => {
@@ -383,6 +401,41 @@ mod tests {
         assert_eq!(frontend.sheet().value("column"), "2");
         let text = frontend.render(&column_of_button());
         assert!(text.contains("\n>  button Save"), "{text}");
+    }
+
+    fn plot_tree(spec: Value) -> RenderTree {
+        RenderTree {
+            root: RenderNode {
+                id: "p".into(),
+                label: None,
+                help: None,
+                node: RenderKind::Plot { spec },
+            },
+            focus_order: vec![],
+        }
+    }
+
+    #[test]
+    fn a_plot_prints_its_sketch_under_a_header() {
+        let spec = serde_json::json!({"title": "t", "series": [{"label": "s", "x": [0, 1, 2], "y": [0, 1, 4]}]});
+        let text = TextFrontend::new().render(&plot_tree(spec));
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], " plot", "{text}");
+        assert_eq!(lines[1], "   t", "{text}");
+        assert!(lines.len() > 10, "{text}");
+        assert!(lines.iter().skip(2).all(|l| l.starts_with("   ")), "{text}");
+        assert!(text.contains("* s"), "{text}");
+        assert!(lines.iter().all(|l| l.chars().count() <= 64), "{text}");
+    }
+
+    #[test]
+    fn a_plot_that_does_not_parse_is_one_line_naming_the_error() {
+        let text =
+            TextFrontend::new().render(&plot_tree(serde_json::json!({"series": [{"x": [1]}]})));
+        assert_eq!(text.lines().count(), 1, "{text}");
+        assert!(text.starts_with(" plot: plot spec: "), "{text}");
+        let wrong = TextFrontend::new().render(&plot_tree(serde_json::json!({"series": 3})));
+        assert!(wrong.starts_with(" plot: plot spec: "), "{wrong}");
     }
 
     fn two_buttons() -> RenderTree {

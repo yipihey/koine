@@ -42,7 +42,8 @@ fn everything() -> RenderTree {
                 { "id": "p2", "title": "B", "year": 2023 },
             ]}},
             { "id": "t-list", "node": { "kind": "list", "rows": ["alpha", "beta"] } },
-            { "id": "plot", "node": { "kind": "plot", "spec": { "x": [1, 2], "y": [3, 4] } } },
+            { "id": "plot", "node": { "kind": "plot", "spec": { "series": [{ "x": [1, 2], "y": [3, 4] }] } } },
+            { "id": "plot-bad", "node": { "kind": "plot", "spec": { "series": [{ "x": [1, 2] }] } } },
             { "id": "img-url", "node": { "kind": "image", "blob": null, "url": "https://example.test/a.png" } },
             { "id": "img-blob", "node": { "kind": "image", "blob": "b-1", "url": null } },
             { "id": "f-text", "label": "Name", "node": { "kind": "field", "field": { "text": {} }, "bind": "state.name", "value": "Ada" } },
@@ -157,6 +158,39 @@ fn every_kind_renders_and_every_id_is_on_the_dom_exactly_once() {
     ] {
         assert!(html.contains(fragment), "missing {fragment}\n{html}");
     }
+}
+
+/// The tag of the element carrying `data-koine-id="id"` and the html after it.
+fn element<'a>(html: &'a str, id: &str) -> (&'a str, &'a str) {
+    let at = html.find(&format!("data-koine-id=\"{id}\"")).unwrap();
+    let start = html[..at].rfind('<').unwrap();
+    let open_end = at + html[at..].find('>').unwrap();
+    (&html[start..open_end], &html[open_end + 1..])
+}
+
+#[test]
+fn a_plot_is_drawn_as_svg_and_a_bad_spec_names_its_error() {
+    let html = render_html(&everything(), &web(), None);
+
+    let (tag, rest) = element(&html, "plot");
+    assert!(attr(tag, "class").unwrap().contains("koine-plot"), "{tag}");
+    assert!(!tag.contains("koine-plot-error"), "{tag}");
+    assert!(attr(tag, "data-koine-spec").is_some(), "{tag}");
+    assert!(rest.starts_with("<svg"), "{rest}");
+    assert!(rest.contains("<polyline"), "{rest}");
+
+    let (tag, rest) = element(&html, "plot-bad");
+    assert!(
+        attr(tag, "class").unwrap().contains("koine-plot-error"),
+        "{tag}"
+    );
+    assert!(rest.starts_with("plot spec: "), "{rest}");
+    assert!(rest.contains("missing field"), "{rest}");
+    assert!(
+        !rest[..rest.find("</div>").unwrap()].contains("<svg"),
+        "{rest}"
+    );
+    assert_eq!(html.matches("koine-plot-error").count(), 1, "{html}");
 }
 
 #[test]

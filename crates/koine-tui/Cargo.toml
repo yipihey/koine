@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 koine = { workspace = true }
 koine-style-file = { workspace = true }
+koine-plot = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 koine-workspace-hack.workspace = true

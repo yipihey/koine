@@ -29,6 +29,6 @@ jobs:
       - name: "wasm32: the browser frontend"
         run: |
           rustup target add wasm32-unknown-unknown
-          cargo check -p koine-dioxus -p koine-web --target wasm32-unknown-unknown
+          cargo check -p koine-plot -p koine-dioxus -p koine-web --target wasm32-unknown-unknown
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings

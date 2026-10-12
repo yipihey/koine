@@ -103,7 +103,7 @@ the SSR goldens:
 | `status{level,message}` | `div[role=status]`, `role=alert` for `error` | color from the `status.<level>` slot |
 | `log{lines}` | `pre.koine-log` | |
 | `kv{pairs}` | `dl` | |
-| `plot{spec}` | `div.koine-plot` with the spec as `data-koine-spec` | drawing a plot is a later crate's; the mapping only places it |
+| `plot{spec}` | `div.koine-plot` holding the SVG `koine_plot::render_svg_json` draws, the spec on `data-koine-spec`; `div.koine-plot-error` naming the error when the spec does not parse | the drawing is `koine-plot`'s; the mapping only places it |
 | `image{blob,url}` | `img` | `blob` is served by the host as `/api/blob/<id>` (not in this plan; placeholder until then) |
 | `divider`, `spacer` | `hr`, `div.koine-spacer` | |
 | `placeholder{unknown_kind,reason}` | `div.koine-placeholder` naming both | the same words the tui prints |
@@ -270,6 +270,7 @@ to publish the bundle as an artifact.
 W0–W6 are built. What landed differs from the text above in these ways,
 each on purpose:
 
+- **A plot is drawn.** `plot{spec}` is drawn by `koine-plot` (plan-koine-followups F-D3, F3), not just placed; the mapping table above is current, and the D12 line "a plot renderer in the browser" is done.
 - **A selection is an array of ids.** A table or list row click sends
   `select` with `[row.id]` (`[index]` when the row has none), the suite's
   convention, not the row index D2 first said.
