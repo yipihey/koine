@@ -52,6 +52,7 @@ fn a_tree_round_trips_and_resolves_to_the_visible_outline() {
             bind,
             expanded,
             actions,
+            ..
         } => {
             assert_eq!(bind.as_deref(), Some("state.open"));
             assert_eq!(expanded, &vec![json!("a")]);

@@ -153,6 +153,10 @@ pub enum RenderKind {
         /// The labels of the row menu (`Tree::actions`).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         actions: Vec<String>,
+        /// The tree declares `on_move`, so a renderer offers drag and drop
+        /// (plan-koine-outline O-D4). Absent (false) for a tree that does not.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        movable: bool,
     },
     /// `graph{…}` (plan-koine-tree-stream T-D3): `spec` is the
     /// `koine_plot::graph::GraphSpec` the rows became (ids as text), `svg`
@@ -434,6 +438,7 @@ fn resolve_kind(
                 bind: t.bind.clone(),
                 expanded,
                 actions: menu_labels(&t.actions),
+                movable: !t.on_move.is_empty(),
             }
         }
         NodeKind::Graph(g) => resolve_graph(g, ctx)?,

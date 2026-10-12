@@ -261,6 +261,7 @@ mod tests {
                 expanded,
                 actions,
                 bind,
+                ..
             } => {
                 let shown: Vec<(&str, u32, bool, bool)> = nodes
                     .iter()

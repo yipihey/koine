@@ -15,7 +15,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// One line of the outline.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -164,6 +164,108 @@ fn display(value: &Value) -> String {
         Value::String(s) => s.clone(),
         other => other.to_string(),
     }
+}
+
+// ── moving nodes (plan-koine-outline O-D4) ──────────────────────────────────
+//
+// A tree's visible nodes are in drawing order with a `depth`, no parent
+// field. The parent of node `i` is the nearest preceding node one level up;
+// its position among its siblings is the number of earlier nodes with the
+// same parent. A collapsed branch hides all its children, so the siblings of
+// a visible node are always all visible and both answers are exact. Every
+// renderer that lets a person move a node (the web's drag and drop, the
+// text frontend's cut and paste) asks these, so a drop and a paste mean the
+// same `move` value. Positions are counted among the siblings as they are
+// *before* the move: a handler that reorders within one parent adjusts for
+// the moved node itself.
+
+/// The index of node `at`'s parent among `nodes`, `None` for a root.
+pub fn parent_index(nodes: &[TreeNode], at: usize) -> Option<usize> {
+    let depth = nodes.get(at)?.depth;
+    nodes[..at].iter().rposition(|n| n.depth < depth)
+}
+
+/// The id of node `at`'s parent: `null` for a root.
+pub fn parent_id(nodes: &[TreeNode], at: usize) -> Value {
+    parent_index(nodes, at).map_or(Value::Null, |p| nodes[p].id.clone())
+}
+
+/// How many siblings precede node `at`: its position under its parent.
+pub fn sibling_index(nodes: &[TreeNode], at: usize) -> usize {
+    let parent = parent_index(nodes, at);
+    (0..at)
+        .filter(|&i| parent_index(nodes, i) == parent && nodes[i].depth == nodes[at].depth)
+        .count()
+}
+
+/// Whether node `at` is `dragged` or inside it: a move there would put a
+/// branch under itself.
+pub fn is_within(nodes: &[TreeNode], dragged: &Value, at: usize) -> bool {
+    let Some(start) = nodes.iter().position(|n| &n.id == dragged) else {
+        return false;
+    };
+    if at < start {
+        return false;
+    }
+    let depth = nodes[start].depth;
+    nodes[start + 1..=at].iter().all(|n| n.depth > depth)
+}
+
+/// `move` value for dropping `dragged` onto row `at`: it becomes that row's
+/// first child. `None` when the row is the dragged one or inside it.
+pub fn drop_on(nodes: &[TreeNode], dragged: &Value, at: usize) -> Option<Value> {
+    let target = nodes.get(at)?;
+    if is_within(nodes, dragged, at) {
+        return None;
+    }
+    Some(json!({"ids": [dragged], "to": target.id, "index": 0}))
+}
+
+/// `move` value for dropping `dragged` in the gap before row `at` (`at ==
+/// nodes.len()` is the gap after the last row, among the roots): a sibling of
+/// that row, at its position. `None` when the new parent is the dragged row or
+/// inside it.
+pub fn drop_gap(nodes: &[TreeNode], dragged: &Value, at: usize) -> Option<Value> {
+    if at > nodes.len() {
+        return None;
+    }
+    let (to, index) = if at == nodes.len() {
+        (
+            Value::Null,
+            (0..at).filter(|&i| nodes[i].depth == 0).count(),
+        )
+    } else {
+        (parent_id(nodes, at), sibling_index(nodes, at))
+    };
+    if let Some(parent) = parent_index(nodes, at).filter(|_| at < nodes.len()) {
+        if is_within(nodes, dragged, parent) {
+            return None;
+        }
+    }
+    Some(json!({"ids": [dragged], "to": to, "index": index}))
+}
+
+/// `move` value for pasting the cut row `cut` into the active row `active`
+/// (`p`): the same as dropping it on the row.
+pub fn paste_into(nodes: &[TreeNode], cut: &Value, active: &Value) -> Option<Value> {
+    let at = nodes.iter().position(|n| &n.id == active)?;
+    drop_on(nodes, cut, at)
+}
+
+/// `move` value for pasting `cut` beside the active row (`P`): a sibling
+/// right after it, under its parent.
+pub fn paste_beside(nodes: &[TreeNode], cut: &Value, active: &Value) -> Option<Value> {
+    let at = nodes.iter().position(|n| &n.id == active)?;
+    if let Some(parent) = parent_index(nodes, at) {
+        if is_within(nodes, cut, parent) {
+            return None;
+        }
+    }
+    Some(json!({
+        "ids": [cut],
+        "to": parent_id(nodes, at),
+        "index": sibling_index(nodes, at) + 1,
+    }))
 }
 
 #[cfg(test)]
@@ -330,5 +432,147 @@ mod tests {
             build(&Value::Array(rows), &all, Fields::default()).len(),
             50_000
         );
+    }
+}
+
+#[cfg(test)]
+mod move_tests {
+    use super::*;
+
+    fn node(id: Value, depth: u32) -> TreeNode {
+        TreeNode {
+            id,
+            label: String::new(),
+            depth,
+            has_children: false,
+            expanded: false,
+            count: None,
+            row: Value::Null,
+        }
+    }
+
+    /// a            (0)
+    ///   b          (1)
+    ///     c        (2)
+    ///   d          (1)
+    /// e            (0)
+    fn outline() -> Vec<TreeNode> {
+        vec![
+            node(json!("a"), 0),
+            node(json!("b"), 1),
+            node(json!("c"), 2),
+            node(json!("d"), 1),
+            node(json!(5), 0),
+        ]
+    }
+
+    #[test]
+    fn a_parent_is_the_nearest_node_one_level_up() {
+        let n = outline();
+        let parents: Vec<Option<usize>> = (0..n.len()).map(|i| parent_index(&n, i)).collect();
+        assert_eq!(parents, vec![None, Some(0), Some(1), Some(0), None]);
+        assert_eq!(parent_id(&n, 2), json!("b"));
+        assert_eq!(parent_id(&n, 4), Value::Null);
+        assert_eq!(parent_index(&n, 9), None);
+    }
+
+    #[test]
+    fn a_sibling_index_counts_earlier_nodes_with_the_same_parent() {
+        let n = outline();
+        let at: Vec<usize> = (0..n.len()).map(|i| sibling_index(&n, i)).collect();
+        // a: first root; b, d: children 0 and 1 of a; c: only child of b;
+        // 5: second root.
+        assert_eq!(at, vec![0, 0, 0, 1, 1]);
+    }
+
+    #[test]
+    fn a_node_is_within_itself_and_its_descendants_only() {
+        let n = outline();
+        let within: Vec<bool> = (0..n.len())
+            .map(|i| is_within(&n, &json!("a"), i))
+            .collect();
+        assert_eq!(within, vec![true, true, true, true, false]);
+        let within: Vec<bool> = (0..n.len())
+            .map(|i| is_within(&n, &json!("b"), i))
+            .collect();
+        assert_eq!(within, vec![false, true, true, false, false]);
+        assert!(!is_within(&n, &json!("missing"), 2));
+    }
+
+    #[test]
+    fn dropping_on_a_row_makes_the_dragged_row_its_first_child() {
+        let n = outline();
+        assert_eq!(
+            drop_on(&n, &json!(5), 0),
+            Some(json!({"ids": [5], "to": "a", "index": 0}))
+        );
+        assert_eq!(
+            drop_on(&n, &json!("c"), 3),
+            Some(json!({"ids": ["c"], "to": "d", "index": 0}))
+        );
+        // Onto itself or its own descendant: nothing.
+        assert_eq!(drop_on(&n, &json!("a"), 0), None);
+        assert_eq!(drop_on(&n, &json!("a"), 2), None);
+        assert_eq!(drop_on(&n, &json!("a"), 9), None);
+    }
+
+    #[test]
+    fn dropping_in_a_gap_makes_a_sibling_at_that_position() {
+        let n = outline();
+        // Before `d`: under a, after b.
+        assert_eq!(
+            drop_gap(&n, &json!(5), 3),
+            Some(json!({"ids": [5], "to": "a", "index": 1}))
+        );
+        // Before `a`: first root.
+        assert_eq!(
+            drop_gap(&n, &json!(5), 0),
+            Some(json!({"ids": [5], "to": null, "index": 0}))
+        );
+        // Before `5`: second root; the gap after the last row: third.
+        assert_eq!(
+            drop_gap(&n, &json!("c"), 4),
+            Some(json!({"ids": ["c"], "to": null, "index": 1}))
+        );
+        assert_eq!(
+            drop_gap(&n, &json!("c"), 5),
+            Some(json!({"ids": ["c"], "to": null, "index": 2}))
+        );
+        // Before `c`: its parent is `b`, which is the dragged row.
+        assert_eq!(drop_gap(&n, &json!("b"), 2), None);
+        // Beside the dragged row's own parent is fine.
+        assert_eq!(
+            drop_gap(&n, &json!("c"), 1),
+            Some(json!({"ids": ["c"], "to": "a", "index": 0}))
+        );
+        assert_eq!(drop_gap(&n, &json!("c"), 6), None);
+        assert_eq!(
+            drop_gap(&[], &json!("c"), 0),
+            Some(json!({"ids": ["c"], "to": null, "index": 0}))
+        );
+    }
+
+    #[test]
+    fn a_paste_goes_under_the_active_row_or_right_after_it() {
+        let n = outline();
+        assert_eq!(
+            paste_into(&n, &json!(5), &json!("b")),
+            Some(json!({"ids": [5], "to": "b", "index": 0}))
+        );
+        assert_eq!(paste_into(&n, &json!("a"), &json!("c")), None);
+        assert_eq!(paste_into(&n, &json!(5), &json!("gone")), None);
+        // Beside `b` (child 0 of a): child 1 of a.
+        assert_eq!(
+            paste_beside(&n, &json!(5), &json!("b")),
+            Some(json!({"ids": [5], "to": "a", "index": 1}))
+        );
+        // Beside a root: after it among the roots.
+        assert_eq!(
+            paste_beside(&n, &json!("c"), &json!("a")),
+            Some(json!({"ids": ["c"], "to": null, "index": 1}))
+        );
+        // Beside a row whose parent is inside the cut branch.
+        assert_eq!(paste_beside(&n, &json!("b"), &json!("c")), None);
+        assert_eq!(paste_beside(&n, &json!("b"), &json!("gone")), None);
     }
 }

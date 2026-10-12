@@ -193,6 +193,82 @@
   background: color-mix(in srgb, var(--koine-color-accent) 12%, transparent);
 }
 
+/* The outline (docs/plan-koine-outline.md): the active row, counts, the row
+   menu, the rename input and drag and drop. */
+
+.koine-list > li,
+.koine-tree-node,
+.koine-table td:first-child {
+  position: relative;
+}
+
+/* The row the cursor is on. A little stronger than hover, and an outline so
+   it survives a theme that makes the two backgrounds alike. */
+.koine-list > li.koine-active,
+.koine-tree-node.koine-active,
+.koine-table tbody tr.koine-active {
+  background: color-mix(in srgb, var(--koine-color-accent) 24%, transparent);
+  outline: 1px solid var(--koine-color-accent);
+  outline-offset: -1px;
+}
+
+.koine-count {
+  margin-left: auto;
+  padding-left: 0.75em;
+  color: var(--koine-color-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.koine-menu {
+  position: absolute;
+  z-index: 10;
+  top: 100%;
+  left: 1.5em;
+  margin: 0;
+  padding: 4px 0;
+  min-width: 10em;
+  list-style: none;
+  background: Canvas;
+  color: CanvasText;
+  border: 1px solid var(--koine-color-secondary);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.2);
+}
+
+.koine-menu-item {
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+.koine-menu-item:hover {
+  background: color-mix(in srgb, var(--koine-color-accent) 18%, transparent);
+}
+
+.koine-rename-form {
+  margin: 0;
+}
+
+.koine-rename {
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 4px;
+}
+
+[draggable="true"] {
+  cursor: grab;
+}
+
+/* A thin target between rows, drawn only while a drag is in progress. */
+.koine-drop-gap {
+  height: 6px;
+  margin: -3px 0;
+  position: relative;
+  z-index: 1;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--koine-color-accent) 35%, transparent);
+}
+
 /* Widgets */
 
 .koine-button {

@@ -27,6 +27,21 @@ pub async fn focus_widget(id: &str) {
     eval_string(&script).await;
 }
 
+/// Scroll the active row of the widget `id` into view, after the page has
+/// drawn it (one macrotask later). Does nothing when the widget has none.
+pub async fn scroll_active_row(id: &str) {
+    let script = format!(
+        r#"await new Promise(r => setTimeout(r, 0));
+        const id = {id};
+        const el = Array.from(document.querySelectorAll('[data-koine-id]')).find(e => e.dataset.koineId === id);
+        const row = el ? el.querySelector('[data-koine-active]') : null;
+        if (row) {{ row.scrollIntoView({{ block: 'nearest' }}); }}
+        return '';"#,
+        id = js_string(id)
+    );
+    eval_string(&script).await;
+}
+
 /// The `data-koine-id` of the widget that now has DOM focus, read after the
 /// browser has finished its own Tab handling (one macrotask later).
 pub async fn focused_widget() -> Option<String> {

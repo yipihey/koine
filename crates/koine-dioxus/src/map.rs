@@ -11,12 +11,15 @@
 //! DOM's tab order is the tree's. Rows and tab buttons are clicked, not
 //! tabbed: they carry `tabindex="-1"` so they stay out of that order.
 
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 use impress_surface::resolve::RenderTab;
 use impress_surface::tree::TreeNode;
 use impress_surface::{Event, EventKind, RenderKind, RenderNode};
 use serde_json::{json, Value};
 
+use crate::outline::{self, RowRef};
 use crate::{font_class, Ctx, FileChosen};
 
 /// One node, and everything under it.
@@ -98,14 +101,9 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                 "{text}"
             }
         },
-        RenderKind::Table {
-            rows,
-            columns,
-            id_field,
-            ..
-        } => table_node(id, label, help, rows, columns, id_field.as_deref(), ctx),
-        RenderKind::List { rows, .. } => list_node(id, label, help, rows, ctx),
-        RenderKind::Tree { nodes, .. } => tree_node(id, label, help, nodes, ctx),
+        RenderKind::Table { .. } => table_node(node, ctx),
+        RenderKind::List { .. } => list_node(node, ctx),
+        RenderKind::Tree { .. } => tree_node(node, ctx),
         RenderKind::Graph { svg, .. } => {
             let on_event = ctx.on_event;
             let widget = id.to_string();
@@ -423,15 +421,94 @@ fn tabs_node(
     }
 }
 
-fn table_node(
-    id: &str,
-    label: Option<String>,
-    help: Option<String>,
-    rows: &Value,
-    columns: &[String],
-    id_field: Option<&str>,
-    ctx: &Ctx<'_>,
-) -> Element {
+/// Whether `row` is the widget's active row.
+fn is_active(ctx: &Ctx<'_>, widget: &str, row: &Value) -> bool {
+    ctx.active.get(widget) == Some(row)
+}
+
+/// `koine-active` for the active row, no class otherwise.
+fn row_class(base: &str, active: bool) -> String {
+    if active {
+        format!("{base} koine-active")
+    } else {
+        base.to_string()
+    }
+}
+
+/// Whether the menu is open on this row.
+fn menu_is_open(ctx: &Ctx<'_>, widget: &str, row: &Value) -> bool {
+    matches!(&*ctx.menu.read(), Some((w, r)) if w == widget && r == row)
+}
+
+/// The row menu: a `ul.koine-menu` of the labels, drawn inside the row it
+/// belongs to (the row is `position: relative`, the menu is placed under it).
+/// Choosing an entry sends `menu` with `{"id", "action"}` and closes; the
+/// click does not reach the row, which would select it.
+fn menu_list(ctx: &Ctx<'_>, widget: &str, row: &Value, actions: &[String]) -> Element {
+    if actions.is_empty() || !menu_is_open(ctx, widget, row) {
+        return rsx! {};
+    }
+    rsx! {
+        ul {
+            class: "koine-menu",
+            role: "menu",
+            "data-koine-menu": "{widget}",
+            onclick: move |e| e.stop_propagation(),
+            oncontextmenu: move |e| {
+                e.prevent_default();
+                e.stop_propagation();
+            },
+            for (index , action) in actions.iter().enumerate() {
+                {
+                    let on_event = ctx.on_event;
+                    let mut menu = ctx.menu;
+                    let widget = widget.to_string();
+                    let row = row.clone();
+                    let action = action.clone();
+                    rsx! {
+                        li {
+                            key: "{index}",
+                            class: "koine-menu-item",
+                            role: "menuitem",
+                            onclick: move |e| {
+                                e.stop_propagation();
+                                menu.set(None);
+                                on_event
+                                    .call(
+                                        event(&widget, EventKind::Menu, outline::menu_value(&row, &action)),
+                                    );
+                            },
+                            "{action}"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// `span.koine-count` for a row that has a count.
+fn count_span(count: Option<String>) -> Element {
+    match count {
+        Some(count) => rsx! {
+            span { class: "koine-count", "{count}" }
+        },
+        None => rsx! {},
+    }
+}
+
+fn table_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
+    let RenderKind::Table {
+        rows,
+        columns,
+        id_field,
+        actions,
+        count_field,
+    } = &node.node
+    else {
+        return rsx! {};
+    };
+    let id = node.id.as_str();
     let focused = is_focused(ctx, id).then_some("true");
     let rows: &[Value] = rows.as_array().map_or(&[], Vec::as_slice);
     rsx! {
@@ -440,8 +517,8 @@ fn table_node(
             tabindex: 0,
             "data-koine-id": "{id}",
             "data-koine-focused": focused,
-            aria_label: label,
-            title: help,
+            aria_label: node.label.clone(),
+            title: node.help.clone(),
             thead {
                 tr {
                     for column in columns {
@@ -454,15 +531,42 @@ fn table_node(
                     {
                         let on_event = ctx.on_event;
                         let widget = id.to_string();
-                        let selected = selection_of(row, id_field, index);
+                        let key = outline::row_key(row, id_field.as_deref(), index);
+                        let active = is_active(ctx, id, &key);
+                        let selected = selection_of(row, id_field.as_deref(), index);
+                        let activated = Value::Array(vec![key.clone()]);
+                        let has_menu = !actions.is_empty();
+                        let (menu_widget, menu_row) = (widget.clone(), key.clone());
+                        let menu = ctx.menu;
+                        let count = outline::count_text(row, count_field.as_deref());
+                        let menu_el = menu_list(ctx, id, &key, actions);
                         rsx! {
                             tr {
                                 key: "{index}",
+                                class: active.then_some("koine-active"),
                                 tabindex: -1,
                                 "data-koine-row": "{index}",
+                                "data-koine-active": active.then_some("true"),
                                 onclick: move |_| on_event.call(event(&widget, EventKind::Select, selected.clone())),
-                                for column in columns {
-                                    td { key: "{column}", "{cell(row, column)}" }
+                                ondoubleclick: {
+                                    let widget = menu_widget.clone();
+                                    move |_| on_event.call(event(&widget, EventKind::Activate, activated.clone()))
+                                },
+                                oncontextmenu: move |e| {
+                                    if has_menu {
+                                        e.prevent_default();
+                                        let mut menu = menu;
+                                        menu.set(Some((menu_widget.clone(), menu_row.clone())));
+                                    }
+                                },
+                                for (position , column) in columns.iter().enumerate() {
+                                    td { key: "{column}",
+                                        "{cell(row, column)}"
+                                        if position == 0 {
+                                            {count_span(count.clone())}
+                                            {menu_el.clone()}
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -473,13 +577,16 @@ fn table_node(
     }
 }
 
-fn list_node(
-    id: &str,
-    label: Option<String>,
-    help: Option<String>,
-    rows: &Value,
-    ctx: &Ctx<'_>,
-) -> Element {
+fn list_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
+    let RenderKind::List {
+        rows,
+        actions,
+        count_field,
+    } = &node.node
+    else {
+        return rsx! {};
+    };
+    let id = node.id.as_str();
     let focused = is_focused(ctx, id).then_some("true");
     let rows: &[Value] = rows.as_array().map_or(&[], Vec::as_slice);
     rsx! {
@@ -488,20 +595,43 @@ fn list_node(
             tabindex: 0,
             "data-koine-id": "{id}",
             "data-koine-focused": focused,
-            aria_label: label,
-            title: help,
+            aria_label: node.label.clone(),
+            title: node.help.clone(),
             for (index , row) in rows.iter().enumerate() {
                 {
                     let on_event = ctx.on_event;
                     let widget = id.to_string();
+                    let key = outline::row_key(row, None, index);
+                    let active = is_active(ctx, id, &key);
                     let selected = selection_of(row, None, index);
+                    let activated = Value::Array(vec![key.clone()]);
+                    let has_menu = !actions.is_empty();
+                    let (menu_widget, menu_row) = (widget.clone(), key.clone());
+                    let menu = ctx.menu;
+                    let count = outline::count_text(row, count_field.as_deref());
+                    let menu_el = menu_list(ctx, id, &key, actions);
                     rsx! {
                         li {
                             key: "{index}",
+                            class: active.then_some("koine-active"),
                             tabindex: -1,
                             "data-koine-row": "{index}",
+                            "data-koine-active": active.then_some("true"),
                             onclick: move |_| on_event.call(event(&widget, EventKind::Select, selected.clone())),
+                            ondoubleclick: {
+                                let widget = menu_widget.clone();
+                                move |_| on_event.call(event(&widget, EventKind::Activate, activated.clone()))
+                            },
+                            oncontextmenu: move |e| {
+                                if has_menu {
+                                    e.prevent_default();
+                                    let mut menu = menu;
+                                    menu.set(Some((menu_widget.clone(), menu_row.clone())));
+                                }
+                            },
                             "{row_text(row)}"
+                            {count_span(count)}
+                            {menu_el}
                         }
                     }
                 }
@@ -511,81 +641,300 @@ fn list_node(
 }
 
 /// A `tree`: the visible outline the resolver computed, one `li` per node.
-/// A disclosure click sends `change` with the new expanded list (this node's
-/// id toggled in the ids the visible nodes show expanded); a label click
-/// sends `select` with `[id]`. Rows are clicked, not tabbed, as a table's are.
-fn tree_node(
-    id: &str,
-    label: Option<String>,
-    help: Option<String>,
-    nodes: &[TreeNode],
-    ctx: &Ctx<'_>,
-) -> Element {
+///
+/// - A disclosure click sends `change` with the *whole* expanded list the
+///   resolver carried (O-D2), this node's id added or removed; a label click
+///   sends `select` with `[id]`; a double-click on the label sends `activate`.
+/// - The active row is `data-koine-active` / `koine-active`; a node's count
+///   is a `span.koine-count` after its label.
+/// - Right-click on a row opens its menu when the tree declares `actions`.
+/// - A row being renamed shows an `input.koine-rename` in place of its label:
+///   Enter sends `rename` `{"id", "label"}` and closes, Escape closes.
+/// - A `movable` tree's rows are `draggable`. Dropping on a row sends `move`
+///   with that row as the new parent (`index` 0); while a drag is in progress
+///   a `li.koine-drop-gap` between rows drops as a sibling at that position
+///   (see [`outline`]). One row at a time: no multi-select drag.
+///
+/// Rows are clicked, not tabbed, as a table's are.
+fn tree_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
+    let RenderKind::Tree {
+        nodes,
+        expanded,
+        actions,
+        movable,
+        ..
+    } = &node.node
+    else {
+        return rsx! {};
+    };
+    let id = node.id.as_str();
     let focused = is_focused(ctx, id).then_some("true");
-    let expanded: Vec<Value> = nodes
-        .iter()
-        .filter(|n| n.expanded)
-        .map(|n| n.id.clone())
-        .collect();
+    // What a drop handler needs to decide with, shared by every row.
+    let all: Rc<Vec<TreeNode>> = Rc::new(nodes.clone());
+    let dragged: Option<Value> = if *movable {
+        ctx.dragging
+            .read()
+            .as_ref()
+            .filter(|(w, _)| w == id)
+            .map(|(_, row)| row.clone())
+    } else {
+        None
+    };
+    let renaming: Option<Value> = ctx
+        .renaming
+        .read()
+        .as_ref()
+        .filter(|(w, _)| w == id)
+        .map(|(_, row)| row.clone());
+    let end_gap = dragged
+        .as_ref()
+        .map(|dragged| gap_row(ctx, id, &all, dragged, all.len()));
     rsx! {
         ul {
             class: class("koine-tree", None, ctx, id),
             tabindex: 0,
             "data-koine-id": "{id}",
             "data-koine-focused": focused,
-            aria_label: label,
-            title: help,
+            aria_label: node.label.clone(),
+            title: node.help.clone(),
             for (index , node) in nodes.iter().enumerate() {
                 {
                     let on_event = ctx.on_event;
                     let widget = id.to_string();
                     let selected = Value::Array(vec![node.id.clone()]);
-                    let toggled = toggled(&expanded, &node.id);
+                    let opened = Value::Array(vec![node.id.clone()]);
+                    let toggled = outline::set_open(expanded, &node.id, !node.expanded);
                     let widget_for_toggle = widget.clone();
                     let is_open = node.expanded;
                     let indent = format!("padding-left: calc({} * 1.25em)", node.depth);
+                    let active = is_active(ctx, id, &node.id);
+                    let has_menu = !actions.is_empty();
+                    let menu_el = menu_list(ctx, id, &node.id, actions);
+                    let count = node.count.as_ref().map(display);
+                    let menu_target = (widget.clone(), node.id.clone());
+                    let menu = ctx.menu;
+                    let gap = dragged.as_ref().map(|dragged| gap_row(ctx, id, &all, dragged, index));
+                    let editing = renaming.as_ref() == Some(&node.id);
+                    let rename_el = if editing {
+                        rename_input(ctx, id, node)
+                    } else {
+                        rsx! {}
+                    };
+                    let drag = drag_handlers(ctx, id, &all, index, *movable);
                     rsx! {
-                        li {
-                            key: "{index}",
-                            class: "koine-tree-node",
-                            style: indent,
-                            tabindex: -1,
-                            "data-koine-depth": "{node.depth}",
-                            "data-koine-row": "{index}",
-                            if node.has_children {
-                                button {
-                                    class: "koine-tree-disclosure",
-                                    tabindex: -1,
-                                    aria_expanded: if is_open { "true" } else { "false" },
-                                    onclick: move |_| on_event.call(event(&widget_for_toggle, EventKind::Change, toggled.clone())),
-                                    if is_open {
-                                        "\u{25be}"
-                                    } else {
-                                        "\u{25b8}"
+                        Fragment { key: "{index}",
+                            {gap}
+                            li {
+                                class: row_class("koine-tree-node", active),
+                                style: indent,
+                                tabindex: -1,
+                                draggable: movable.then_some("true"),
+                                "data-koine-depth": "{node.depth}",
+                                "data-koine-row": "{index}",
+                                "data-koine-active": active.then_some("true"),
+                                oncontextmenu: move |e| {
+                                    if has_menu {
+                                        e.prevent_default();
+                                        let mut menu = menu;
+                                        menu.set(Some(menu_target.clone()));
+                                    }
+                                },
+                                ondragstart: drag.start,
+                                ondragend: drag.end,
+                                ondragover: drag.over,
+                                ondrop: drag.drop,
+                                if node.has_children {
+                                    button {
+                                        class: "koine-tree-disclosure",
+                                        tabindex: -1,
+                                        aria_expanded: if is_open { "true" } else { "false" },
+                                        onclick: move |_| on_event.call(event(&widget_for_toggle, EventKind::Change, toggled.clone())),
+                                        if is_open {
+                                            "\u{25be}"
+                                        } else {
+                                            "\u{25b8}"
+                                        }
                                     }
                                 }
-                            }
-                            span {
-                                class: "koine-tree-label",
-                                onclick: move |_| on_event.call(event(&widget, EventKind::Select, selected.clone())),
-                                "{node.label}"
+                                if editing {
+                                    {rename_el}
+                                } else {
+                                    span {
+                                        class: "koine-tree-label",
+                                        onclick: move |_| on_event.call(event(&widget, EventKind::Select, selected.clone())),
+                                        ondoubleclick: {
+                                            let widget = id.to_string();
+                                            move |_| on_event.call(event(&widget, EventKind::Activate, opened.clone()))
+                                        },
+                                        "{node.label}"
+                                    }
+                                }
+                                {count_span(count)}
+                                {menu_el}
                             }
                         }
                     }
                 }
             }
+            {end_gap}
         }
     }
 }
 
-/// The expanded list with `id` toggled: removed when it is there, else
-/// appended.
-pub(crate) fn toggled(expanded: &[Value], id: &Value) -> Value {
-    let mut out: Vec<Value> = expanded.iter().filter(|e| *e != id).cloned().collect();
-    if out.len() == expanded.len() {
-        out.push(id.clone());
+/// The rename input that stands in for a label: a one-field form so Enter
+/// submits it natively, with the current text selected for typing over.
+fn rename_input(ctx: &Ctx<'_>, widget: &str, node: &TreeNode) -> Element {
+    let on_event = ctx.on_event;
+    let mut renaming = ctx.renaming;
+    let (widget, row) = (widget.to_string(), node.id.clone());
+    let current = node.label.clone();
+    let fallback = node.label.clone();
+    rsx! {
+        form {
+            class: "koine-tree-label koine-rename-form",
+            onsubmit: move |e| {
+                e.prevent_default();
+                let text = match e.get_first("label") {
+                    Some(FormValue::Text(text)) => text,
+                    _ => fallback.clone(),
+                };
+                renaming.set(None);
+                on_event.call(event(&widget, EventKind::Rename, outline::rename_value(&row, &text)));
+            },
+            onclick: move |e| e.stop_propagation(),
+            input {
+                class: "koine-rename",
+                name: "label",
+                r#type: "text",
+                value: "{current}",
+                autofocus: true,
+                onmounted: move |e| {
+                    spawn(async move {
+                        let _ = e.set_focus(true).await;
+                    });
+                },
+                onkeydown: move |e| {
+                    if e.key() == Key::Escape {
+                        e.stop_propagation();
+                        renaming.set(None);
+                    }
+                },
+            }
+        }
     }
-    Value::Array(out)
+}
+
+/// The four drag-and-drop handlers of one row; they do nothing for a tree
+/// that is not `movable` (and a row that is not `draggable` never starts one).
+struct DragHandlers {
+    start: EventHandler<DragEvent>,
+    end: EventHandler<DragEvent>,
+    over: EventHandler<DragEvent>,
+    drop: EventHandler<DragEvent>,
+}
+
+/// The `move` a drop on row `index` would send, when a drag of this widget is
+/// in progress and the row may take it.
+fn drop_value(
+    dragging: &Signal<Option<RowRef>>,
+    widget: &str,
+    all: &[TreeNode],
+    index: usize,
+) -> Option<Value> {
+    let (from, dragged) = dragging.peek().clone()?;
+    if from != widget {
+        return None;
+    }
+    outline::drop_on(all, &dragged, index)
+}
+
+/// The handlers for row `index`. `start` records the dragged id and gives the
+/// browser something to carry (Firefox starts no drag without data); `over`
+/// accepts a drop only on a row this drag may land on; `drop` sends `move`.
+fn drag_handlers(
+    ctx: &Ctx<'_>,
+    widget: &str,
+    all: &Rc<Vec<TreeNode>>,
+    index: usize,
+    movable: bool,
+) -> DragHandlers {
+    if !movable {
+        let inert = || EventHandler::new(|_: DragEvent| {});
+        return DragHandlers {
+            start: inert(),
+            end: inert(),
+            over: inert(),
+            drop: inert(),
+        };
+    }
+    let mut dragging = ctx.dragging;
+    let on_event = ctx.on_event;
+    let row = all[index].id.clone();
+    let start_widget = widget.to_string();
+    let start = EventHandler::new(move |e: DragEvent| {
+        let transfer = e.data_transfer();
+        let _ = transfer.set_data("text/plain", &display(&row));
+        transfer.set_effect_allowed("move");
+        dragging.set(Some((start_widget.clone(), row.clone())));
+    });
+    let end = EventHandler::new(move |_: DragEvent| dragging.set(None));
+    let (over_all, over_widget) = (all.clone(), widget.to_string());
+    let over = EventHandler::new(move |e: DragEvent| {
+        if drop_value(&dragging, &over_widget, &over_all, index).is_some() {
+            e.prevent_default();
+        }
+    });
+    let (drop_all, drop_widget) = (all.clone(), widget.to_string());
+    let drop = EventHandler::new(move |e: DragEvent| {
+        e.prevent_default();
+        e.stop_propagation();
+        if let Some(value) = drop_value(&dragging, &drop_widget, &drop_all, index) {
+            dragging.set(None);
+            on_event.call(event(&drop_widget, EventKind::Move, value));
+        }
+    });
+    DragHandlers {
+        start,
+        end,
+        over,
+        drop,
+    }
+}
+
+/// A thin drop target before row `at` (`at == len` is after the last row),
+/// drawn only while a drag is in progress. Dropping sends `move` as a sibling
+/// at that position; a gap that would put the dragged branch under itself is
+/// not drawn.
+fn gap_row(
+    ctx: &Ctx<'_>,
+    widget: &str,
+    all: &Rc<Vec<TreeNode>>,
+    dragged: &Value,
+    at: usize,
+) -> Element {
+    let Some(value) = outline::drop_gap(all, dragged, at) else {
+        return rsx! {};
+    };
+    let mut dragging = ctx.dragging;
+    let on_event = ctx.on_event;
+    let widget = widget.to_string();
+    let depth = all.get(at).map_or(0, |n| n.depth);
+    rsx! {
+        li {
+            key: "gap-{at}",
+            class: "koine-drop-gap",
+            role: "presentation",
+            style: "margin-left: calc({depth} * 1.25em)",
+            "data-koine-gap": "{at}",
+            ondragover: move |e| e.prevent_default(),
+            ondrop: move |e| {
+                e.prevent_default();
+                e.stop_propagation();
+                dragging.set(None);
+                on_event.call(event(&widget, EventKind::Move, value.clone()));
+            },
+        }
+    }
 }
 
 fn field_node(

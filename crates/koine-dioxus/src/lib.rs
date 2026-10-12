@@ -25,6 +25,7 @@
 //! desktop. The `ssr` feature adds [`render_html`].
 
 mod map;
+pub mod outline;
 #[cfg(target_arch = "wasm32")]
 mod pointer;
 
@@ -33,6 +34,7 @@ use std::collections::BTreeMap;
 use dioxus::prelude::*;
 use impress_surface::{Event, RenderTree};
 use koine::style::{slots, StyleSheet, ValueKind, COLOR_TOKENS, FONT_TOKENS};
+use serde_json::Value;
 
 /// The frontend id this crate applies.
 pub const FRONTEND: &str = "web";
@@ -101,6 +103,18 @@ pub(crate) struct Ctx<'a> {
     /// is wired (the string renderer, a test): the input is drawn and does
     /// nothing.
     pub on_file: Option<EventHandler<FileChosen>>,
+    /// The active row of each row widget, by widget id (the cursor's
+    /// `active_row`, which the page collects). A row whose id equals it is
+    /// drawn `data-koine-active` / `koine-active`.
+    pub active: &'a BTreeMap<String, Value>,
+    /// The row whose menu is open: `(widget, row id)`. Right-click sets it;
+    /// the page sets it for `m`; a choice, Escape or a click elsewhere clears it.
+    pub menu: Signal<Option<RowRef>>,
+    /// The row being renamed, as `menu`: the page sets it for `r`; the input
+    /// clears it on Enter (after sending `rename`) and on Escape.
+    pub renaming: Signal<Option<RowRef>>,
+    /// The row being dragged. The mapping's own memory of a gesture.
+    pub dragging: Signal<Option<RowRef>>,
 }
 
 /// A file the person chose in a `file` field. The mapping reads the bytes
@@ -116,11 +130,27 @@ pub struct FileChosen {
     pub bytes: Vec<u8>,
 }
 
+pub use outline::RowRef;
+
 /// One performance of a [`RenderTree`].
 ///
 /// `sheet` must be tagged `web`; another tag draws a placeholder. `focused` is
 /// the id of the focused widget (the host keeps the cursor, see
 /// `koine::cursor`); it gets `data-koine-focused="true"` and `koine-focused`.
+///
+/// The outline seams (`docs/plan-koine-outline.md`), all optional:
+///
+/// - `active`: the active row of each row widget by widget id. The row gets
+///   `data-koine-active="true"` and `koine-active`. A click on a row sends
+///   the usual `select`; the page reads the row from that event and tells its
+///   cursor, so the mapping has no callback for it.
+/// - `menu`: a signal holding the row whose menu is open. The mapping opens
+///   it on right-click and closes it; the page opens it for `m`. Absent, the
+///   mapping keeps its own.
+/// - `renaming`: a signal holding the row being renamed; the page sets it for
+///   `r`, the mapping draws an input in place of the label and clears it.
+/// - `dragging`: the row being dragged; only a test or a host that wants to
+///   see a drag in progress passes it.
 #[component]
 pub fn Surface(
     tree: ReadSignal<RenderTree>,
@@ -128,8 +158,19 @@ pub fn Surface(
     focused: ReadSignal<Option<String>>,
     on_event: EventHandler<Event>,
     on_file: Option<EventHandler<FileChosen>>,
+    #[props(default)] active: ReadSignal<BTreeMap<String, Value>>,
+    menu: Option<Signal<Option<RowRef>>>,
+    renaming: Option<Signal<Option<RowRef>>>,
+    dragging: Option<Signal<Option<RowRef>>>,
 ) -> Element {
     let active_tab = use_signal(BTreeMap::<String, usize>::new);
+    let own_menu = use_signal(|| None);
+    let own_renaming = use_signal(|| None);
+    let own_dragging = use_signal(|| None);
+    let mut menu = menu.unwrap_or(own_menu);
+    let renaming = renaming.unwrap_or(own_renaming);
+    let dragging = dragging.unwrap_or(own_dragging);
+    let active = active.read();
     let tree = tree.read();
     let sheet = sheet.read();
     let focused = focused.read();
@@ -149,21 +190,60 @@ pub fn Surface(
         on_event,
         active_tab,
         on_file,
+        active: &active,
+        menu,
+        renaming,
+        dragging,
     };
     rsx! {
-        div { class: "koine", style: css_variables(&sheet), {map::node(&tree.root, &ctx)} }
+        div {
+            class: "koine",
+            style: css_variables(&sheet),
+            // A click anywhere else closes an open row menu; a click on the
+            // menu itself stops here.
+            onclick: move |_| {
+                if menu.peek().is_some() {
+                    menu.set(None);
+                }
+            },
+            {map::node(&tree.root, &ctx)}
+        }
     }
+}
+
+/// What the outline seams hold at the moment of a string render: the same
+/// four things [`Surface`] takes as props.
+#[cfg(any(feature = "ssr", test))]
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RowView {
+    pub active: BTreeMap<String, Value>,
+    pub menu: Option<RowRef>,
+    pub renaming: Option<RowRef>,
+    pub dragging: Option<RowRef>,
 }
 
 /// [`Surface`] as a string: the conformance suite's performance, and the first
 /// paint a host may serve before the wasm loads.
 #[cfg(any(feature = "ssr", test))]
 pub fn render_html(tree: &RenderTree, sheet: &StyleSheet, focused: Option<&str>) -> String {
+    render_html_with(tree, sheet, focused, &RowView::default())
+}
+
+/// [`render_html`] with the outline seams set: an active row per widget, an
+/// open menu, a rename in progress, a drag in progress.
+#[cfg(any(feature = "ssr", test))]
+pub fn render_html_with(
+    tree: &RenderTree,
+    sheet: &StyleSheet,
+    focused: Option<&str>,
+    view: &RowView,
+) -> String {
     #[derive(Clone, PartialEq, Props)]
     struct Root {
         tree: RenderTree,
         sheet: StyleSheet,
         focused: Option<String>,
+        view: RowView,
     }
 
     #[component]
@@ -171,8 +251,21 @@ pub fn render_html(tree: &RenderTree, sheet: &StyleSheet, focused: Option<&str>)
         let tree = use_signal(|| props.tree.clone());
         let sheet = use_signal(|| props.sheet.clone());
         let focused = use_signal(|| props.focused.clone());
+        let active = use_signal(|| props.view.active.clone());
+        let menu = use_signal(|| props.view.menu.clone());
+        let renaming = use_signal(|| props.view.renaming.clone());
+        let dragging = use_signal(|| props.view.dragging.clone());
         rsx! {
-            Surface { tree, sheet, focused, on_event: move |_| {} }
+            Surface {
+                tree,
+                sheet,
+                focused,
+                on_event: move |_| {},
+                active,
+                menu,
+                renaming,
+                dragging,
+            }
         }
     }
 
@@ -182,6 +275,7 @@ pub fn render_html(tree: &RenderTree, sheet: &StyleSheet, focused: Option<&str>)
             tree: tree.clone(),
             sheet: sheet.clone(),
             focused: focused.map(str::to_string),
+            view: view.clone(),
         },
     );
     dom.rebuild_in_place();

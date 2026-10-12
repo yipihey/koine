@@ -208,17 +208,218 @@ fn a_tree_is_a_list_of_indented_nodes_with_a_disclosure_per_branch() {
 }
 
 #[test]
-fn a_disclosure_toggles_one_id_in_the_expanded_list() {
+fn a_disclosure_sends_the_whole_expanded_list_with_one_id_changed() {
+    use crate::outline::set_open;
     use serde_json::json;
+    let all = [json!("a"), json!("hidden")];
+    assert_eq!(set_open(&all, &json!(7), true), json!(["a", "hidden", 7]));
+    assert_eq!(set_open(&all, &json!("a"), false), json!(["hidden"]));
+    assert_eq!(set_open(&[], &json!("a"), true), json!(["a"]));
+}
+
+/// A tree with every outline field: counts, a menu, an expanded list that
+/// keeps a hidden branch, and a table and a list with counts and menus.
+fn outline() -> RenderTree {
+    tree(
+        json!({ "id": "root", "node": { "kind": "column", "items": [
+            { "id": "side", "node": { "kind": "tree", "bind": "state.open",
+                "expanded": ["a", "hidden"], "actions": ["Rename", "Delete"], "movable": true,
+                "nodes": [
+                    { "id": "a", "label": "src", "depth": 0, "has_children": true, "expanded": true, "count": 3, "row": { "id": "a" } },
+                    { "id": "b", "label": "main.rs", "depth": 1, "has_children": false, "expanded": false, "row": { "id": "b" } },
+                    { "id": 7, "label": "docs", "depth": 0, "has_children": true, "expanded": false, "count": 0, "row": { "id": 7 } },
+                ]}},
+            { "id": "tbl", "node": { "kind": "table", "columns": ["title", "year"], "actions": ["Open"],
+                "count_field": "n", "rows": [
+                    { "id": "p1", "title": "A", "year": 2024, "n": 5 },
+                    { "id": "p2", "title": "B", "year": 2023, "n": null },
+                ]}},
+            { "id": "lst", "node": { "kind": "list", "actions": ["Pin"], "count_field": "n",
+                "rows": [{ "id": "x", "title": "alpha", "n": 9 }, "beta"] } },
+        ]}}),
+        json!(["side", "tbl", "lst"]),
+    )
+}
+
+fn row(widget: &str, id: Value) -> Option<crate::RowRef> {
+    Some((widget.to_string(), id))
+}
+
+fn with_active(pairs: &[(&str, Value)]) -> crate::RowView {
+    crate::RowView {
+        active: pairs
+            .iter()
+            .map(|(w, id)| (w.to_string(), id.clone()))
+            .collect(),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn the_active_row_of_a_tree_a_table_and_a_list_is_marked_and_no_other() {
+    let view = with_active(&[("side", json!(7)), ("tbl", json!("p2")), ("lst", json!(1))]);
+    let html = crate::render_html_with(&outline(), &web(), None, &view);
     assert_eq!(
-        super::map::toggled(&[json!("a")], &json!(7)),
-        json!(["a", 7])
+        html.matches("data-koine-active=\"true\"").count(),
+        3,
+        "{html}"
     );
     assert_eq!(
-        super::map::toggled(&[json!("a"), json!(7)], &json!("a")),
-        json!([7])
+        html.matches("koine-active").count(),
+        6,
+        "attribute + class each"
     );
-    assert_eq!(super::map::toggled(&[], &json!("a")), json!(["a"]));
+    for tag in tags(&html) {
+        if attr(tag, "data-koine-active").is_some() {
+            let class = attr(tag, "class").unwrap_or_default();
+            assert!(class.contains("koine-active"), "{tag}");
+            let at = attr(tag, "data-koine-row").unwrap_or_default();
+            if tag.starts_with("li") && class.contains("koine-tree-node") {
+                assert_eq!(attr(tag, "data-koine-depth"), Some("0"));
+                assert_eq!(at, "2", "the node with id 7 is the third row");
+            }
+        }
+    }
+    // With nothing active, nothing is marked.
+    let html = render_html(&outline(), &web(), None);
+    assert!(!html.contains("koine-active") && !html.contains("data-koine-active"));
+    // An id the widget does not have marks nothing.
+    let html = crate::render_html_with(
+        &outline(),
+        &web(),
+        None,
+        &with_active(&[("side", json!("gone"))]),
+    );
+    assert!(!html.contains("data-koine-active"));
+}
+
+#[test]
+fn a_count_is_a_span_after_the_label_and_zero_is_a_count() {
+    let html = render_html(&outline(), &web(), None);
+    // Tree: 3 and 0, none on the leaf; table: 5 (not the null); list: 9.
+    assert_eq!(html.matches("class=\"koine-count\"").count(), 4, "{html}");
+    assert!(html.contains(">src</span><span class=\"koine-count\">3</span>"));
+    assert!(html.contains(">docs</span><span class=\"koine-count\">0</span>"));
+    assert!(
+        html.contains(">A<span class=\"koine-count\">5</span>"),
+        "{html}"
+    );
+    assert!(html.contains(">alpha<span class=\"koine-count\">9</span>"));
+    // No field, no span.
+    let plain = everything();
+    assert!(!render_html(&plain, &web(), None).contains("koine-count"));
+}
+
+#[test]
+fn an_open_menu_lists_the_labels_inside_its_row_and_only_there() {
+    let closed = render_html(&outline(), &web(), None);
+    assert!(!closed.contains("koine-menu"), "{closed}");
+
+    let view = crate::RowView {
+        menu: row("side", json!("a")),
+        ..Default::default()
+    };
+    let html = crate::render_html_with(&outline(), &web(), None, &view);
+    assert_eq!(
+        html.matches("<ul class=\"koine-menu\"").count(),
+        1,
+        "{html}"
+    );
+    assert_eq!(html.matches("koine-menu-item").count(), 2);
+    for label in ["Rename", "Delete"] {
+        assert!(html.contains(&format!(">{label}</li>")), "{label}");
+    }
+    // It is inside the first row's li (before the next li opens).
+    let open = html.find("<ul class=\"koine-menu\"").unwrap();
+    let rest = &html[open..];
+    let close = rest.find("</ul>").unwrap();
+    assert!(!rest[..close].contains("main.rs"));
+    assert!(
+        html[..open]
+            .rfind("<li")
+            .map(|i| html[i..open].contains("src"))
+            == Some(true)
+    );
+
+    // A table and a list menu, on their own rows.
+    for (widget, id, label) in [("tbl", json!("p1"), "Open"), ("lst", json!("x"), "Pin")] {
+        let view = crate::RowView {
+            menu: row(widget, id),
+            ..Default::default()
+        };
+        let html = crate::render_html_with(&outline(), &web(), None, &view);
+        assert_eq!(html.matches("koine-menu-item").count(), 1, "{widget}");
+        assert!(html.contains(&format!(">{label}</li>")), "{widget}");
+    }
+    // A menu on a widget that declares no actions draws nothing.
+    let view = crate::RowView {
+        menu: row("t-tree", json!("a")),
+        ..Default::default()
+    };
+    let html = crate::render_html_with(&everything(), &web(), None, &view);
+    assert!(!html.contains("koine-menu"));
+}
+
+#[test]
+fn a_row_being_renamed_shows_an_input_with_its_text_instead_of_its_label() {
+    let view = crate::RowView {
+        renaming: row("side", json!(7)),
+        ..Default::default()
+    };
+    let html = crate::render_html_with(&outline(), &web(), None, &view);
+    assert_eq!(html.matches("class=\"koine-rename\"").count(), 1, "{html}");
+    let input = tags(&html)
+        .into_iter()
+        .find(|t| t.starts_with("input") && t.contains("koine-rename"))
+        .unwrap();
+    assert_eq!(attr(input, "value"), Some("docs"));
+    assert_eq!(attr(input, "name"), Some("label"));
+    // The label it replaces is gone; the others stay.
+    assert!(!html.contains(">docs</span>"));
+    assert!(html.contains(">src</span>") && html.contains(">main.rs</span>"));
+    // Another widget's id is not renamed here.
+    let view = crate::RowView {
+        renaming: row("tbl", json!(7)),
+        ..Default::default()
+    };
+    let html = crate::render_html_with(&outline(), &web(), None, &view);
+    assert!(!html.contains("koine-rename"));
+}
+
+#[test]
+fn a_movable_tree_has_draggable_rows_and_gaps_only_while_dragging() {
+    let html = render_html(&outline(), &web(), None);
+    let side = &html
+        [html.find("data-koine-id=\"side\"").unwrap()..html.find("data-koine-id=\"tbl\"").unwrap()];
+    assert_eq!(side.matches("draggable=\"true\"").count(), 3, "{side}");
+    assert!(!html.contains("koine-drop-gap"));
+    // A tree that does not declare on_move has no draggable rows.
+    assert!(!render_html(&everything(), &web(), None).contains("draggable"));
+
+    // Dragging the leaf `b`: a gap before each of the three rows plus one at
+    // the end, none of which would put `b` under itself.
+    let view = crate::RowView {
+        dragging: row("side", json!("b")),
+        ..Default::default()
+    };
+    let html = crate::render_html_with(&outline(), &web(), None, &view);
+    assert_eq!(html.matches("koine-drop-gap").count(), 4, "{html}");
+    // Dragging `a` (which holds `b`): the gap before `b` would put `a` under
+    // itself, so it is not drawn.
+    let view = crate::RowView {
+        dragging: row("side", json!("a")),
+        ..Default::default()
+    };
+    let html = crate::render_html_with(&outline(), &web(), None, &view);
+    assert_eq!(html.matches("koine-drop-gap").count(), 3, "{html}");
+    assert!(!html.contains("data-koine-gap=\"1\""));
+    // A drag of another widget draws none.
+    let view = crate::RowView {
+        dragging: row("tbl", json!("p1")),
+        ..Default::default()
+    };
+    let html = crate::render_html_with(&outline(), &web(), None, &view);
+    assert!(!html.contains("koine-drop-gap"));
 }
 
 #[test]

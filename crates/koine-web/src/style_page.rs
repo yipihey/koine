@@ -90,7 +90,8 @@ pub fn StylePage() -> Element {
                     }
                 });
             }
-            KeyAction::Layout(_) | KeyAction::Ignored => {}
+            // No layout here, and no rows to rename, cut or open a menu on.
+            _ => {}
         }
     };
 

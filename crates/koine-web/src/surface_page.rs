@@ -11,8 +11,9 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use impress_surface::{Event, RenderTree};
+use impress_surface::{Event, EventKind, RenderTree};
 use koine::cursor::Cursor;
+use koine_dioxus::outline::{self, MenuKey, RowRef};
 use koine_dioxus::{FileChosen, Surface};
 
 use crate::api::{self, ApiError, WAIT_TIMEOUT_MS};
@@ -40,6 +41,12 @@ struct Live {
     tree: Signal<Option<RenderTree>>,
     cursor: Signal<Cursor>,
     focused: Signal<Option<String>>,
+    /// The row whose menu is open, and the row being renamed: the mapping
+    /// draws them, the page opens them (`m`, `r`) and the mapping closes them.
+    menu: Signal<Option<RowRef>>,
+    renaming: Signal<Option<RowRef>>,
+    /// The row `x` cut, waiting for `p` or `P`.
+    clipboard: Signal<Option<RowRef>>,
     session: Session,
     /// Whether `h` and `l` mean a layout verb here. A surface that fills a
     /// page says yes; one inside a layout pane says no, and the key bubbles to
@@ -83,7 +90,10 @@ impl Live {
             self.focused.set(id.clone());
         }
         if let Some(id) = id {
-            spawn(async move { dom::focus_widget(&id).await });
+            spawn(async move {
+                dom::focus_widget(&id).await;
+                dom::scroll_active_row(&id).await;
+            });
         }
     }
 
@@ -93,7 +103,12 @@ impl Live {
         {
             let tree = self.tree.peek();
             if let Some(tree) = tree.as_ref() {
-                self.cursor.write().set_focus(tree, &event.widget);
+                let mut cursor = self.cursor.write();
+                cursor.set_focus(tree, &event.widget);
+                // A click on a row makes it the widget's active row.
+                if let Some(row) = keys::selected_row(tree, &event) {
+                    cursor.set_active_row(&event.widget, row);
+                }
             }
         }
         let widget = event.widget.clone();
@@ -138,6 +153,9 @@ impl Live {
     }
 
     fn on_keydown(mut self, event: dioxus::events::KeyboardEvent) {
+        if self.menu.peek().is_some() && self.on_menu_key(&event) {
+            return;
+        }
         let action = {
             let tree = self.tree.peek();
             let Some(tree) = tree.as_ref() else { return };
@@ -161,7 +179,58 @@ impl Live {
                     }
                 });
             }
+            KeyAction::Rename(widget, row) => self.renaming.set(Some((widget, row))),
+            KeyAction::Menu(widget, row) => self.menu.set(Some((widget, row))),
+            KeyAction::Cut(widget, row) => self.clipboard.set(Some((widget, row))),
+            paste @ (KeyAction::Paste(..) | KeyAction::PasteBeside(..)) => {
+                let cut = self.clipboard.peek().clone();
+                let event = {
+                    let tree = self.tree.peek();
+                    tree.as_ref()
+                        .zip(cut)
+                        .and_then(|(tree, cut)| keys::paste_event(tree, &cut, &paste))
+                };
+                if let Some(event) = event {
+                    self.clipboard.set(None);
+                    self.on_event(event);
+                }
+            }
         }
+    }
+
+    /// A key while a row menu is open: Escape closes it, a digit chooses that
+    /// entry, Tab closes it and goes on as a Tab, and any other key is
+    /// swallowed so the row cursor holds still under the menu. Returns whether
+    /// the key was dealt with.
+    fn on_menu_key(mut self, event: &dioxus::events::KeyboardEvent) -> bool {
+        let Some((widget, row)) = self.menu.peek().clone() else {
+            return false;
+        };
+        let name = event.key().to_string();
+        if name == "Tab" {
+            self.menu.set(None);
+            return false;
+        }
+        let actions = self
+            .tree
+            .peek()
+            .as_ref()
+            .map(|tree| keys::actions_of(tree, &widget))
+            .unwrap_or_default();
+        event.prevent_default();
+        match outline::menu_key(&name, actions.len()) {
+            MenuKey::Close => self.menu.set(None),
+            MenuKey::Pick(index) => {
+                self.menu.set(None);
+                self.on_event(Event {
+                    widget,
+                    kind: EventKind::Menu,
+                    value: outline::menu_value(&row, &actions[index]),
+                });
+            }
+            MenuKey::Swallow => {}
+        }
+        true
     }
 
     /// After the browser's own Tab: the cursor goes where focus went.
@@ -194,6 +263,9 @@ pub fn SurfaceView(id: String, #[props(default)] embedded: bool) -> Element {
         tree: use_signal(|| None),
         cursor: use_signal(Cursor::new),
         focused: use_signal(|| None),
+        menu: use_signal(|| None),
+        renaming: use_signal(|| None),
+        clipboard: use_signal(|| None),
         session,
         layout_keys: !embedded,
     };
@@ -240,6 +312,28 @@ pub fn SurfaceView(id: String, #[props(default)] embedded: bool) -> Element {
     });
 
     let current = use_memo(move || live.tree.read().clone().unwrap_or_else(keys::empty_tree));
+    let active = use_memo(move || keys::active_rows(&current.read(), &live.cursor.read()));
+
+    // A right-click opens a menu in the mapping; the row it opened on becomes
+    // the active row, so `m`, `r` and the click agree about which row it is.
+    use_effect(move || {
+        if let Some((widget, row)) = live.menu.read().clone() {
+            let mut cursor = live.cursor;
+            cursor.write().set_active_row(&widget, row);
+        }
+    });
+    // A menu or an input that closes takes the DOM focus with it (the element
+    // is gone): give it back to the widget so the next key lands.
+    let mut overlay_open = use_signal(|| false);
+    use_effect(move || {
+        let open = live.menu.read().is_some() || live.renaming.read().is_some();
+        if *overlay_open.peek() && !open {
+            live.show_focus();
+        }
+        if *overlay_open.peek() != open {
+            overlay_open.set(open);
+        }
+    });
     let sheet = use_memo(move || session.style.read().sheet().clone());
     let loaded = live.tree.read().is_some();
     rsx! {
@@ -260,6 +354,9 @@ pub fn SurfaceView(id: String, #[props(default)] embedded: bool) -> Element {
                     focused: live.focused,
                     on_event: move |event| live.on_event(event),
                     on_file: move |chosen| live.on_file(chosen),
+                    active,
+                    menu: live.menu,
+                    renaming: live.renaming,
                 }
             } else {
                 p { class: "kw-note", "rendering…" }

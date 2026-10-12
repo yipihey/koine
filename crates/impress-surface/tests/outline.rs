@@ -362,7 +362,13 @@ fn the_wire_of_a_tree_table_list_that_declare_nothing_new_is_unchanged() {
     // The render tree: neither.
     let tree = resolve(&plain, &plain.state, &Value::Null, &Value::Null);
     let text = serde_json::to_string(&tree).unwrap();
-    for key in ["actions", "count_field", "\"expanded\":[", "\"count\""] {
+    for key in [
+        "actions",
+        "count_field",
+        "\"expanded\":[",
+        "\"count\"",
+        "movable",
+    ] {
         assert!(!text.contains(key), "{key} leaked into {text}");
     }
     let wire = serde_json::to_value(&tree.root).unwrap();
@@ -371,6 +377,29 @@ fn the_wire_of_a_tree_table_list_that_declare_nothing_new_is_unchanged() {
         json!({"id": "a", "label": "src", "depth": 0, "has_children": true,
                "expanded": false, "row": rows()[0]})
     );
+}
+
+#[test]
+fn a_tree_that_declares_on_move_is_movable_and_one_that_does_not_says_nothing() {
+    let s = sidebar();
+    let rendered = resolve(&s, &s.state, &Value::Null, &Value::Null);
+    match &rendered.root.node {
+        RenderKind::Tree { movable, .. } => assert!(movable),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        serde_json::to_value(&rendered.root.node).unwrap()["movable"],
+        json!(true)
+    );
+
+    let plain = spec_of(json!({"id": "t", "tree": {"rows": "{{state.rows}}"}}));
+    let rendered = resolve(&plain, &plain.state, &Value::Null, &Value::Null);
+    match &rendered.root.node {
+        RenderKind::Tree { movable, .. } => assert!(!movable),
+        other => panic!("{other:?}"),
+    }
+    let wire = serde_json::to_value(&rendered.root.node).unwrap();
+    assert!(wire.get("movable").is_none(), "{wire}");
 }
 
 // ── serde ───────────────────────────────────────────────────────────────────

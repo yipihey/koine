@@ -22,8 +22,10 @@
 //! the focused `data-koine-id` back afterwards ([`KeyAction::ReadBack`]).
 
 use impress_layout::Verb;
-use impress_surface::{Event, RenderKind, RenderNode, RenderTree};
-use koine::cursor::{Cursor, Key};
+use impress_surface::{Event, EventKind, RenderKind, RenderNode, RenderTree};
+use koine::cursor::{Cursor, Key, Reply};
+use serde_json::Value;
+use std::collections::BTreeMap;
 
 /// What the page does about one `keydown`.
 #[derive(Debug, Clone, PartialEq)]
@@ -38,12 +40,24 @@ pub enum KeyAction {
     Event(Event),
     /// Post this layout verb (`h` and `l`, the arrows left and right).
     Layout(Box<Verb>),
+    /// `r`: rename this row of this widget (an input in place of its label).
+    /// The widget id and the row id, from the cursor's active row.
+    Rename(String, Value),
+    /// `m` or the menu key: open this row's menu. Only for a widget that
+    /// declares `actions`.
+    Menu(String, Value),
+    /// `x`: remember this row as the one to move (only in a movable tree).
+    Cut(String, Value),
+    /// `p`: move the cut row under this one.
+    Paste(String, Value),
+    /// `P`: move the cut row to just after this one.
+    PasteBeside(String, Value),
 }
 
 impl KeyAction {
     /// Whether the page claims the key (calls `prevent_default`).
     pub fn claims(&self) -> bool {
-        matches!(self, Self::Focus | Self::Event(_) | Self::Layout(_))
+        !matches!(self, Self::Ignored | Self::ReadBack)
     }
 }
 
@@ -68,27 +82,140 @@ pub fn decide(
     let Some(key) = key else {
         return KeyAction::Ignored;
     };
-    match key {
-        Key::Next | Key::Prev => KeyAction::ReadBack,
-        Key::Down | Key::Up => {
-            cursor.event_for(tree, key);
-            KeyAction::Focus
+    if matches!(key, Key::Next | Key::Prev) {
+        return KeyAction::ReadBack;
+    }
+    match cursor.reply_for(tree, key) {
+        Reply::Event(event) => KeyAction::Event(no_position(tree, event)),
+        Reply::Moved => KeyAction::Focus,
+        Reply::Unhandled => match key {
+            Key::Left | Key::Right if layout_keys => match cursor.layout_verb_for(tree, key) {
+                Some(verb) => KeyAction::Layout(Box::new(verb)),
+                None => KeyAction::Ignored,
+            },
+            // The renderer's keys (plan-koine-outline O-D1): each acts on the
+            // active row of the focused widget, and means nothing without one.
+            Key::Rename | Key::Secondary | Key::Menu | Key::Cut | Key::Paste | Key::PasteBeside => {
+                row_action(tree, cursor, key)
+            }
+            _ => KeyAction::Ignored,
+        },
+    }
+}
+
+/// The action for one of the renderer's row keys: the focused widget's active
+/// row, if the widget can do what the key asks (rename and cut are a tree's;
+/// a menu needs `actions`; paste needs a movable tree).
+fn row_action(tree: &RenderTree, cursor: &Cursor, key: Key) -> KeyAction {
+    let Some(widget) = cursor.focused_id(tree) else {
+        return KeyAction::Ignored;
+    };
+    let Some(row) = cursor.active_row(tree, widget).cloned() else {
+        return KeyAction::Ignored;
+    };
+    let Some(node) = find(&tree.root, widget) else {
+        return KeyAction::Ignored;
+    };
+    let widget = widget.to_string();
+    match (&node.node, key) {
+        (RenderKind::Tree { .. }, Key::Rename) => KeyAction::Rename(widget, row),
+        (
+            RenderKind::Tree { actions, .. }
+            | RenderKind::Table { actions, .. }
+            | RenderKind::List { actions, .. },
+            Key::Secondary | Key::Menu,
+        ) if !actions.is_empty() => KeyAction::Menu(widget, row),
+        (RenderKind::Tree { movable: true, .. }, Key::Cut) => KeyAction::Cut(widget, row),
+        (RenderKind::Tree { movable: true, .. }, Key::Paste) => KeyAction::Paste(widget, row),
+        (RenderKind::Tree { movable: true, .. }, Key::PasteBeside) => {
+            KeyAction::PasteBeside(widget, row)
         }
-        Key::Activate => match cursor.event_for(tree, key) {
-            Some(event) => KeyAction::Event(no_position(tree, event)),
-            None => KeyAction::Ignored,
-        },
-        Key::Left | Key::Right if layout_keys => match cursor.layout_verb_for(tree, key) {
-            Some(verb) => KeyAction::Layout(Box::new(verb)),
-            None => KeyAction::Ignored,
-        },
-        Key::Left | Key::Right => KeyAction::Ignored,
-        // The menu key names a widget, and the web has no menu yet.
-        Key::Secondary => KeyAction::Ignored,
-        // The row keys (plan-koine-outline O-D1) are Q2's to wire through
-        // `Cursor::reply_for`.
         _ => KeyAction::Ignored,
     }
+}
+
+/// The menu labels of a `tree`, `table` or `list` widget; empty for any other
+/// widget or an unknown id.
+pub fn actions_of(tree: &RenderTree, widget: &str) -> Vec<String> {
+    match find(&tree.root, widget).map(|node| &node.node) {
+        Some(
+            RenderKind::Tree { actions, .. }
+            | RenderKind::Table { actions, .. }
+            | RenderKind::List { actions, .. },
+        ) => actions.clone(),
+        _ => Vec::new(),
+    }
+}
+
+/// The active row of every row widget in the focus order, by widget id: what
+/// the mapping needs to mark them. A widget without an active row is absent.
+pub fn active_rows(tree: &RenderTree, cursor: &Cursor) -> BTreeMap<String, Value> {
+    tree.focus_order
+        .iter()
+        .filter_map(|id| Some((id.clone(), cursor.active_row(tree, id)?.clone())))
+        .collect()
+}
+
+/// The row a `select` event names, when the event is a row click: a `select`
+/// on a `tree`, `table` or `list` carrying `[id]`. The page makes that row
+/// the widget's active row, so a click and `j`/`k` share one cursor.
+pub fn selected_row(tree: &RenderTree, event: &Event) -> Option<Value> {
+    if event.kind != EventKind::Select {
+        return None;
+    }
+    let is_row_widget = matches!(
+        find(&tree.root, &event.widget).map(|node| &node.node),
+        Some(RenderKind::Tree { .. } | RenderKind::Table { .. } | RenderKind::List { .. })
+    );
+    match &event.value {
+        Value::Array(ids) if is_row_widget && ids.len() == 1 => Some(ids[0].clone()),
+        _ => None,
+    }
+}
+
+/// The `move` event a paste sends: the row cut earlier goes under (`p`) or
+/// right after (`P`) the active row of the same tree. `None` when the key is
+/// not a paste, the cut row is from another widget, the tree is gone, or the
+/// move would put a branch inside itself.
+pub fn paste_event(tree: &RenderTree, cut: &(String, Value), action: &KeyAction) -> Option<Event> {
+    let (widget, active, beside) = match action {
+        KeyAction::Paste(widget, active) => (widget, active, false),
+        KeyAction::PasteBeside(widget, active) => (widget, active, true),
+        _ => return None,
+    };
+    if &cut.0 != widget {
+        return None;
+    }
+    let Some(RenderKind::Tree { nodes, .. }) = find(&tree.root, widget).map(|node| &node.node)
+    else {
+        return None;
+    };
+    let value = if beside {
+        koine_dioxus::outline::paste_beside(nodes, &cut.1, active)?
+    } else {
+        koine_dioxus::outline::paste_into(nodes, &cut.1, active)?
+    };
+    Some(Event {
+        widget: widget.clone(),
+        kind: EventKind::Move,
+        value,
+    })
+}
+
+/// The node with this id, anywhere under `node`.
+fn find<'a>(node: &'a RenderNode, id: &str) -> Option<&'a RenderNode> {
+    if node.id == id {
+        return Some(node);
+    }
+    let children: Vec<&RenderNode> = match &node.node {
+        RenderKind::Column { items }
+        | RenderKind::Row { items }
+        | RenderKind::Grid { items, .. } => items.iter().collect(),
+        RenderKind::Section { body, .. } => vec![body.as_ref()],
+        RenderKind::Tabs { tabs } => tabs.iter().map(|t| &t.body).collect(),
+        _ => Vec::new(),
+    };
+    children.into_iter().find_map(|child| find(child, id))
 }
 
 /// A keyboard `click` on a `plot` or an `image` has no pointer: it carries
@@ -96,21 +223,7 @@ pub fn decide(
 /// sends, so a handler reading `{{event.value.x}}` finds a null, not a missing
 /// path. Any other event is as it was.
 fn no_position(tree: &RenderTree, mut event: Event) -> Event {
-    fn find<'a>(node: &'a RenderNode, id: &str) -> Option<&'a RenderNode> {
-        if node.id == id {
-            return Some(node);
-        }
-        let children: Vec<&RenderNode> = match &node.node {
-            RenderKind::Column { items }
-            | RenderKind::Row { items }
-            | RenderKind::Grid { items, .. } => items.iter().collect(),
-            RenderKind::Section { body, .. } => vec![body.as_ref()],
-            RenderKind::Tabs { tabs } => tabs.iter().map(|t| &t.body).collect(),
-            _ => Vec::new(),
-        };
-        children.into_iter().find_map(|child| find(child, id))
-    }
-    if event.kind == impress_surface::EventKind::Click
+    if event.kind == EventKind::Click
         && matches!(
             find(&tree.root, &event.widget).map(|node| &node.node),
             Some(RenderKind::Plot { .. } | RenderKind::Image { .. })
@@ -247,7 +360,7 @@ fn content_editable(element: &web_sys::Element) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use impress_surface::{EventKind, RenderKind, RenderNode};
+    use impress_surface::{RenderKind, RenderNode};
 
     fn button(id: &str) -> RenderNode {
         RenderNode {
@@ -427,6 +540,308 @@ mod tests {
             KeyAction::Ignored
         );
         assert!(!KeyAction::Ignored.claims());
+    }
+
+    // ── the outline keys (plan-koine-outline) ─────────────────────────────
+
+    /// A movable tree with a menu, a table with one, a list without, and a
+    /// button, all in the focus order.
+    fn outline() -> RenderTree {
+        serde_json::from_value(serde_json::json!({
+            "root": { "id": "root", "node": { "kind": "column", "items": [
+                { "id": "side", "node": { "kind": "tree", "bind": "state.open",
+                    "expanded": ["a"], "actions": ["Rename", "Delete"], "movable": true,
+                    "nodes": [
+                        { "id": "a", "label": "src", "depth": 0, "has_children": true, "expanded": true, "row": {} },
+                        { "id": "b", "label": "main.rs", "depth": 1, "has_children": false, "expanded": false, "row": {} },
+                        { "id": "c", "label": "docs", "depth": 0, "has_children": false, "expanded": false, "row": {} }
+                    ]}},
+                { "id": "ro", "node": { "kind": "tree", "nodes": [
+                        { "id": "r1", "label": "read-only", "depth": 0, "has_children": false, "expanded": false, "row": {} }
+                    ]}},
+                { "id": "tbl", "node": { "kind": "table", "columns": ["title"], "actions": ["Open"],
+                    "rows": [{ "id": "p1", "title": "A" }, { "id": "p2", "title": "B" }]}},
+                { "id": "lst", "node": { "kind": "list", "rows": ["x", "y"] } },
+                { "id": "go", "node": { "kind": "button", "label": "Go" } }
+            ]}},
+            "focus_order": ["side", "ro", "tbl", "lst", "go"]
+        }))
+        .unwrap()
+    }
+
+    fn press(tree: &RenderTree, cursor: &mut Cursor, names: &[&str]) -> KeyAction {
+        let mut last = KeyAction::Ignored;
+        for name in names {
+            last = decide(tree, cursor, name, *name == "P", true);
+        }
+        last
+    }
+
+    #[test]
+    fn j_and_k_move_the_active_row_inside_a_tree_and_the_page_redraws() {
+        let tree = outline();
+        let mut cursor = Cursor::new();
+        assert_eq!(press(&tree, &mut cursor, &["j"]), KeyAction::Focus);
+        assert_eq!(
+            cursor.active_row(&tree, "side"),
+            Some(&serde_json::json!("a"))
+        );
+        press(&tree, &mut cursor, &["j", "j", "j"]);
+        assert_eq!(
+            cursor.active_row(&tree, "side"),
+            Some(&serde_json::json!("c"))
+        );
+        press(&tree, &mut cursor, &["k"]);
+        assert_eq!(
+            cursor.active_row(&tree, "side"),
+            Some(&serde_json::json!("b"))
+        );
+        // The widget focus did not leave the tree.
+        assert_eq!(cursor.focused_id(&tree), Some("side"));
+        assert_eq!(
+            active_rows(&tree, &cursor),
+            BTreeMap::from([("side".to_string(), serde_json::json!("b"))])
+        );
+    }
+
+    #[test]
+    fn enter_space_d_and_o_send_row_events_for_the_active_row() {
+        let tree = outline();
+        let mut cursor = Cursor::new();
+        press(&tree, &mut cursor, &["j"]);
+        let cases = [
+            ("Enter", EventKind::Select, serde_json::json!(["a"])),
+            ("d", EventKind::Delete, serde_json::json!(["a"])),
+            ("o", EventKind::Activate, serde_json::json!(["a"])),
+            // Collapsing `a` sends the whole list without it.
+            (" ", EventKind::Change, serde_json::json!([])),
+        ];
+        for (name, kind, value) in cases {
+            let KeyAction::Event(event) = press(&tree, &mut cursor, &[name]) else {
+                panic!("{name} is an event");
+            };
+            assert_eq!(
+                (event.widget.as_str(), event.kind, event.value),
+                ("side", kind, value),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn h_inside_a_tree_moves_to_the_parent_and_at_a_root_it_is_the_layout_verb() {
+        let tree = outline();
+        let mut cursor = Cursor::new();
+        press(&tree, &mut cursor, &["j", "j"]);
+        assert_eq!(press(&tree, &mut cursor, &["h"]), KeyAction::Focus);
+        assert_eq!(
+            cursor.active_row(&tree, "side"),
+            Some(&serde_json::json!("a"))
+        );
+        // `a` is an expanded branch: h collapses it (an event)...
+        assert!(matches!(
+            press(&tree, &mut cursor, &["h"]),
+            KeyAction::Event(_)
+        ));
+        // ...and on a leaf root with nothing to do, h falls through.
+        press(&tree, &mut cursor, &["j", "j"]);
+        assert!(matches!(
+            press(&tree, &mut cursor, &["h"]),
+            KeyAction::Layout(_)
+        ));
+        // Without layout keys the fall-through is ignored.
+        assert_eq!(
+            decide(&tree, &mut cursor, "h", false, false),
+            KeyAction::Ignored
+        );
+    }
+
+    #[test]
+    fn r_renames_the_active_row_of_a_tree_and_nothing_else() {
+        let tree = outline();
+        let mut cursor = Cursor::new();
+        // No active row yet.
+        assert_eq!(press(&tree, &mut cursor, &["r"]), KeyAction::Ignored);
+        press(&tree, &mut cursor, &["j", "j"]);
+        assert_eq!(
+            press(&tree, &mut cursor, &["r"]),
+            KeyAction::Rename("side".into(), serde_json::json!("b"))
+        );
+        assert!(KeyAction::Rename("side".into(), serde_json::json!("b")).claims());
+        // A table's rows are not renamed here.
+        cursor.set_focus(&tree, "tbl");
+        press(&tree, &mut cursor, &["j"]);
+        assert_eq!(press(&tree, &mut cursor, &["r"]), KeyAction::Ignored);
+    }
+
+    #[test]
+    fn m_and_the_menu_key_open_the_menu_of_a_widget_that_has_actions() {
+        let tree = outline();
+        let mut cursor = Cursor::new();
+        assert_eq!(
+            press(&tree, &mut cursor, &["m"]),
+            KeyAction::Ignored,
+            "no row"
+        );
+        press(&tree, &mut cursor, &["j"]);
+        let menu = KeyAction::Menu("side".into(), serde_json::json!("a"));
+        assert_eq!(press(&tree, &mut cursor, &["m"]), menu);
+        assert_eq!(press(&tree, &mut cursor, &["ContextMenu"]), menu);
+        assert!(menu.claims());
+        // A table with actions, a list and a read-only tree.
+        cursor.set_focus(&tree, "tbl");
+        press(&tree, &mut cursor, &["j"]);
+        assert_eq!(
+            press(&tree, &mut cursor, &["m"]),
+            KeyAction::Menu("tbl".into(), serde_json::json!("p1"))
+        );
+        for widget in ["ro", "lst"] {
+            cursor.set_focus(&tree, widget);
+            press(&tree, &mut cursor, &["j"]);
+            assert_eq!(
+                press(&tree, &mut cursor, &["m"]),
+                KeyAction::Ignored,
+                "{widget}"
+            );
+        }
+    }
+
+    #[test]
+    fn x_p_and_capital_p_are_a_movable_trees_and_nothing_elses() {
+        let tree = outline();
+        let mut cursor = Cursor::new();
+        assert_eq!(
+            press(&tree, &mut cursor, &["x"]),
+            KeyAction::Ignored,
+            "no row"
+        );
+        press(&tree, &mut cursor, &["j", "j"]);
+        assert_eq!(
+            press(&tree, &mut cursor, &["x"]),
+            KeyAction::Cut("side".into(), serde_json::json!("b"))
+        );
+        assert_eq!(
+            press(&tree, &mut cursor, &["p"]),
+            KeyAction::Paste("side".into(), serde_json::json!("b"))
+        );
+        assert_eq!(
+            press(&tree, &mut cursor, &["P"]),
+            KeyAction::PasteBeside("side".into(), serde_json::json!("b"))
+        );
+        // A tree without on_move, a table, a list.
+        for widget in ["ro", "tbl", "lst"] {
+            cursor.set_focus(&tree, widget);
+            press(&tree, &mut cursor, &["j"]);
+            for key in ["x", "p", "P"] {
+                assert_eq!(
+                    press(&tree, &mut cursor, &[key]),
+                    KeyAction::Ignored,
+                    "{widget} {key}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_paste_is_a_move_under_or_beside_the_active_row() {
+        let tree = outline();
+        let cut = ("side".to_string(), serde_json::json!("c"));
+        let into = paste_event(
+            &tree,
+            &cut,
+            &KeyAction::Paste("side".into(), serde_json::json!("a")),
+        )
+        .unwrap();
+        assert_eq!((into.widget.as_str(), into.kind), ("side", EventKind::Move));
+        assert_eq!(
+            into.value,
+            serde_json::json!({"ids": ["c"], "to": "a", "index": 0})
+        );
+        // Beside `b` (the first child of `a`): second child of `a`.
+        let beside = paste_event(
+            &tree,
+            &cut,
+            &KeyAction::PasteBeside("side".into(), serde_json::json!("b")),
+        )
+        .unwrap();
+        assert_eq!(
+            beside.value,
+            serde_json::json!({"ids": ["c"], "to": "a", "index": 1})
+        );
+        // Beside a root: the roots, after it.
+        let beside = paste_event(
+            &tree,
+            &cut,
+            &KeyAction::PasteBeside("side".into(), serde_json::json!("a")),
+        )
+        .unwrap();
+        assert_eq!(
+            beside.value,
+            serde_json::json!({"ids": ["c"], "to": null, "index": 1})
+        );
+        // A branch into itself, a cut from another widget, a key that is not
+        // a paste.
+        let branch = ("side".to_string(), serde_json::json!("a"));
+        assert!(paste_event(
+            &tree,
+            &branch,
+            &KeyAction::Paste("side".into(), serde_json::json!("b"))
+        )
+        .is_none());
+        let other = ("ro".to_string(), serde_json::json!("c"));
+        assert!(paste_event(
+            &tree,
+            &other,
+            &KeyAction::Paste("side".into(), serde_json::json!("a"))
+        )
+        .is_none());
+        assert!(paste_event(&tree, &cut, &KeyAction::Focus).is_none());
+    }
+
+    #[test]
+    fn a_click_on_a_row_names_the_row_and_nothing_else_does() {
+        let tree = outline();
+        let select = |widget: &str, value: serde_json::Value| Event {
+            widget: widget.into(),
+            kind: EventKind::Select,
+            value,
+        };
+        assert_eq!(
+            selected_row(&tree, &select("side", serde_json::json!(["b"]))),
+            Some(serde_json::json!("b"))
+        );
+        assert_eq!(
+            selected_row(&tree, &select("tbl", serde_json::json!(["p2"]))),
+            Some(serde_json::json!("p2"))
+        );
+        // Not a row widget, not a one-id list, not a select.
+        assert_eq!(
+            selected_row(&tree, &select("go", serde_json::json!(["b"]))),
+            None
+        );
+        assert_eq!(
+            selected_row(&tree, &select("side", serde_json::json!(2))),
+            None
+        );
+        assert_eq!(
+            selected_row(&tree, &select("side", serde_json::json!(["a", "b"]))),
+            None
+        );
+        let change = Event {
+            kind: EventKind::Change,
+            ..select("side", serde_json::json!(["b"]))
+        };
+        assert_eq!(selected_row(&tree, &change), None);
+    }
+
+    #[test]
+    fn the_menu_labels_come_from_the_widget() {
+        let tree = outline();
+        assert_eq!(actions_of(&tree, "side"), vec!["Rename", "Delete"]);
+        assert_eq!(actions_of(&tree, "tbl"), vec!["Open"]);
+        assert!(actions_of(&tree, "lst").is_empty());
+        assert!(actions_of(&tree, "go").is_empty());
+        assert!(actions_of(&tree, "missing").is_empty());
     }
 
     #[test]

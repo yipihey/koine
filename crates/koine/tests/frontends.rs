@@ -22,10 +22,10 @@ use koine::style::{
     REQUIRED_SLOTS,
 };
 use koine::surface::{
-    example_job_monitor, example_paper_triage, example_signal_explorer, resolve, Event, EventKind,
-    RenderKind, RenderNode, RenderTree, SurfaceSpec,
+    example_collection_sidebar, example_job_monitor, example_paper_triage, example_signal_explorer,
+    resolve, Event, EventKind, RenderKind, RenderNode, RenderTree, SidebarVerbs, SurfaceSpec,
 };
-use koine_dioxus::{css_variables, render_html};
+use koine_dioxus::{css_variables, render_html, render_html_with, RowView};
 use koine_tui::TextFrontend;
 use serde_json::{json, Value};
 
@@ -62,15 +62,16 @@ fn everything() -> RenderTree {
                 { "title": "One", "body": { "id": "tab-1", "node": { "kind": "text", "text": "first" } } },
                 { "title": "Two", "body": { "id": "tab-2", "node": { "kind": "text", "text": "second" } } },
             ]}},
-            { "id": "t-table", "node": { "kind": "table", "columns": ["title", "year"], "rows": [
+            { "id": "t-table", "node": { "kind": "table", "columns": ["title", "year"], "actions": ["Open", "Pin"], "count_field": "year", "rows": [
                 { "id": "p1", "title": "A", "year": 2024 },
                 { "id": "p2", "title": "B", "year": 2023 },
             ]}},
             { "id": "t-list", "node": { "kind": "list", "rows": ["alpha", "beta"] } },
-            { "id": "t-tree", "node": { "kind": "tree", "bind": "state.open", "nodes": [
-                { "id": "a", "label": "src", "depth": 0, "has_children": true, "expanded": true, "row": { "id": "a" } },
+            { "id": "t-tree", "node": { "kind": "tree", "bind": "state.open", "expanded": ["a"],
+                "actions": ["Rename", "Delete"], "movable": true, "nodes": [
+                { "id": "a", "label": "src", "depth": 0, "has_children": true, "expanded": true, "count": 3, "row": { "id": "a" } },
                 { "id": "b", "label": "main.rs", "depth": 1, "has_children": false, "expanded": false, "row": { "id": "b", "parent": "a" } },
-                { "id": "c", "label": "docs", "depth": 0, "has_children": true, "expanded": false, "row": { "id": "c" } },
+                { "id": "c", "label": "docs", "depth": 0, "has_children": true, "expanded": false, "count": 0, "row": { "id": "c" } },
             ]}},
             { "id": "t-graph", "node": { "kind": "graph",
                 "spec": { "nodes": [{ "id": "n1", "label": "one" }, { "id": "n2" }], "edges": [{ "source": "n1", "target": "n2" }] },
@@ -158,6 +159,27 @@ fn live_kinds() -> RenderTree {
     resolve(&spec, &spec.state, &json!({}), &json!({}))
 }
 
+/// plan-koine-outline end to end: the worked collection sidebar over three
+/// records, `Papers` open, resolved the way the app does. Its tree has counts
+/// (a zero among them), a two-entry menu and `on_move`.
+fn collection_sidebar() -> RenderTree {
+    let spec = example_collection_sidebar(
+        "collection",
+        &SidebarVerbs {
+            rename: Some("collection-rename".into()),
+            delete: Some("collection-delete".into()),
+            reparent: Some("collection-move".into()),
+            create: Some("collection-create".into()),
+        },
+    );
+    let sources = json!({ "collections": [
+        { "id": "c1", "name": "Papers", "parent": null, "count": 12 },
+        { "id": "c2", "name": "Reading", "parent": "c1", "count": 4 },
+        { "id": "c3", "name": "Notes", "parent": null, "count": 0 },
+    ]});
+    resolve(&spec, &json!({ "open": ["c1"] }), &json!({}), &sources)
+}
+
 fn resolved(spec: &SurfaceSpec, sources: &Value) -> RenderTree {
     resolve(spec, &spec.state, &json!({}), sources)
 }
@@ -195,6 +217,7 @@ fn trees() -> Vec<(&'static str, RenderTree)> {
         ("style-editor-tui", editor("tui")),
         ("every-kind", everything()),
         ("live-kinds", live_kinds()),
+        ("outline-sidebar", collection_sidebar()),
         ("placeholder-holo", holo()),
     ];
     all.into()
@@ -523,5 +546,92 @@ fn the_tui_goldens_are_byte_stable() {
     for (name, tree) in trees() {
         let text = tui(&tree) + "\n";
         check_golden(&golden_path("tui", name, "txt"), &text);
+    }
+}
+
+// (7) plan-koine-outline ----------------------------------------------------
+
+/// The sidebar after `j`: the first row is active on both frontends.
+fn sidebar_with_an_active_row() -> (RenderTree, String, String) {
+    let tree = collection_sidebar();
+    let mut cursor = Cursor::new();
+    assert!(cursor.event_for(&tree, Key::Down).is_none());
+    let active = cursor
+        .active_row(&tree, "outline")
+        .expect("j makes the first row active")
+        .clone();
+    let page = render_html_with(
+        &tree,
+        &web(),
+        first_focus(&tree),
+        &RowView {
+            active: [("outline".to_string(), active)].into(),
+            ..RowView::default()
+        },
+    ) + "\n";
+
+    let mut frontend = TextFrontend::new().with_blocks(true);
+    frontend.key(&tree, Key::Down);
+    let text = frontend.render(&tree) + "\n";
+    (tree, page, text)
+}
+
+#[test]
+fn an_active_row_and_counts_are_performed_by_both_and_pinned() {
+    let (_, page, text) = sidebar_with_an_active_row();
+
+    // Web: exactly one row is active, and it is the first; the counts are
+    // spans, the zero among them.
+    assert_eq!(page.matches("data-koine-active=").count(), 1, "{page}");
+    let active = tags(&page)
+        .into_iter()
+        .find(|tag| attr(tag, "data-koine-active").is_some())
+        .unwrap();
+    assert_eq!(attr(active, "data-koine-row"), Some("0"));
+    for count in ["12", "0"] {
+        assert!(
+            page.contains(&format!("<span class=\"koine-count\">{count}</span>")),
+            "{count}\n{page}"
+        );
+    }
+    check_golden(&golden_path("web", "outline-sidebar-active", "html"), &page);
+
+    // Text: the focus mark on the first outline line, counts in parentheses.
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].starts_with('>'), "{text}");
+    assert!(
+        lines[1].starts_with('>'),
+        "the active row is marked\n{text}"
+    );
+    assert!(lines[1].ends_with("Papers (12)"), "{text}");
+    assert!(text.contains("Notes (0)"), "{text}");
+    assert_eq!(
+        lines.iter().filter(|l| l.starts_with('>')).count(),
+        2,
+        "the widget and the active row, no more\n{text}"
+    );
+    check_golden(&golden_path("tui", "outline-sidebar-active", "txt"), &text);
+}
+
+#[test]
+fn the_row_keys_are_the_same_event_on_the_cursor_and_the_text_frontend() {
+    // The web calls the cursor; the text frontend wraps it. For every key the
+    // cursor answers with an event, the two agree.
+    let tree = collection_sidebar();
+    for keys in [
+        vec![Key::Down, Key::Activate],
+        vec![Key::Down, Key::Toggle],
+        vec![Key::Down, Key::Left],
+        vec![Key::Down, Key::Delete],
+        vec![Key::Down, Key::Down, Key::Open],
+    ] {
+        let mut cursor = Cursor::new();
+        let mut frontend = TextFrontend::new();
+        let mut last = (None, None);
+        for key in &keys {
+            last = (cursor.event_for(&tree, *key), frontend.key(&tree, *key));
+        }
+        assert!(last.0.is_some(), "{keys:?} is an event");
+        assert_eq!(last.0, last.1, "{keys:?}");
     }
 }
