@@ -151,7 +151,44 @@
   cursor: pointer;
 }
 
+/* The tree: depth is the inline `padding-left` of each node. */
+
+.koine-tree {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.koine-tree-node {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25em;
+  padding-top: var(--koine-list, 0px);
+  padding-bottom: var(--koine-list, 0px);
+}
+
+.koine-tree-disclosure {
+  font: inherit;
+  width: 1.25em;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--koine-color-secondary);
+  cursor: pointer;
+}
+
+.koine-tree-label {
+  flex: 1;
+  cursor: pointer;
+}
+
+/* A leaf has no disclosure: its label lines up with a branch's. */
+.koine-tree-node > .koine-tree-label:first-child {
+  margin-left: 1.5em;
+}
+
 .koine-list > li:hover,
+.koine-tree-node:hover,
 .koine-table tbody tr:hover {
   background: color-mix(in srgb, var(--koine-color-accent) 12%, transparent);
 }

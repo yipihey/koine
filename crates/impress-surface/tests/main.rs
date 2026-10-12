@@ -10,3 +10,4 @@ mod reduce_properties;
 mod schema_tests;
 mod source_errors;
 mod spec_round_trip;
+mod tree;

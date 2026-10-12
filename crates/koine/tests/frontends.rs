@@ -38,8 +38,8 @@ fn tree_of(root: Value, focus_order: Value) -> RenderTree {
 /// level. The focus order is the one `resolve` would write, in document order.
 fn everything() -> RenderTree {
     let focus = [
-        "b-go", "t-tabs", "t-table", "t-list", "f-text", "f-number", "f-slider", "f-select",
-        "f-toggle", "f-date", "f-color", "f-file",
+        "b-go", "t-tabs", "t-table", "t-list", "t-tree", "f-text", "f-number", "f-slider",
+        "f-select", "f-toggle", "f-date", "f-color", "f-file",
     ];
     let root = json!({
         "id": "root",
@@ -64,6 +64,11 @@ fn everything() -> RenderTree {
                 { "id": "p2", "title": "B", "year": 2023 },
             ]}},
             { "id": "t-list", "node": { "kind": "list", "rows": ["alpha", "beta"] } },
+            { "id": "t-tree", "node": { "kind": "tree", "bind": "state.open", "nodes": [
+                { "id": "a", "label": "src", "depth": 0, "has_children": true, "expanded": true, "row": { "id": "a" } },
+                { "id": "b", "label": "main.rs", "depth": 1, "has_children": false, "expanded": false, "row": { "id": "b", "parent": "a" } },
+                { "id": "c", "label": "docs", "depth": 0, "has_children": true, "expanded": false, "row": { "id": "c" } },
+            ]}},
             { "id": "plot", "node": { "kind": "plot", "spec": { "x": [1, 2], "y": [3, 4] } } },
             { "id": "img-url", "node": { "kind": "image", "blob": null, "url": "https://example.test/a.png" } },
             { "id": "img-blob", "node": { "kind": "image", "blob": "b-1", "url": null } },

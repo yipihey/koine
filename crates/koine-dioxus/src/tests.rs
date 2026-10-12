@@ -16,8 +16,8 @@ fn tree(root: Value, focus_order: Value) -> RenderTree {
 /// level. Ids are plain so a substring count is an exact count.
 fn everything() -> RenderTree {
     let focus = [
-        "t-tabs", "t-table", "t-list", "f-text", "f-number", "f-slider", "f-select", "f-toggle",
-        "f-date", "f-color", "b-go",
+        "t-tabs", "t-table", "t-list", "t-tree", "f-text", "f-number", "f-slider", "f-select",
+        "f-toggle", "f-date", "f-color", "b-go",
     ];
     let root = json!({
         "id": "root",
@@ -42,6 +42,11 @@ fn everything() -> RenderTree {
                 { "id": "p2", "title": "B", "year": 2023 },
             ]}},
             { "id": "t-list", "node": { "kind": "list", "rows": ["alpha", "beta"] } },
+            { "id": "t-tree", "node": { "kind": "tree", "bind": "state.open", "nodes": [
+                { "id": "a", "label": "src", "depth": 0, "has_children": true, "expanded": true, "row": { "id": "a" } },
+                { "id": "b", "label": "main.rs", "depth": 1, "has_children": false, "expanded": false, "row": { "id": "b", "parent": "a" } },
+                { "id": 7, "label": "docs", "depth": 0, "has_children": true, "expanded": false, "row": { "id": 7 } },
+            ]}},
             { "id": "plot", "node": { "kind": "plot", "spec": { "series": [{ "x": [1, 2], "y": [3, 4] }] } } },
             { "id": "plot-bad", "node": { "kind": "plot", "spec": { "series": [{ "x": [1, 2] }] } } },
             { "id": "img-url", "node": { "kind": "image", "blob": null, "url": "https://example.test/a.png" } },
@@ -166,6 +171,47 @@ fn element<'a>(html: &'a str, id: &str) -> (&'a str, &'a str) {
     let start = html[..at].rfind('<').unwrap();
     let open_end = at + html[at..].find('>').unwrap();
     (&html[start..open_end], &html[open_end + 1..])
+}
+
+#[test]
+fn a_tree_is_a_list_of_indented_nodes_with_a_disclosure_per_branch() {
+    let html = render_html(&everything(), &web(), None);
+    let (tag, rest) = element(&html, "t-tree");
+    assert!(tag.contains("koine-tree"), "{tag}");
+    assert_eq!(attr(tag, "tabindex"), Some("0"));
+    let end = rest.find("</ul>").unwrap();
+    let tree_html = &rest[..end];
+    // One li per visible node, depth and row on each.
+    assert_eq!(tree_html.matches("<li").count(), 3, "{tree_html}");
+    assert_eq!(tree_html.matches("data-koine-depth=\"0\"").count(), 2);
+    assert_eq!(tree_html.matches("data-koine-depth=\"1\"").count(), 1);
+    assert!(
+        tree_html.contains("padding-left: calc(1 * 1.25em)"),
+        "{tree_html}"
+    );
+    // A disclosure for each branch (two), none for the leaf; the expanded
+    // one says so.
+    assert_eq!(tree_html.matches("koine-tree-disclosure").count(), 2);
+    assert_eq!(tree_html.matches("aria-expanded=\"true\"").count(), 1);
+    assert_eq!(tree_html.matches("aria-expanded=\"false\"").count(), 1);
+    assert!(tree_html.contains("\u{25be}") && tree_html.contains("\u{25b8}"));
+    for label in ["src", "main.rs", "docs"] {
+        assert!(tree_html.contains(&format!(">{label}</span>")), "{label}");
+    }
+}
+
+#[test]
+fn a_disclosure_toggles_one_id_in_the_expanded_list() {
+    use serde_json::json;
+    assert_eq!(
+        super::map::toggled(&[json!("a")], &json!(7)),
+        json!(["a", 7])
+    );
+    assert_eq!(
+        super::map::toggled(&[json!("a"), json!(7)], &json!("a")),
+        json!([7])
+    );
+    assert_eq!(super::map::toggled(&[], &json!("a")), json!(["a"]));
 }
 
 #[test]

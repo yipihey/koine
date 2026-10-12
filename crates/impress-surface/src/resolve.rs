@@ -123,6 +123,15 @@ pub enum RenderKind {
     List {
         rows: Value,
     },
+    /// `tree{…}` (plan-koine-tree-stream T-D1): the visible outline, already
+    /// nested and filtered by the expanded ids, in drawing order.
+    Tree {
+        nodes: Vec<crate::tree::TreeNode>,
+        /// The state path of the expanded list (`Tree::bind`); a disclosure
+        /// click sends `change` for this widget with the new list.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bind: Option<String>,
+    },
     Plot {
         spec: Value,
     },
@@ -250,6 +259,7 @@ fn resolve_node(
             | RenderKind::Button { .. }
             | RenderKind::Table { .. }
             | RenderKind::List { .. }
+            | RenderKind::Tree { .. }
             | RenderKind::Tabs { .. }
     ) {
         focus_order.push(id.clone());
@@ -344,6 +354,27 @@ fn resolve_kind(
             let resolved = resolve_value(&l.rows, ctx)?;
             RenderKind::List {
                 rows: unwrap_rows(&resolved).0.clone(),
+            }
+        }
+        NodeKind::Tree(t) => {
+            let resolved = resolve_value(&t.rows, ctx)?;
+            let expanded = t
+                .bind
+                .as_ref()
+                .and_then(|b| crate::state_path::read(state, b).ok())
+                .and_then(|v| v.as_array().cloned())
+                .unwrap_or_default();
+            RenderKind::Tree {
+                nodes: crate::tree::build(
+                    unwrap_rows(&resolved).0,
+                    &expanded,
+                    crate::tree::Fields {
+                        id: t.id_field.as_deref(),
+                        parent: t.parent_field.as_deref(),
+                        label: t.label_field.as_deref(),
+                    },
+                ),
+                bind: t.bind.clone(),
             }
         }
         NodeKind::Plot(p) => RenderKind::Plot {

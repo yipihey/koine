@@ -5,13 +5,14 @@
 //! attribute, and an interaction is turned into an [`Event`] and handed to
 //! the host. What an event means is `impress_surface::reduce`'s.
 //!
-//! Focus: a `field`, `button`, `table`, `list` or `tabs` node is one tab stop
+//! Focus: a `field`, `button`, `table`, `list`, `tree` or `tabs` node is one tab stop
 //! (`tabindex="0"`), in the order the tree's `focus_order` lists them, so the
 //! DOM's tab order is the tree's. Rows and tab buttons are clicked, not
 //! tabbed: they carry `tabindex="-1"` so they stay out of that order.
 
 use dioxus::prelude::*;
 use impress_surface::resolve::RenderTab;
+use impress_surface::tree::TreeNode;
 use impress_surface::{Event, EventKind, RenderKind, RenderNode};
 use serde_json::Value;
 
@@ -102,6 +103,7 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
             id_field,
         } => table_node(id, label, help, rows, columns, id_field.as_deref(), ctx),
         RenderKind::List { rows } => list_node(id, label, help, rows, ctx),
+        RenderKind::Tree { nodes, .. } => tree_node(id, label, help, nodes, ctx),
         RenderKind::Plot { spec } => {
             let spec_text = spec.to_string();
             match koine_plot::render_svg_json(spec) {
@@ -436,6 +438,84 @@ fn list_node(
             }
         }
     }
+}
+
+/// A `tree`: the visible outline the resolver computed, one `li` per node.
+/// A disclosure click sends `change` with the new expanded list (this node's
+/// id toggled in the ids the visible nodes show expanded); a label click
+/// sends `select` with `[id]`. Rows are clicked, not tabbed, as a table's are.
+fn tree_node(
+    id: &str,
+    label: Option<String>,
+    help: Option<String>,
+    nodes: &[TreeNode],
+    ctx: &Ctx<'_>,
+) -> Element {
+    let focused = is_focused(ctx, id).then_some("true");
+    let expanded: Vec<Value> = nodes
+        .iter()
+        .filter(|n| n.expanded)
+        .map(|n| n.id.clone())
+        .collect();
+    rsx! {
+        ul {
+            class: class("koine-tree", None, ctx, id),
+            tabindex: 0,
+            "data-koine-id": "{id}",
+            "data-koine-focused": focused,
+            aria_label: label,
+            title: help,
+            for (index , node) in nodes.iter().enumerate() {
+                {
+                    let on_event = ctx.on_event;
+                    let widget = id.to_string();
+                    let selected = Value::Array(vec![node.id.clone()]);
+                    let toggled = toggled(&expanded, &node.id);
+                    let widget_for_toggle = widget.clone();
+                    let is_open = node.expanded;
+                    let indent = format!("padding-left: calc({} * 1.25em)", node.depth);
+                    rsx! {
+                        li {
+                            key: "{index}",
+                            class: "koine-tree-node",
+                            style: indent,
+                            tabindex: -1,
+                            "data-koine-depth": "{node.depth}",
+                            "data-koine-row": "{index}",
+                            if node.has_children {
+                                button {
+                                    class: "koine-tree-disclosure",
+                                    tabindex: -1,
+                                    aria_expanded: if is_open { "true" } else { "false" },
+                                    onclick: move |_| on_event.call(event(&widget_for_toggle, EventKind::Change, toggled.clone())),
+                                    if is_open {
+                                        "\u{25be}"
+                                    } else {
+                                        "\u{25b8}"
+                                    }
+                                }
+                            }
+                            span {
+                                class: "koine-tree-label",
+                                onclick: move |_| on_event.call(event(&widget, EventKind::Select, selected.clone())),
+                                "{node.label}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The expanded list with `id` toggled: removed when it is there, else
+/// appended.
+pub(crate) fn toggled(expanded: &[Value], id: &Value) -> Value {
+    let mut out: Vec<Value> = expanded.iter().filter(|e| *e != id).cloned().collect();
+    if out.len() == expanded.len() {
+        out.push(id.clone());
+    }
+    Value::Array(out)
 }
 
 fn field_node(

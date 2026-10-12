@@ -556,7 +556,11 @@ fn check_node(node: &Node, at: &str, scope: &Scope, problems: &mut Vec<Problem>)
     if node.id.is_none()
         && matches!(
             node.kind,
-            NodeKind::Field(_) | NodeKind::Button(_) | NodeKind::Table(_) | NodeKind::List(_)
+            NodeKind::Field(_)
+                | NodeKind::Button(_)
+                | NodeKind::Table(_)
+                | NodeKind::List(_)
+                | NodeKind::Tree(_)
         )
     {
         problems.push(Problem::warning(
@@ -607,6 +611,32 @@ fn check_node(node: &Node, at: &str, scope: &Scope, problems: &mut Vec<Problem>)
             }
         }
         NodeKind::List(l) => refs(&l.rows, "list/rows"),
+        NodeKind::Tree(t) => {
+            refs(&t.rows, "tree/rows");
+            if let Some(bind) = &t.bind {
+                check_state_path(bind, &format!("{at}/tree/bind"), problems);
+            }
+            // The three field names are literal property names, read off
+            // each row by the resolver: a template here would be a field
+            // called `{{…}}`.
+            for (key, field) in [
+                ("id_field", &t.id_field),
+                ("parent_field", &t.parent_field),
+                ("label_field", &t.label_field),
+            ] {
+                if let Some(field) = field {
+                    if field.is_empty() || field.contains("{{") {
+                        problems.push(Problem::error(
+                            format!("{at}/tree/{key}"),
+                            format!(
+                                "tree.{key} must be a non-empty literal field name of the \
+                                 rows, not a template"
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
         NodeKind::Plot(p) => check_plot(p, at, scope, problems),
         NodeKind::Code(c) => {
             refs(&c.text, "code/text");

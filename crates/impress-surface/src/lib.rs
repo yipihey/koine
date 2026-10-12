@@ -57,6 +57,7 @@ pub mod resolve;
 pub mod spec;
 pub mod state_path;
 pub mod template;
+pub mod tree;
 pub mod validate;
 
 mod example;
@@ -68,7 +69,7 @@ pub use resolve::{resolve, resolve_with_source_errors, RenderKind, RenderNode, R
 pub use spec::{
     child_pointers, handler_pointers, walk_actions, walk_with_pointers, Action, Button, Event,
     EventKind, FieldKind, Grid, Image, ListWidget, Node, NodeKind, PaneQuery, ParamDecl, Plot,
-    Section, Source, Status, SurfaceSpec, Tab, Table, When, NODE_KIND_NAMES, SURFACE_VERSION,
+    Section, Source, Status, SurfaceSpec, Tab, Table, Tree, When, NODE_KIND_NAMES, SURFACE_VERSION,
 };
 pub use state_path::StatePathError;
 pub use template::{Context, Template, TemplateError};

@@ -164,9 +164,18 @@ pub fn reduce(
 
     match event.kind {
         EventKind::Change => {
-            let bind = node.bind.clone().ok_or_else(|| ReduceError::NotBindable {
-                widget: event.widget.clone(),
-            })?;
+            // A tree keeps its bind in its own body (`tree.bind`, the expanded
+            // ids); a disclosure change writes there exactly as a field's does.
+            let bind = node
+                .bind
+                .clone()
+                .or_else(|| match &node.kind {
+                    NodeKind::Tree(t) => t.bind.clone(),
+                    _ => None,
+                })
+                .ok_or_else(|| ReduceError::NotBindable {
+                    widget: event.widget.clone(),
+                })?;
             state_path::write(&mut new_state, &bind, change_value(node, &event.value))?;
             run_actions(
                 &node.on_change,
@@ -202,6 +211,15 @@ pub fn reduce(
             NodeKind::List(l) => {
                 run_actions(
                     &l.on_select,
+                    &mut new_state,
+                    (params, sources),
+                    &event_value,
+                    &mut effects,
+                )?;
+            }
+            NodeKind::Tree(t) => {
+                run_actions(
+                    &t.on_select,
                     &mut new_state,
                     (params, sources),
                     &event_value,

@@ -26,7 +26,7 @@ pub use koine::cursor::Key;
 
 use koine::cursor::Cursor;
 use koine::style::{editor_apply, editor_spec, StyleError, StyleHost};
-use koine::surface::{Event, RenderKind, RenderNode, RenderTree, SurfaceSpec};
+use koine::surface::{Event, EventKind, RenderKind, RenderNode, RenderTree, SurfaceSpec};
 use serde_json::Value;
 
 /// One text performance of a tree: a cursor into [`RenderTree::focus_order`]
@@ -123,8 +123,27 @@ impl TextFrontend {
     /// on the focused id. An empty focus order activates nothing. A direction
     /// or menu key that is only a [`koine::gesture::Gesture`] returns `None`
     /// here; [`Self::gesture_key`] is the one that reports it.
+    ///
+    /// `Activate` on a `tree` is a `select` of its first visible node, with
+    /// `[id]` as the value, rather than the `click` a tree ignores: this
+    /// frontend has no cursor inside a widget, so the first line is the
+    /// outline's one reachable row. An empty tree sends the click.
     pub fn key(&mut self, tree: &RenderTree, key: Key) -> Option<Event> {
-        self.cursor.event_for(tree, key)
+        let event = self.cursor.event_for(tree, key)?;
+        if event.kind == EventKind::Click {
+            if let Some(RenderKind::Tree { nodes, .. }) =
+                find(&tree.root, &event.widget).map(|node| &node.node)
+            {
+                if let Some(first) = nodes.first() {
+                    return Some(Event {
+                        widget: event.widget,
+                        kind: EventKind::Select,
+                        value: Value::Array(vec![first.id.clone()]),
+                    });
+                }
+            }
+        }
+        Some(event)
     }
 
     /// The same keys as [`Self::key`], as a [`koine::gesture::Gesture`].
@@ -179,6 +198,25 @@ fn write_node(
         out.push(format!("{mark}{pad}{}", line_of(node, sheet)));
         let under = " ".repeat(focus_width);
         out.extend(text.lines().map(|line| format!("{under}{pad}  {line}")));
+        return;
+    }
+    if let (true, RenderKind::Tree { nodes, .. }) = (draw_blocks, &node.node) {
+        // A tree is a header and then its visible outline: two columns per
+        // depth, `▾`/`▸` for a branch, blanks for a leaf.
+        out.push(format!("{mark}{pad}{}", line_of(node, sheet)));
+        let under = " ".repeat(focus_width);
+        for n in nodes {
+            let disclosure = match (n.has_children, n.expanded) {
+                (false, _) => "  ",
+                (true, true) => "\u{25be} ",
+                (true, false) => "\u{25b8} ",
+            };
+            out.push(format!(
+                "{under}{pad}  {}{disclosure}{}",
+                "  ".repeat(n.depth as usize),
+                n.label
+            ));
+        }
         return;
     }
     if let (true, RenderKind::Plot { spec }) = (draw_blocks, &node.node) {
@@ -244,6 +282,8 @@ fn line_of(node: &RenderNode, sheet: &koine::style::StyleSheet) -> String {
             )
         }
         RenderKind::List { .. } => fill(sheet.value("list"), &[("label", label)]),
+        // `write_node` prints the outline under `with_blocks`.
+        RenderKind::Tree { nodes, .. } => format!("tree {}", nodes.len()),
         // `write_node` prints a plot's sketch itself.
         RenderKind::Plot { .. } => "plot".into(),
         RenderKind::Code { language, .. } => match language {
@@ -305,6 +345,16 @@ fn line_of(node: &RenderNode, sheet: &koine::style::StyleSheet) -> String {
             }
         }
     }
+}
+
+/// The node with `id`, depth first.
+fn find<'a>(node: &'a RenderNode, id: &str) -> Option<&'a RenderNode> {
+    if node.id == id {
+        return Some(node);
+    }
+    children_of(node)
+        .into_iter()
+        .find_map(|child| find(child, id))
 }
 
 fn children_of(node: &RenderNode) -> Vec<&RenderNode> {
@@ -528,6 +578,64 @@ mod tests {
             TextFrontend::new().with_blocks(true).render(&bare),
             " code\n   x"
         );
+    }
+
+    fn outline() -> RenderTree {
+        let node = |id: serde_json::Value, label: &str, depth, has_children, expanded| {
+            koine::surface::tree::TreeNode {
+                id,
+                label: label.into(),
+                depth,
+                has_children,
+                expanded,
+                row: serde_json::json!({}),
+            }
+        };
+        let mut tree = node_tree(RenderKind::Tree {
+            nodes: vec![
+                node(serde_json::json!("a"), "src", 0, true, true),
+                node(serde_json::json!("b"), "main.rs", 1, false, false),
+                node(serde_json::json!(7), "docs", 0, true, false),
+            ],
+            bind: Some("state.open".into()),
+        });
+        tree.root.id = "files".into();
+        tree.focus_order = vec!["files".into()];
+        tree
+    }
+
+    #[test]
+    fn a_tree_is_a_header_until_blocks_are_on_and_then_its_outline() {
+        let tree = outline();
+        assert_eq!(render(&tree), ">tree 3");
+        let text = TextFrontend::new().with_blocks(true).render(&tree);
+        assert_eq!(
+            text.lines().collect::<Vec<_>>(),
+            vec![
+                ">tree 3",
+                "   \u{25be} src",
+                "       main.rs",
+                "   \u{25b8} docs"
+            ],
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn enter_on_a_tree_selects_its_first_visible_node() {
+        let mut frontend = TextFrontend::new();
+        let event = frontend.key(&outline(), Key::Activate).unwrap();
+        assert_eq!(event.widget, "files");
+        assert_eq!(event.kind, EventKind::Select);
+        assert_eq!(event.value, serde_json::json!(["a"]));
+
+        let mut empty = outline();
+        empty.root.node = RenderKind::Tree {
+            nodes: vec![],
+            bind: None,
+        };
+        let event = TextFrontend::new().key(&empty, Key::Activate).unwrap();
+        assert_eq!(event.kind, EventKind::Click);
     }
 
     #[test]
