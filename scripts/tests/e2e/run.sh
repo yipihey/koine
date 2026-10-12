@@ -361,6 +361,16 @@ expect_eq "/api/status names the app" "$(jq -r .app <<<"$BODY")" "stats-app"
 verbs="$(jq -r .verbs <<<"$BODY")"
 check "/api/status counts >= 3 verbs ($verbs)" test "${verbs:-0}" -ge 3
 
+check "/api/status has .secrets.declared as a number" jq -e '.secrets.declared | type == "number"' <<<"$BODY"
+
+# The secret slot (F-D1): this app declares none, so the list is empty and no
+# name can be set.
+req GET /api/secret
+expect_eq "GET /api/secret is 200" "$STATUS" "200"
+check "GET /api/secret answers ok with an array" jq -e '.ok == true and (.secrets | type == "array")' <<<"$BODY"
+req PUT /api/secret/not-declared '{"value":"x"}'
+expect_eq "PUT /api/secret/not-declared is 404" "$STATUS" "404"
+
 req POST /api/verb/stats-app-service_mean '{"values":[1,2,3]}'
 expect_eq "POST mean is 200" "$STATUS" "200"
 check "mean of 1,2,3 is 2" jq -e '.ok == true and .value == 2' <<<"$BODY"

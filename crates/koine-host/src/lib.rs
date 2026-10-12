@@ -26,7 +26,9 @@
 //! [`serve`] installs, once per call and process-wide: the store
 //! (`koine_store::process::install`), the kind manifest
 //! (`impress_pane_query::process_manifest::install`) and the background
-//! runner (`impress_service_core::pipeline::adverbs`). Two hosts in one
+//! runner (`impress_service_core::pipeline::adverbs`) and the secret source
+//! (`impress_service_core::secrets`, layered by [`secrets::host_source`]).
+//! Two hosts in one
 //! process therefore share them — the last to start wins — which is why
 //! the integration tests take turns.
 //!
@@ -43,6 +45,7 @@ mod guard;
 pub mod manifest;
 mod routes;
 pub mod runner;
+pub mod secrets;
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
@@ -52,6 +55,7 @@ use impress_item::{AttributedStore, BlobStore, StoreCapabilities};
 use impress_pane_query::{process_manifest, KindManifest};
 use impress_service_core::loopback_token;
 use impress_service_core::pipeline::adverbs::install_background_runner;
+use impress_service_core::secrets::SecretSource;
 use koine_mcp_host::HostConfig;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -87,6 +91,11 @@ pub struct Config {
     pub allow_network: bool,
     /// The bearer a non-loopback peer presents on every request.
     pub network_bearer: Option<String>,
+    /// Where `PUT /api/secret/<name>` keeps the secrets linked verbs
+    /// declare, one file each. `None` is `<workspace>/secrets`.
+    pub secrets_dir: Option<PathBuf>,
+    /// Also read and write secrets in the macOS keychain (service `koine`).
+    pub keychain: bool,
 }
 
 impl Config {
@@ -104,7 +113,16 @@ impl Config {
             manifest: Arc::new(manifest::minimal()),
             allow_network: false,
             network_bearer: None,
+            secrets_dir: None,
+            keychain: false,
         }
+    }
+
+    /// The directory the file layer of the secret source uses.
+    pub fn secrets_path(&self) -> PathBuf {
+        self.secrets_dir
+            .clone()
+            .unwrap_or_else(|| self.workspace.join("secrets"))
     }
 }
 
@@ -221,6 +239,7 @@ pub(crate) struct HostState {
     pub blobs: Option<Arc<dyn BlobStore>>,
     pub runner: Arc<JobRunner>,
     pub mcp: Arc<HostConfig>,
+    pub secrets: Arc<dyn SecretSource>,
 }
 
 /// Open the store, install the process seams, write the loopback token and
@@ -256,6 +275,8 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
     process_manifest::install(config.manifest.clone());
     let runner = Arc::new(JobRunner::new(store, tokio::runtime::Handle::current()));
     install_background_runner(runner.clone());
+    let secret_source = secrets::host_source(config.secrets_path(), config.keychain);
+    impress_service_core::secrets::install(secret_source.clone());
 
     let state = Arc::new(HostState {
         app_id: config.app_id.clone(),
@@ -283,6 +304,7 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
             tool_ui: Vec::new(),
             tool_file_params: Vec::new(),
         }),
+        secrets: secret_source,
     });
 
     let app = routes::router(state.clone())

@@ -64,6 +64,26 @@ fn refuse(_: Value) -> ServiceFuture {
     Box::pin(async { Ok(json!({ "ok": false, "code": "nope", "message": "not today" })) })
 }
 
+/// A verb that declares a secret and answers how long it is (never what it
+/// is), so the secret tests do not depend on any demo verb.
+static NEEDS_TOKEN: VerbDescriptor = VerbDescriptor {
+    name: "host-fixture_needs-token",
+    method: "needs_token",
+    description: "Test fixture: needs the secret t-host-token; answers its length.",
+    handler: needs_token,
+    secrets: &["t-host-token"],
+    ..NAP
+};
+inventory::submit! { McpToolDescriptor::of(&NEEDS_TOKEN) }
+
+fn needs_token(_: Value) -> ServiceFuture {
+    Box::pin(async {
+        let token = impress_service_core::secrets::get("t-host-token")
+            .expect("the pipeline refuses a missing secret before the handler");
+        Ok(json!({ "ok": true, "token_len": token.expose().len() }))
+    })
+}
+
 fn nap_schema() -> Value {
     json!({ "type": "object", "properties": { "ms": { "type": "integer" } } })
 }
@@ -1058,5 +1078,239 @@ async fn a_job_whose_verb_refuses_is_failed_and_says_why() {
     assert_eq!(job["code"], "nope", "{job}");
     assert_eq!(job["message"], "not today", "{job}");
     assert_eq!(job["result"]["ok"], false);
+    host.served.shutdown().await;
+}
+
+// ------------------------------------------------------------------ secrets
+
+#[tokio::test]
+async fn a_declared_secret_is_listed_set_used_and_removed_over_http() {
+    let _turn = TURN.lock().await;
+    let host = start("memory:", "secret-app").await;
+    let verb = "/api/verb/host-fixture_needs-token";
+    let file = host.workspace.path().join("secrets").join("t-host-token");
+
+    // Fresh: declared, absent, and the verb is refused before its handler.
+    let (status, listed) = host.get_json("/api/secret").await;
+    assert_eq!(status, 200, "{listed}");
+    assert_eq!(listed["ok"], true);
+    assert_eq!(listed["wire_version"], 1);
+    let row = listed["secrets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["name"] == "t-host-token")
+        .unwrap_or_else(|| panic!("t-host-token is declared: {listed}"))
+        .clone();
+    assert_eq!(row["present"], false, "{row}");
+    assert_eq!(row["source"], Value::Null);
+    assert_eq!(row["verbs"], json!(["host-fixture_needs-token"]));
+
+    let (_, status_body) = host.get_json("/api/status").await;
+    assert!(status_body["secrets"]["declared"].as_u64().unwrap() >= 1);
+    assert!(status_body["secrets"]["missing"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("t-host-token")));
+
+    let (status, refused) = host.post(verb, json!({})).await;
+    assert_eq!(status, 412, "{refused}");
+    assert_eq!(refused["code"], "missing-secret");
+    assert!(
+        refused["message"]
+            .as_str()
+            .unwrap()
+            .contains("t-host-token"),
+        "{refused}"
+    );
+
+    // The generated form opens with the warning.
+    let (status, form) = host
+        .get_json("/api/verb/host-fixture_needs-token/surface")
+        .await;
+    assert_eq!(status, 200, "{form}");
+    assert!(
+        form["spec"].to_string().contains("missing-secret"),
+        "{form}"
+    );
+
+    // Set it: the file exists, 0600, and the verb runs.
+    let (status, put) = json_of(
+        host.send(
+            Method::PUT,
+            "/api/secret/t-host-token",
+            Some(json!({ "value": "abcdef" })),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(status, 200, "{put}");
+    assert_eq!(
+        put,
+        json!({ "ok": true, "wire_version": 1, "name": "t-host-token", "source": "file" })
+    );
+    assert!(file.exists());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&file), 0o600);
+        assert_eq!(mode(file.parent().unwrap()), 0o700);
+    }
+    let (status, ran) = host.post(verb, json!({})).await;
+    assert_eq!(status, 200, "{ran}");
+    assert_eq!(ran["token_len"], 6);
+
+    let (_, listed) = host.get_json("/api/secret").await;
+    assert!(!listed.to_string().contains("abcdef"), "never a value");
+    let (_, status_body) = host.get_json("/api/status").await;
+    assert!(!status_body["secrets"]["missing"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("t-host-token")));
+    assert!(!status_body.to_string().contains("abcdef"));
+    let (_, form) = host
+        .get_json("/api/verb/host-fixture_needs-token/surface")
+        .await;
+    assert!(
+        !form["spec"].to_string().contains("missing-secret"),
+        "no warning once it is set"
+    );
+
+    // Remove it: gone from disk, the verb is refused again.
+    let (status, deleted) = json_of(
+        host.send(Method::DELETE, "/api/secret/t-host-token", None)
+            .await,
+    )
+    .await;
+    assert_eq!(status, 200, "{deleted}");
+    assert_eq!(
+        deleted,
+        json!({ "ok": true, "wire_version": 1, "name": "t-host-token", "removed": true })
+    );
+    assert!(!file.exists());
+    let (status, refused) = host.post(verb, json!({})).await;
+    assert_eq!(status, 412, "{refused}");
+    let (_, again) = json_of(
+        host.send(Method::DELETE, "/api/secret/t-host-token", None)
+            .await,
+    )
+    .await;
+    assert_eq!(again["removed"], false);
+
+    host.served.shutdown().await;
+}
+
+#[tokio::test]
+async fn the_secret_routes_refuse_what_is_not_a_slot() {
+    let _turn = TURN.lock().await;
+    let host = start("memory:", "secret-refusals-app").await;
+
+    // A name no verb declares: 404, and the declared ones are listed.
+    let (status, body) = json_of(
+        host.send(
+            Method::PUT,
+            "/api/secret/not-declared",
+            Some(json!({ "value": "x" })),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(status, 404, "{body}");
+    assert_eq!(body["code"], "not-found");
+    assert!(
+        body["message"].as_str().unwrap().contains("t-host-token"),
+        "{body}"
+    );
+    let (status, body) = json_of(
+        host.send(Method::DELETE, "/api/secret/not-declared", None)
+            .await,
+    )
+    .await;
+    assert_eq!(status, 404, "{body}");
+    assert!(!host
+        .workspace
+        .path()
+        .join("secrets")
+        .join("not-declared")
+        .exists());
+
+    // Empty value, a non-string value and a non-object body.
+    for body in [
+        json!({ "value": "" }),
+        json!({ "value": 7 }),
+        json!({}),
+        json!("abc"),
+        json!(["abc"]),
+    ] {
+        let (status, refused) = json_of(
+            host.send(Method::PUT, "/api/secret/t-host-token", Some(body.clone()))
+                .await,
+        )
+        .await;
+        assert_eq!(status, 400, "{body}: {refused}");
+        assert_eq!(refused["code"], "invalid-argument", "{body}");
+    }
+    let (status, _) = json_of(
+        host.send(Method::PUT, "/api/secret/t-host-token", None)
+            .await,
+    )
+    .await;
+    assert_eq!(status, 400);
+    assert!(!host
+        .workspace
+        .path()
+        .join("secrets")
+        .join("t-host-token")
+        .exists());
+
+    // The guard: a PUT or DELETE without this launch's token is 401.
+    let unauthorised = host
+        .client
+        .put(host.url("/api/secret/t-host-token"))
+        .json(&json!({ "value": "x" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauthorised.status(), 401);
+    let unauthorised = host
+        .client
+        .delete(host.url("/api/secret/t-host-token"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauthorised.status(), 401);
+    assert!(!host
+        .workspace
+        .path()
+        .join("secrets")
+        .join("t-host-token")
+        .exists());
+
+    host.served.shutdown().await;
+}
+
+#[tokio::test]
+async fn secrets_dir_moves_the_file_layer() {
+    let _turn = TURN.lock().await;
+    let elsewhere = tempfile::tempdir().unwrap();
+    let dir = elsewhere.path().join("keys");
+    let configured = dir.clone();
+    let host = start_with("memory:", "secret-dir-app", move |c| {
+        c.secrets_dir = Some(configured);
+    })
+    .await;
+    let (status, put) = json_of(
+        host.send(
+            Method::PUT,
+            "/api/secret/t-host-token",
+            Some(json!({ "value": "from-file" })),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(status, 200, "{put}");
+    assert!(dir.join("t-host-token").exists());
+    assert!(!host.workspace.path().join("secrets").exists());
     host.served.shutdown().await;
 }

@@ -540,6 +540,10 @@ The guide is `docs/capability.md` in the koine checkout. Tick these in order.
 4. **Effects and safety.** The `effects = {...}` and `safety = ...` lines of
    `impress_service_impl!`: what the verbs read, write and reach, and the worst
    thing each can do (`read_only`, `mutating`, `destructive`, `external`).
+   A verb that needs a token declares it, `secrets = ["name"]` on its
+   `#[impress_method]`, and reads it with `secrets::get`; the host takes the
+   value with `PUT /api/secret/<name>` or `KOINE_SECRET_<NAME>` (`--secrets-dir`
+   and `--keychain` choose where it lives), never as an argument.
 5. **Selftest.** `crates/__SERVICE_CRATE__/src/selftest.rs` runs every
    `#[impress_example]` through the inventory. A verb with no example fails it.
 6. **`cargo test`.** The whole workspace; it must be green before the host is.

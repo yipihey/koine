@@ -2,7 +2,7 @@
 //!
 //! | Route | Answers | Module |
 //! |---|---|---|
-//! | `GET /api/status` | app, port, store url and capabilities, verb count | here |
+//! | `GET /api/status` | app, port, store url and capabilities, verb count, declared and missing secrets | here |
 //! | `/api/surface`, `/api/surface/*` | the surface route table | [`surface`] |
 //! | `GET /api/layout/{tree,layouts}`, `POST /api/layout/{verb,op}` | the layout verbs | [`layout`] |
 //! | `POST /api/verb/<name>` | one verb, through the pipeline | here |
@@ -10,6 +10,7 @@
 //! | `GET /ui`, `/ui/*` | the `koine-web` bundle | [`ui`] |
 //! | `GET/PUT/DELETE /api/blob/<item>/<name>` | the store's blobs | [`blob`] |
 //! | `GET /api/job/<id>`, `POST /api/job/<id>/cancel` | the default job runner | here |
+//! | `GET /api/secret`, `PUT/DELETE /api/secret/<name>` | the secrets linked verbs declare (never a value) | [`secret`] |
 //! | `POST /mcp` | MCP over JSON-RPC | here |
 //!
 //! Every JSON answer outside the guard's own is the wire convention:
@@ -19,6 +20,7 @@
 
 mod blob;
 mod layout;
+mod secret;
 mod surface;
 mod ui;
 
@@ -61,6 +63,11 @@ pub(crate) fn router(state: Shared) -> Router {
                 .put(blob::put)
                 .delete(blob::delete)
                 .layer(DefaultBodyLimit::max(BLOB_LIMIT)),
+        )
+        .route("/api/secret", get(secret::list))
+        .route(
+            "/api/secret/{name}",
+            axum::routing::put(secret::put).delete(secret::delete),
         )
         .route("/api/job/{id}", get(job_status))
         .route("/api/job/{id}/cancel", post(job_cancel))
@@ -147,6 +154,13 @@ async fn not_found() -> Response {
 }
 
 async fn status(State(state): State<Shared>) -> Response {
+    let rows = impress_service_core::secrets::status();
+    let declared = rows.len();
+    let missing: Vec<&str> = rows
+        .iter()
+        .filter(|row| !row.present)
+        .map(|row| row.name.as_str())
+        .collect();
     json_response(
         200,
         &json!({
@@ -159,6 +173,10 @@ async fn status(State(state): State<Shared>) -> Response {
             },
             "verbs": call::descriptors().count(),
             "jobs_running": state.runner.running(),
+            "secrets": {
+                "declared": declared,
+                "missing": missing,
+            },
             "wire_version": WIRE_VERSION,
         }),
     )

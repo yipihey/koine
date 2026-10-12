@@ -39,6 +39,11 @@ OPTIONS:
     --allow-network          admit peers that are not loopback; needs --network-bearer
                              (or $KOINE_NETWORK_BEARER) and a concrete --bind
     --network-bearer <tok>   the bearer a non-loopback peer presents
+    --secrets-dir <dir>      where PUT /api/secret/<name> keeps the secrets linked verbs
+                             declare, one 0600 file each
+                             (default: <workspace>/secrets)
+    --keychain               also read and write secrets in the macOS keychain
+                             (service koine); the environment and --secrets-dir win
     --check                  start, print the URL and verb count, stop, exit 0
     -h, --help               this text
 ";
@@ -64,6 +69,8 @@ pub fn parse(args: impl IntoIterator<Item = String>, app_id: &str) -> Result<Opt
     let mut device: Option<String> = None;
     let mut allow_network = false;
     let mut bearer = std::env::var("KOINE_NETWORK_BEARER").ok();
+    let mut secrets_dir: Option<PathBuf> = None;
+    let mut keychain = false;
     let mut check = false;
     while let Some(flag) = args.next() {
         let (flag, inline) = match flag.split_once('=') {
@@ -100,6 +107,8 @@ pub fn parse(args: impl IntoIterator<Item = String>, app_id: &str) -> Result<Opt
             "--device" => device = Some(value("--device")?),
             "--network-bearer" => bearer = Some(value("--network-bearer")?),
             "--allow-network" => allow_network = true,
+            "--secrets-dir" => secrets_dir = Some(PathBuf::from(value("--secrets-dir")?)),
+            "--keychain" => keychain = true,
             "--check" => check = true,
             other => return Err(format!("unknown option {other} (see --help)")),
         }
@@ -129,6 +138,8 @@ pub fn parse(args: impl IntoIterator<Item = String>, app_id: &str) -> Result<Opt
     }
     config.allow_network = allow_network;
     config.network_bearer = bearer;
+    config.secrets_dir = secrets_dir;
+    config.keychain = keychain;
     Ok(Some(Cli { config, check }))
 }
 
@@ -247,6 +258,30 @@ mod tests {
         assert_eq!(cli.config.port, 0);
         assert_eq!(cli.config.app_id, "mine");
         assert!(!cli.config.allow_network);
+    }
+
+    #[test]
+    fn secret_flags_become_config() {
+        let cli = parse_args(args(&["--workspace", "/tmp/ws"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(cli.config.secrets_dir, None);
+        assert!(!cli.config.keychain);
+        assert_eq!(
+            cli.config.secrets_path(),
+            PathBuf::from("/tmp/ws").join("secrets")
+        );
+        let cli = parse_args(args(&[
+            "--workspace",
+            "/tmp/ws",
+            "--secrets-dir=/tmp/s",
+            "--keychain",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(cli.config.secrets_dir, Some(PathBuf::from("/tmp/s")));
+        assert!(cli.config.keychain);
+        assert_eq!(cli.config.secrets_path(), PathBuf::from("/tmp/s"));
     }
 
     #[test]
