@@ -1,0 +1,48 @@
+{
+  "wire_version": 1,
+  "id": "layout.saved_round_trip",
+  "description": "save / apply / delete a named layout",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "layout-service_save-layout",
+      "args": {
+        "name": "__tier-b-scenario-saved-round-trip__",
+        "purpose": "S2b Tier B scenario self-test"
+      },
+      "as": "person",
+      "expect": { "status": 200 }
+    },
+    {
+      "call": "layout-service_list-layouts",
+      "args": {},
+      "as": "agent:scenario",
+      "expect": {
+        "status": 200,
+        "fields": [{ "path": "layouts", "present": true }]
+      }
+    },
+    {
+      "call": "layout-service_apply-layout",
+      "args": { "name": "__tier-b-scenario-saved-round-trip__" },
+      "as": "person",
+      "expect": {
+        "status": 200,
+        "fields": [{ "path": "version", "present": true }]
+      }
+    },
+    {
+      "call": "layout-service_delete-layout",
+      "args": { "name": "__tier-b-scenario-saved-round-trip__" },
+      "as": "person",
+      "expect": { "status": 200 }
+    }
+  ],
+  "teardown": [
+    {
+      "call": "layout-service_delete-layout",
+      "args": { "name": "__tier-b-scenario-saved-round-trip__" },
+      "as": "person"
+    }
+  ]
+}

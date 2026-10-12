@@ -1,0 +1,96 @@
+{
+  "wire_version": 1,
+  "id": "layout.version_moves",
+  "description": "split / resize / swap / close each advance `version`",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "layout-service_get-layout",
+      "capture": {"initial_version": "$.version"},
+      "expect": {"status": 200}
+    },
+    {
+      "call": "layout-service_split",
+      "args": {
+        "target": {"role": "detail"},
+        "dir": "horizontal",
+        "after": true,
+        "new": {
+          "query": {"kinds": ["publication"], "scope": {"scope": "all"}, "filters": [], "text": null, "relation": null, "sort": [], "limit": null},
+          "view_kind": "info",
+          "channel": {"number": 1}
+        }
+      },
+      "as": "person",
+      "capture": {"new_tile": "$.focused"},
+      "expect": {"status": 200, "ok": true}
+    },
+    {
+      "call": "layout-service_get-layout",
+      "capture": {
+        "split_version": "$.version",
+        "parent": {
+          "select_one": {
+            "from": "$.layout.tiles",
+            "path": "$.container.linear.children",
+            "predicate": {"array_contains": "{{state.new_tile}}"},
+            "object_key_as": "u64"
+          }
+        }
+      },
+      "expect": {"status": 200, "fields": [{"path": "version", "gt": "{{state.initial_version}}"}]}
+    },
+    {
+      "call": "layout-service_get-layout",
+      "capture": {
+        "shares": {"fill_array": {"value": 1.0, "length_of": "{{state.parent.value.container.linear.children}}"}}
+      },
+      "expect": {"status": 200}
+    },
+    {
+      "call": "layout-service_resize",
+      "args": {"container": "{{state.parent.numeric_key}}", "shares": "{{state.shares}}"},
+      "as": "person",
+      "expect": {"status": 200, "ok": true}
+    },
+    {
+      "call": "layout-service_get-layout",
+      "capture": {"resize_version": "$.version"},
+      "expect": {"status": 200, "fields": [{"path": "version", "gt": "{{state.split_version}}"}]}
+    },
+    {
+      "call": "layout-service_swap",
+      "args": {"a": {"role": "list"}, "b": {"role": "detail"}},
+      "as": "person",
+      "expect": {"status": 200, "ok": true}
+    },
+    {
+      "call": "layout-service_get-layout",
+      "capture": {"swap_version": "$.version"},
+      "expect": {"status": 200, "fields": [{"path": "version", "gt": "{{state.resize_version}}"}]}
+    },
+    {
+      "call": "layout-service_swap",
+      "args": {"a": {"role": "list"}, "b": {"role": "detail"}},
+      "as": "person",
+      "expect": {"status": 200, "ok": true}
+    },
+    {
+      "call": "layout-service_get-layout",
+      "capture": {"swap_back_version": "$.version"},
+      "expect": {"status": 200, "fields": [{"path": "version", "gt": "{{state.swap_version}}"}]}
+    }
+  ],
+  "teardown": [
+    {
+      "call": "layout-service_close",
+      "args": {"target": {"id": "{{state.new_tile}}"}},
+      "as": "person",
+      "expect": {"status": 200, "ok": true}
+    },
+    {
+      "call": "layout-service_get-layout",
+      "expect": {"status": 200, "fields": [{"path": "version", "gt": "{{state.swap_back_version}}"}]}
+    }
+  ]
+}

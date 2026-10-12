@@ -1,0 +1,64 @@
+{
+  "wire_version": 1,
+  "id": "layout.wire_contract",
+  "description": "Layout bodies are snake_case with wire_version; an unknown field, a stale expected_revision and an unknown view kind are refused with their codes",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "layout-service_get-layout",
+      "args": {},
+      "as": "agent:scenario",
+      "capture": { "rev0": "$.revision" },
+      "expect": {
+        "status": 200,
+        "fields": [
+          { "path": "wire_version", "equals": 1 },
+          { "path": "revision", "present": true }
+        ]
+      }
+    },
+    {
+      "call": "layout-service_focus",
+      "args": { "target": { "role": "list" }, "targett": {} },
+      "as": "agent:scenario",
+      "expect": {
+        "status": 400,
+        "code": "invalid-argument",
+        "fields": [{ "path": "message", "contains": "targett" }]
+      }
+    },
+    {
+      "call": "layout-service_focus",
+      "args": { "target": { "role": "list" } },
+      "as": "agent:scenario",
+      "expect": {
+        "status": 200,
+        "fields": [{ "path": "revision", "present": true }]
+      }
+    },
+    {
+      "call": "layout-service_focus",
+      "args": { "target": { "role": "detail" } },
+      "as": "agent:scenario",
+      "expect": {
+        "status": 200,
+        "fields": [{ "path": "revision", "present": true }]
+      }
+    },
+    {
+      "call": "layout-service_close",
+      "args": {
+        "target": { "role": "list" },
+        "expected_revision": "{{state.rev0}}"
+      },
+      "as": "agent:scenario",
+      "expect": { "status": 409, "code": "conflict" }
+    },
+    {
+      "call": "layout-service_set-view-kind",
+      "args": { "target": { "role": "detail" }, "view_kind": "editor" },
+      "as": "agent:scenario",
+      "expect": { "status": 422, "code": "unknown-view-kind" }
+    }
+  ]
+}

@@ -1,0 +1,246 @@
+{
+  "wire_version": 1,
+  "id": "layout.source_pane_session",
+  "description": "A `source` pane keeps its session through split, swap and a preset; a new source pane gets its own",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "layout-service_apply-layout",
+      "args": { "ordinal": 1 },
+      "as": "person",
+      "expect": { "status": 200 }
+    },
+    {
+      "call": "layout-service_focus",
+      "args": { "target": { "role": "detail" } },
+      "capture": { "detail": "$.focused" },
+      "as": "person",
+      "expect": { "status": 200, "ok": true }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "capture": {
+        "detail_pane": "$.layout.tiles.{{state.detail}}.pane"
+      },
+      "expect": { "status": 200 }
+    },
+    {
+      "wait": { "log_cursor": { "capture": "before" } }
+    },
+    {
+      "gesture": {
+        "verb": "split",
+        "target": { "role": "detail" },
+        "dir": "horizontal",
+        "after": true
+      },
+      "capture": { "source": "$.focused" }
+    },
+    {
+      "call": "layout-service_set-view-kind",
+      "args": {
+        "target": { "id": "{{state.source}}" },
+        "view_kind": "source"
+      },
+      "as": "person",
+      "expect": { "status": 200, "ok": true }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "capture": {
+        "source_session": "$.layout.tiles.{{state.source}}.pane.session",
+        "source_pane": "$.layout.tiles.{{state.source}}.pane"
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.source}}.pane.session",
+            "contains": "session-"
+          }
+        ]
+      }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.source}}.pane.view_kind",
+            "equals": "source"
+          },
+          {
+            "path": "layout.tiles.{{state.source}}.pane.query",
+            "equals": "{{state.detail_pane.query}}"
+          },
+          {
+            "path": "layout.tiles.{{state.source}}.pane.session",
+            "equals": "{{state.source_session}}"
+          }
+        ]
+      }
+    },
+    {
+      "wait": {
+        "log": {
+          "category": "layout",
+          "contains": "source session",
+          "also_contains": ["{{state.source_session}}", "opened"],
+          "after": "{{state.before}}",
+          "timeout_ms": 3000
+        }
+      }
+    },
+    {
+      "gesture": {
+        "verb": "split",
+        "target": { "id": "{{state.source}}" },
+        "dir": "vertical",
+        "after": true,
+        "new": "{{state.source_pane}}"
+      },
+      "capture": { "copy": "$.focused" }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "capture": {
+        "copy_session": "$.layout.tiles.{{state.copy}}.pane.session"
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.copy}}.pane.session",
+            "contains": "session-"
+          }
+        ]
+      }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.source}}.pane.session",
+            "equals": "{{state.source_session}}"
+          },
+          {
+            "path": "layout.tiles.{{state.copy}}.pane.session",
+            "not_equals": "{{state.source_session}}"
+          },
+          {
+            "path": "layout.tiles.{{state.copy}}.pane.view_kind",
+            "equals": "source"
+          },
+          {
+            "path": "layout.tiles.{{state.copy}}.pane.query",
+            "equals": "{{state.detail_pane.query}}"
+          }
+        ]
+      }
+    },
+    {
+      "gesture": {
+        "verb": "split",
+        "target": { "id": "{{state.source}}" },
+        "dir": "horizontal",
+        "after": true,
+        "new": {
+          "query": "{{state.detail_pane.query}}",
+          "view_kind": "pdf"
+        }
+      },
+      "capture": { "pdf": "$.focused" }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.pdf}}.pane.view_kind",
+            "equals": "pdf"
+          },
+          {
+            "path": "layout.tiles.{{state.pdf}}.pane.session",
+            "present": false
+          }
+        ]
+      }
+    },
+    {
+      "gesture": {
+        "verb": "swap",
+        "a": { "id": "{{state.source}}" },
+        "b": { "id": "{{state.copy}}" }
+      }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.source}}.pane.session",
+            "equals": "{{state.source_session}}"
+          },
+          {
+            "path": "layout.tiles.{{state.copy}}.pane.session",
+            "equals": "{{state.copy_session}}"
+          },
+          {
+            "path": "layout.tiles.{{state.pdf}}.pane.session",
+            "present": false
+          }
+        ]
+      }
+    }
+  ],
+  "teardown": [
+    {
+      "call": "layout-service_close",
+      "args": { "target": { "id": "{{state.pdf}}" } },
+      "as": "person",
+      "expect": { "status": 200, "ok": true }
+    },
+    {
+      "call": "layout-service_close",
+      "args": { "target": { "id": "{{state.copy}}" } },
+      "as": "person",
+      "expect": { "status": 200, "ok": true }
+    },
+    {
+      "call": "layout-service_close",
+      "args": { "target": { "id": "{{state.source}}" } },
+      "as": "person",
+      "expect": { "status": 200, "ok": true }
+    },
+    {
+      "call": "layout-service_apply-layout",
+      "args": { "ordinal": 1 },
+      "as": "person",
+      "expect": { "status": 200 }
+    },
+    {
+      "call": "layout-service_focus",
+      "args": { "target": { "role": "detail" } },
+      "capture": { "detail_after": "$.focused" },
+      "as": "person",
+      "expect": { "status": 200, "ok": true }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.detail_after}}.pane",
+            "equals": "{{state.detail_pane}}"
+          }
+        ]
+      }
+    }
+  ]
+}

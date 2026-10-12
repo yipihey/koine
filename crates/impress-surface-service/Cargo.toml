@@ -1,0 +1,88 @@
+[package]
+name = "impress-surface-service"
+description = "ADR-0033 surface verbs, store records and runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+autotests = false
+
+[dependencies]
+# Tier B (`src/tier_b.rs`) drives a running app's `/api/surface/*` over
+# loopback HTTP — the client `impress-layout-service`'s Tier B already uses,
+# so no new crate enters the kit's tree.
+reqwest = { workspace = true }
+# The item protocol and its store port (`Arc<dyn AttributedStore>`): this
+# crate owns the store side of a surface (the `impress/ui/surface@1.0.0` /
+# `-state` / `-event` rows) and writes them through the port. `schema`: the
+# DTOs that cross the `#[impress_method]` boundary need `schemars::JsonSchema`.
+impress-item = { workspace = true, features = ["schema"] }
+impress-pane-query = { workspace = true, features = ["schema"] }
+impress-pane-query-compile = { workspace = true }
+# The pure vocabulary: `SurfaceSpec`, `validate`, `plan`, `resolve`, `reduce`.
+# `schema` so `SurfaceSpec` and friends publish their JSON schema, which
+# `surface_schema` hands back verbatim.
+impress-surface = { workspace = true, features = ["schema"] }
+# `surface_show` composes ordinary layout verbs (split, set_query,
+# set_view_kind, set_role, get_layout, focus) rather than reaching into the
+# layout tree itself.
+impress-layout = { workspace = true, features = ["schema"] }
+impress-layout-service = { workspace = true }
+# The process-wide store and kind manifest, over the port
+# (`koine_store::process`), exactly as `impress-layout-service` uses them: the
+# host installs them once and the `#[impress_service]` constructor, which has
+# no arguments to carry them, asks.
+koine-store = { workspace = true }
+# Tier A's private in-memory store (`src/tier_a.rs`).
+koine-store-memory = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+# S2b: `impress-scenario` joined the kit (Tom's decision, 2026-09-27,
+# docs/kit-manifest.md) so the Tier B catalogue's non-dynamic entries can run
+# as stored `impress/scenario@1.0.0` documents, through the shared Tier B
+# caller `impress-layout-service` already gives this crate
+# (`impress_layout_service::scenario_caller`, reused rather than duplicated).
+impress-scenario = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5", "serde"] }
+chrono = { workspace = true }
+# `surface_wait` long-polls the event ring every 250ms (ADR-0033 D6) —
+# `tokio::time::sleep`, so this is a real dependency, not dev-only.
+tokio = { workspace = true }
+# Lines under target `surface`; the store FFI bridges them into the app's
+# Console as `?category=surface` (wave 7 T5, review RS-S11; G7a moved this
+# off the `log` facade onto `tracing`, D-P1).
+tracing = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+# Two handles on one directory root are the shape of two processes
+# (`DirStore` is `shared`: its `change_token` is the clock file); the memory
+# store is everything else. The suite's kind manifest is a test table
+# (`test_support::builtin_manifest`).
+koine-store-dir = { workspace = true }
+impress-pane-query-compile = { workspace = true, features = ["test-support"] }
+# The `cli` feature builds the clap tree from the same inventory
+# `impress-cli` iterates, mirroring `impress-layout-service`'s own test of
+# this — proof the subcommands this crate registers actually construct.
+impress-service-core = { workspace = true, features = ["cli"] }
+# The demo capability (ADR-0033 S9, a concurrent work package as this crate
+# was written): force-linked in the Tier A loop test so it runs the real
+# `surface-demo-service_series` / `surface-demo-service_histogram` verbs when
+# they exist. See `tier_a.rs`'s module docs for what happens when they do not
+# exist yet.
+surface-demo-service = { workspace = true }
+tempfile = { workspace = true }
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in tests/
+# (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would
+# make each of those files a binary of its own again.
+[[test]]
+name = "main"
+path = "tests/main.rs"
+
+[lints]
+workspace = true

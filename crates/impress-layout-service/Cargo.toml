@@ -1,0 +1,96 @@
+[package]
+name = "impress-layout-service"
+description = "The ADR-0031 D8 layout verbs as an #[impress_service] trait: a store-backed live layout per (app, device), the two undo rings, and the named-layout records — exposed to MCP, the CLI and impel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+autotests = false
+
+[dependencies]
+# The item protocol and its store port (`Arc<dyn AttributedStore>`): the
+# `impress/ui/layout@1.0.0` rows are written through it. `schema`: the
+# DTOs that cross the `#[impress_method]` boundary (`PaneQuery`, `ParamDecl`,
+# `Bindings`) need `schemars::JsonSchema`.
+impress-item = { workspace = true, features = ["schema"] }
+impress-pane-query = { workspace = true, features = ["schema"] }
+impress-pane-query-compile = { workspace = true }
+# The pure tree. `schema` so `Layout`, `PaneSpec`, `Verb` and friends publish
+# their JSON schemas as verb arguments and results — which is exactly the
+# reason that feature exists (see impress-layout's `schema_tests`).
+impress-layout = { workspace = true, features = ["schema"] }
+# The process-wide store, kind manifest and subtree resolver, over the port
+# (`koine_store::process`): the host installs them once and the
+# `#[impress_service]` constructor, which has no arguments to carry them,
+# asks. This crate names no backend.
+koine-store = { workspace = true }
+# Tier A's private in-memory store (`src/tier_a.rs`).
+koine-store-memory = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+# S2b: `impress-scenario` joined the kit (Tom's decision, 2026-09-27,
+# docs/kit-manifest.md) so the Tier B catalogue's non-dynamic entries can run
+# as stored `impress/scenario@1.0.0` documents through the one interpreter,
+# instead of a hand-written call sequence per entry (`src/scenario_caller.rs`).
+impress-scenario = { workspace = true }
+# Tier B only: the seven loopback requests that drive the running app's
+# `/api/layout/*` and `/api/surface/*`. Deliberately raw `reqwest` rather than
+# `impress-app-client`, whose typed clients are built on `imbib-service` and
+# `imprint-service` — two whole domain stacks for a kit-adjacent crate to take
+# on (ADR-0033 D7). `imprint-selftest` makes its Tier B calls the same way.
+reqwest = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5", "serde"] }
+chrono = { workspace = true }
+# The Rust half's log line (review RL-L6): reloads of a moved row, a
+# quarantined live row, refused undo steps. Target `layout`, the category the
+# Swift half uses; bridged into ImpressLogging by `impress-store-ffi`'s
+# `tracing` subscriber layer (G7a — moved off the `log` facade, D-P1).
+tracing = { workspace = true }
+# Tier B only: the outline capability polls `/api/logs` for the pane's own
+# display line, which lands on the app's next run-loop turn, not inside the
+# verb's response. An async sleep, so the poll does not block the runtime.
+tokio = { workspace = true, features = ["time"] }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+# Two handles on one directory root are the shape of two processes
+# (`DirStore` is `shared`: its `change_token` is the clock file), which is what
+# `tests/coherence.rs` and `tests/contract.rs` need where they once opened two
+# SQLite connections on one file.
+koine-store-dir = { workspace = true }
+# The suite's kind manifest, as a test table (`test_support::builtin_manifest`),
+# in place of `impress-core`'s `builtin_manifest()`.
+impress-pane-query-compile = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# `tests/logging.rs` captures the `layout` target's lines with a small
+# `tracing_subscriber::Layer`.
+tracing-subscriber = { workspace = true }
+# `tests/coherence.rs`: two store handles on one FILE, the shape of two
+# processes (`:memory:` is private to one connection).
+tempfile = { workspace = true }
+# The `cli` feature builds the clap tree from the same inventory `impress-cli`
+# iterates, so the test below proves the subcommands this crate registers are
+# actually constructible — schemas, flags and all — without needing to build
+# `impress-cli` itself (whose ONNX dependency cannot be fetched on every
+# machine).
+impress-service-core = { workspace = true, features = ["cli"] }
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in tests/
+# (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would
+# make each of those files a binary of its own again.
+[[test]]
+name = "main"
+path = "tests/main.rs"
+
+# Its own process: it pins the process-global store path to a directory that
+# does not exist, which `contract` (in main) sets to a real one.
+[[test]]
+name = "fallback_store"
+path = "tests/fallback_store.rs"
+
+[lints]
+workspace = true

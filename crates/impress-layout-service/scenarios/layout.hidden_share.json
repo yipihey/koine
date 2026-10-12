@@ -1,0 +1,94 @@
+{
+  "wire_version": 1,
+  "id": "layout.hidden_share",
+  "description": "set-collapsed hides the navigator and shows it again at exactly its share",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "layout-service_get-layout",
+      "capture": {
+        "navigator": {
+          "select_one": {
+            "from": "$.layout.tiles",
+            "path": "$.pane.role",
+            "predicate": {"equals": "navigator"},
+            "object_key_as": "u64"
+          }
+        }
+      },
+      "expect": {"status": 200}
+    },
+    {
+      "call": "layout-service_get-layout",
+      "capture": {
+        "parent": {
+          "select_one": {
+            "from": "$.layout.tiles",
+            "path": "$.container.linear.children",
+            "predicate": {"array_contains": "{{state.navigator.numeric_key}}"},
+            "object_key_as": "u64"
+          }
+        }
+      },
+      "expect": {"status": 200}
+    },
+    {
+      "call": "layout-service_get-layout",
+      "capture": {
+        "child_index": {
+          "select_one": {
+            "from": "$.layout.tiles.{{state.parent.numeric_key}}.container.linear.children",
+            "path": "$",
+            "predicate": {"equals": "{{state.navigator.numeric_key}}"}
+          }
+        }
+      },
+      "expect": {"status": 200}
+    },
+    {
+      "call": "layout-service_get-layout",
+      "capture": {
+        "original_share": "$.layout.tiles.{{state.parent.numeric_key}}.container.linear.shares.{{state.child_index.key}}"
+      },
+      "expect": {"status": 200}
+    },
+    {
+      "call": "layout-service_set-collapsed",
+      "args": {"target": {"role": "navigator"}},
+      "as": "person",
+      "expect": {"status": 200, "ok": true}
+    },
+    {
+      "call": "layout-service_get-layout",
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.parent.numeric_key}}.container.linear.shares.{{state.child_index.key}}",
+            "lte": 0.0010000000474974513
+          }
+        ]
+      }
+    }
+  ],
+  "teardown": [
+    {
+      "call": "layout-service_set-collapsed",
+      "args": {"target": {"role": "navigator"}},
+      "as": "person",
+      "expect": {"status": 200, "ok": true}
+    },
+    {
+      "call": "layout-service_get-layout",
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.parent.numeric_key}}.container.linear.shares.{{state.child_index.key}}",
+            "within": {"value": "{{state.original_share}}", "tol": 0.0001}
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "wire_version": 1,
+  "id": "surface.http.strict",
+  "description": "An argument a verb does not take is refused over HTTP, naming it",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "impress-surface-service_surface-show",
+      "args": {
+        "id": "00000000-0000-4000-8000-000000000000",
+        "target": {
+          "ref": "id",
+          "tile": 7
+        }
+      },
+      "expect": {
+        "status": 400,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "message",
+            "contains": "tile"
+          }
+        ],
+        "code": "invalid-argument",
+        "ok": false
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-events",
+      "args": {
+        "id": "00000000-0000-4000-8000-000000000000",
+        "after": 0
+      },
+      "expect": {
+        "status": 400,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "message",
+            "contains": "after"
+          }
+        ],
+        "code": "invalid-argument",
+        "ok": false
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-render",
+      "args": {
+        "id": "00000000-0000-4000-8000-000000000000",
+        "pane": 3
+      },
+      "expect": {
+        "status": 400,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "message",
+            "contains": "pane"
+          }
+        ],
+        "code": "invalid-argument",
+        "ok": false
+      }
+    }
+  ]
+}

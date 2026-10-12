@@ -1,0 +1,73 @@
+{
+  "wire_version": 1,
+  "id": "layout.outline_collection_row",
+  "description": "Selecting an outline collection row re-queries the list pane, and `info` follows a list selection",
+  "tier": "b",
+  "steps": [
+    {
+      "wait": { "log_cursor": { "capture": "before_outline" } }
+    },
+    {
+      "gesture": { "outline_collection": "{{uuid}}" },
+      "capture": {
+        "collection_id": "$.collection_id",
+        "list_tile": "$.list_tile",
+        "collection_query": "$.query",
+        "collection_kind": "$.kind",
+        "detail": "$.detail"
+      }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.list_tile}}.pane.query",
+            "equals": "{{state.collection_query}}"
+          },
+          {
+            "path": "layout.channels.1.collection",
+            "equals": ["{{state.collection_id}}"]
+          }
+        ]
+      }
+    },
+    {
+      "wait": {
+        "log": {
+          "category": "layout",
+          "contains": "pane {{state.list_tile}} display: 0 rows",
+          "after": "{{state.before_outline}}",
+          "timeout_ms": 3000
+        }
+      }
+    },
+    {
+      "wait": { "log_cursor": { "capture": "before_select" } }
+    },
+    {
+      "call": "layout-service_select",
+      "args": {
+        "target": { "id": "{{state.list_tile}}" },
+        "kind": "{{state.collection_kind}}",
+        "ids": ["{{uuid}}"]
+      },
+      "as": "person",
+      "capture": { "selection_id": { "argument": "$.ids.0" } },
+      "expect": { "status": 200, "ok": true }
+    },
+    {
+      "wait": {
+        "log": {
+          "category": "layout",
+          "contains": "pane {{state.detail.tile}} {{state.detail.view_kind}}: ",
+          "also_contains": ["{{state.selection_id}}"],
+          "after": "{{state.before_select}}",
+          "timeout_ms": 3000
+        }
+      },
+      "when_present": "$.detail"
+    }
+  ]
+}

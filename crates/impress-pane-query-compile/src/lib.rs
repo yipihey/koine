@@ -23,5 +23,6 @@ pub use compile::{compile, compile_with, CompiledQuery, RootOnly, SubtreeResolve
 
 #[cfg(test)]
 mod store_tests;
-#[cfg(test)]
-mod test_support;
+/// A manifest shaped like the suite's `builtin_manifest()`, for tests.
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;

@@ -18,6 +18,8 @@ members = [
     "crates/impress-fs-lock",
     "crates/impress-settings",
     "crates/surface-demo-service",
+    "crates/impress-layout-service",
+    "crates/impress-surface-service",
     "crates/impress-keymap",
     "crates/impress-scenario",
     "crates/impress-workflow",
@@ -70,6 +72,9 @@ lazy_static = "1.4"
 # `crates/uniffi-bindgen`, which the build-xcframework scripts invoke.
 uniffi = { version = "0.28", default-features = false }
 
+# Test-only helpers shared by the runtime crates
+tempfile = "3"
+
 # Async trait support (HTTP source plugins, service traits)
 async-trait = "0.1"
 # HTTP client (rustls so no OpenSSL dependency on macOS/Linux/CI)
@@ -98,6 +103,8 @@ koine-dioxus = { path = "crates/koine-dioxus" }
 koine-web = { path = "crates/koine-web" }
 impress-scenario = { path = "crates/impress-scenario" }
 surface-demo-service = { path = "crates/surface-demo-service" }
+impress-layout-service = { path = "crates/impress-layout-service" }
+impress-surface-service = { path = "crates/impress-surface-service" }
 # default-features = false HERE, not at the call site: a member inheriting a
 # workspace dependency can only add features, never remove them, so a member
 # writing `default-features = false` is silently ignored (cargo warns, and

@@ -1,0 +1,415 @@
+{
+  "wire_version": 1,
+  "id": "surface.http.routes",
+  "description": "Every /api/surface route answers its verb's result, with wire_version 1",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "impress-surface-service_surface-create",
+      "args": {
+        "spec": {
+          "surface": "1.0",
+          "name": "surface-selftest tier-b scratch",
+          "state": {
+            "bins": 4
+          },
+          "root": {
+            "column": [
+              {
+                "id": "bins",
+                "field": {
+                  "slider": {
+                    "min": 1,
+                    "max": 64,
+                    "step": 1
+                  }
+                },
+                "bind": "state.bins"
+              },
+              {
+                "id": "choose",
+                "button": {
+                  "label": "Use bins",
+                  "on_click": [
+                    {
+                      "emit": {
+                        "name": "chosen",
+                        "payload": {
+                          "bins": "{{!state.bins}}"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "id",
+            "present": true
+          }
+        ]
+      },
+      "capture": {
+        "surface": "$.id"
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-list",
+      "args": {},
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "surfaces",
+            "present": true
+          }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-schema",
+      "args": {},
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "rules",
+            "present": true
+          }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-examples",
+      "args": {},
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "examples",
+            "present": true
+          }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-validate",
+      "args": {
+        "spec": {
+          "surface": "1.0",
+          "name": "surface-selftest tier-b scratch",
+          "state": {
+            "bins": 4
+          },
+          "root": {
+            "column": [
+              {
+                "id": "bins",
+                "field": {
+                  "slider": {
+                    "min": 1,
+                    "max": 64,
+                    "step": 1
+                  }
+                },
+                "bind": "state.bins"
+              },
+              {
+                "id": "choose",
+                "button": {
+                  "label": "Use bins",
+                  "on_click": [
+                    {
+                      "emit": {
+                        "name": "chosen",
+                        "payload": {
+                          "bins": "{{!state.bins}}"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "problems",
+            "present": true
+          }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-get",
+      "args": {
+        "id": "{{state.surface}}"
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "spec",
+            "present": true
+          }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-render",
+      "args": {
+        "id": "{{state.surface}}"
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "tree",
+            "present": true
+          }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-state-get",
+      "args": {
+        "id": "{{state.surface}}"
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "state",
+            "present": true
+          }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-state-set",
+      "args": {
+        "id": "{{state.surface}}",
+        "state": {
+          "bins": 9
+        }
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "state",
+            "present": true
+          }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-dispatch",
+      "args": {
+        "id": "{{state.surface}}",
+        "event": {
+          "widget": "choose",
+          "kind": "click"
+        }
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "effects",
+            "present": true
+          }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-events",
+      "args": {
+        "id": "{{state.surface}}",
+        "after_seq": 0
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "events",
+            "present": true
+          }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-wait",
+      "args": {
+        "id": "{{state.surface}}",
+        "after_seq": 0,
+        "timeout_ms": 10
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "events",
+            "present": true
+          }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-update",
+      "args": {
+        "id": "{{state.surface}}",
+        "expected_revision": 1,
+        "spec": {
+          "surface": "1.0",
+          "name": "surface-selftest tier-b scratch",
+          "state": {
+            "bins": 4
+          },
+          "root": {
+            "column": [
+              {
+                "id": "bins",
+                "field": {
+                  "slider": {
+                    "min": 1,
+                    "max": 64,
+                    "step": 1
+                  }
+                },
+                "bind": "state.bins"
+              },
+              {
+                "id": "choose",
+                "button": {
+                  "label": "Use bins",
+                  "on_click": [
+                    {
+                      "emit": {
+                        "name": "chosen",
+                        "payload": {
+                          "bins": "{{!state.bins}}"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "revision",
+            "present": true
+          }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-events",
+      "args": {
+        "id": "{{state.surface}}"
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "events.0.name",
+            "equals": "chosen"
+          },
+          {
+            "path": "events.0.payload.bins",
+            "equals": 9
+          }
+        ]
+      }
+    }
+  ],
+  "teardown": [
+    {
+      "call": "impress-surface-service_surface-delete",
+      "args": {
+        "id": "{{state.surface}}"
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          }
+        ]
+      }
+    }
+  ]
+}

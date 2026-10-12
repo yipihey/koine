@@ -23,5 +23,11 @@ koine-store-memory = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 serde_json = { workspace = true }
 
+[features]
+# The test table of record kinds (`test_support::builtin_manifest`), for the
+# crates whose tests compile queries against the suite's kinds without taking
+# a dependency on the app that owns the real one.
+test-support = []
+
 [lints]
 workspace = true

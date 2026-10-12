@@ -1,0 +1,101 @@
+{
+  "wire_version": 1,
+  "id": "layout.channel_selection",
+  "description": "A `select` in the list pane reaches the info pane's channel param",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "layout-service_apply-layout",
+      "args": { "ordinal": 1 },
+      "as": "person",
+      "expect": { "status": 200 }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "capture": {
+        "detail": {
+          "select_one": {
+            "from": "$.layout.tiles",
+            "path": "$.pane.role",
+            "predicate": { "equals": "detail" },
+            "object_key_as": "u64"
+          }
+        },
+        "list": {
+          "select_one": {
+            "from": "$.layout.tiles",
+            "path": "$.pane.role",
+            "predicate": { "equals": "list" },
+            "object_key_as": "u64"
+          }
+        }
+      },
+      "expect": { "status": 200 }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "capture": {
+        "channel_param": {
+          "select_one": {
+            "from": "$.layout.tiles.{{state.detail.numeric_key}}.pane.params",
+            "path": "$.source.source",
+            "predicate": { "equals": "channel" }
+          }
+        }
+      },
+      "expect": { "status": 200 }
+    },
+    {
+      "call": "layout-service_select",
+      "args": {
+        "target": { "id": "{{state.list.numeric_key}}" },
+        "kind": "{{state.channel_param.value.decl.kind}}",
+        "ids": ["{{uuid}}"]
+      },
+      "capture": {
+        "selected_id": { "argument": "$.ids.0" }
+      },
+      "as": "person",
+      "expect": {
+        "status": 200,
+        "fields": [{ "path": "ok", "equals": true }]
+      }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.detail.numeric_key}}.pane.role",
+            "equals": "detail"
+          },
+          {
+            "path": "layout.tiles.{{state.list.numeric_key}}.pane.role",
+            "equals": "list"
+          },
+          {
+            "path": "layout.tiles.{{state.detail.numeric_key}}.pane.params.{{state.channel_param.key}}.source.source",
+            "equals": "channel"
+          },
+          {
+            "path": "layout.tiles.{{state.detail.numeric_key}}.pane.params.{{state.channel_param.key}}.source.channel.number",
+            "equals": "{{state.channel_param.value.source.channel.number}}"
+          },
+          {
+            "path": "layout.tiles.{{state.detail.numeric_key}}.pane.params.{{state.channel_param.key}}.decl.name",
+            "equals": "{{state.channel_param.value.decl.name}}"
+          },
+          {
+            "path": "layout.tiles.{{state.detail.numeric_key}}.pane.params.{{state.channel_param.key}}.decl.kind",
+            "equals": "{{state.channel_param.value.decl.kind}}"
+          },
+          {
+            "path": "layout.channels.{{state.channel_param.value.source.channel.number}}.{{state.channel_param.value.decl.kind}}",
+            "equals": ["{{state.selected_id}}"]
+          }
+        ]
+      }
+    }
+  ]
+}

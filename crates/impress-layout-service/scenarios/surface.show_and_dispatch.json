@@ -1,0 +1,126 @@
+{
+  "wire_version": 1,
+  "id": "surface.show_and_dispatch",
+  "description": "A surface renders and a dispatched event changes its state",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "impress-surface-service_surface-create",
+      "args": {
+        "spec": {
+          "surface": "1.0",
+          "name": "__tier-b-selftest__",
+          "state": { "bins": 4 },
+          "root": {
+            "column": [
+              { "text": "tier-b self-test" },
+              {
+                "id": "bins",
+                "field": { "slider": { "min": 1, "max": 64, "step": 1 } },
+                "label": "Bins",
+                "bind": "state.bins"
+              },
+              {
+                "id": "choose",
+                "button": {
+                  "label": "Use these bins",
+                  "on_click": [
+                    {
+                      "emit": {
+                        "name": "bins-chosen",
+                        "payload": { "bins": "{{!state.bins}}" }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          { "path": "id", "present": true }
+        ]
+      },
+      "capture": { "surface": "$.id" }
+    },
+    {
+      "call": "impress-surface-service_surface-render",
+      "args": { "id": "{{state.surface}}" },
+      "expect": {
+        "status": 200,
+        "fields": [
+          { "path": "tree.root.node.items.1.id", "equals": "bins" },
+          { "path": "tree.root.node.items.1.node.value", "equals": 4 }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-dispatch",
+      "args": {
+        "id": "{{state.surface}}",
+        "event": { "widget": "bins", "kind": "change", "value": 17 }
+      },
+      "expect": {
+        "status": 200,
+        "fields": [{ "path": "ok", "equals": true }]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-render",
+      "args": { "id": "{{state.surface}}" },
+      "expect": {
+        "status": 200,
+        "fields": [
+          { "path": "tree.root.node.items.1.id", "equals": "bins" },
+          { "path": "tree.root.node.items.1.node.value", "equals": 17 }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-state-get",
+      "args": { "id": "{{state.surface}}" },
+      "expect": {
+        "status": 200,
+        "fields": [{ "path": "state.bins", "equals": 17 }]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-dispatch",
+      "args": {
+        "id": "{{state.surface}}",
+        "event": { "widget": "choose", "kind": "click" }
+      },
+      "expect": {
+        "status": 200,
+        "fields": [
+          { "path": "ok", "equals": true },
+          { "path": "effects.0.ok", "equals": true }
+        ]
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-events",
+      "args": { "id": "{{state.surface}}", "after_seq": 0 },
+      "expect": {
+        "status": 200,
+        "fields": [
+          { "path": "events.0.name", "equals": "bins-chosen" },
+          { "path": "events.0.payload.bins", "equals": 17 }
+        ]
+      }
+    }
+  ],
+  "teardown": [
+    {
+      "call": "impress-surface-service_surface-delete",
+      "args": { "id": "{{state.surface}}" },
+      "expect": {
+        "status": 200,
+        "fields": [{ "path": "ok", "equals": true }]
+      }
+    }
+  ]
+}

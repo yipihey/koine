@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use impress_item::schema::refs;
 use impress_pane_query::{KindManifest, RecordKindId};
 
-pub(crate) fn builtin_manifest() -> KindManifest {
+pub fn builtin_manifest() -> KindManifest {
     let kinds: BTreeMap<RecordKindId, Vec<String>> = [
         ("publication", vec![refs::IMBIB_BIBLIOGRAPHY_ENTRY]),
         ("manuscript", vec![refs::MANUSCRIPT]),

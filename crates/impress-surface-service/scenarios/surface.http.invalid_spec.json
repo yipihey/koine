@@ -1,0 +1,70 @@
+{
+  "wire_version": 1,
+  "id": "surface.http.invalid_spec",
+  "description": "An invalid spec is refused at create with every problem, and nothing is stored",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "impress-surface-service_surface-list",
+      "args": {},
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          }
+        ]
+      },
+      "capture": {
+        "before": "$.surfaces"
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-create",
+      "args": {
+        "spec": {
+          "surface": "1.0",
+          "name": "surface-selftest tier-b scratch",
+          "root": {
+            "table": {
+              "rows": []
+            }
+          }
+        }
+      },
+      "expect": {
+        "status": 422,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "problems.0",
+            "present": true
+          }
+        ],
+        "code": "invalid-spec",
+        "ok": false
+      }
+    },
+    {
+      "call": "impress-surface-service_surface-list",
+      "args": {},
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "wire_version",
+            "equals": 1
+          },
+          {
+            "path": "surfaces",
+            "equals": "{{state.before}}"
+          }
+        ]
+      }
+    }
+  ]
+}

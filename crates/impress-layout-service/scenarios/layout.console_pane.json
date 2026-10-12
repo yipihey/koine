@@ -1,0 +1,66 @@
+{
+  "wire_version": 1,
+  "id": "layout.console_pane",
+  "description": "A `console` pane split beside the detail pane renders the app's log, scoped by its `view_state`",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "layout-service_apply-layout",
+      "args": { "ordinal": 1 },
+      "as": "person",
+      "expect": { "status": 200 }
+    },
+    {
+      "wait": { "log_cursor": { "capture": "before" } }
+    },
+    {
+      "gesture": {
+        "verb": "split",
+        "target": { "role": "detail" },
+        "dir": "vertical",
+        "after": true,
+        "new": {
+          "view_kind": "console",
+          "view_state": { "search": "layout", "levels": ["info", "warning", "error"] }
+        }
+      },
+      "capture": { "console": "$.focused" }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "args": {},
+      "expect": {
+        "status": 200,
+        "fields": [
+          {
+            "path": "layout.tiles.{{state.console}}.pane.view_kind",
+            "equals": "console"
+          },
+          {
+            "path": "layout.tiles.{{state.console}}.pane.view_state",
+            "equals": { "search": "layout", "levels": ["info", "warning", "error"] }
+          }
+        ]
+      }
+    },
+    {
+      "wait": {
+        "log": {
+          "category": "layout",
+          "contains": "pane {{state.console}} console: ",
+          "also_contains": ["search 'layout'", "levels info,warning,error"],
+          "after": "{{state.before}}",
+          "timeout_ms": 3000
+        }
+      }
+    }
+  ],
+  "teardown": [
+    {
+      "call": "layout-service_close",
+      "args": { "target": { "id": "{{state.console}}" } },
+      "as": "person",
+      "expect": { "status": 200, "ok": true }
+    }
+  ]
+}

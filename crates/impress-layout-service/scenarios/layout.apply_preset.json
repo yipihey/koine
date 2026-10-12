@@ -1,0 +1,30 @@
+{
+  "wire_version": 1,
+  "id": "layout.apply_preset",
+  "description": "Applying a preset by ordinal rebuilds the tree",
+  "tier": "b",
+  "steps": [
+    {
+      "call": "layout-service_apply-layout-by-ordinal",
+      "args": { "ordinal": 1 },
+      "as": "person",
+      "expect": {
+        "status": 200,
+        "fields": [{ "path": "version", "present": true }]
+      }
+    },
+    {
+      "call": "layout-service_get-layout",
+      "args": {},
+      "as": "agent:scenario",
+      "expect": {
+        "status": 200,
+        "fields": [
+          { "path": "layout", "present": true },
+          { "path": "layout.tiles", "present": true },
+          { "path": "version", "present": true }
+        ]
+      }
+    }
+  ]
+}
