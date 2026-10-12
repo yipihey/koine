@@ -171,8 +171,8 @@ history.
 
 ## Status
 
-F1, F3 and F4 are built on koine main. What landed, and where it differs
-from the decisions above:
+F1–F4 are built on koine main. What landed, and where it differs from the
+decisions above:
 
 - **F-D1 (core).** `impress_service_core::secrets` is as decided. The
   refusal is the pipeline's envelope `{ok: false, code: "missing-secret",
@@ -181,6 +181,14 @@ from the decisions above:
   enum exhaustively). The CLI shows `Secrets:` and `Returns:` as a verb's
   `--help` after-text; there was no listing that printed `returns_kind`
   before.
+- **F-D1 (host).** As decided. Two behaviours worth knowing: `DELETE`
+  answers `removed: true` only when the name was present before and absent
+  after, so a value the environment still supplies reports `false` though
+  the file is gone; and a `PUT` with `--keychain` still writes the file
+  layer, because the file layer is asked first and the environment is
+  read-only — the keychain is read by the host and written with `security`
+  by hand. The e2e script asserts the list, the status field and the 404
+  for an undeclared name; the scaffolded app declares no secret.
 - **F-D2.** As decided, with two details: a select on a table carries
   `{{event.value}}` (the array of ids every select sends), so the generated
   form's `on_select` is `set state.selected = {{event.value}}`; and the
