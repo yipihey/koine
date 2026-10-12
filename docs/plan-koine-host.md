@@ -38,8 +38,9 @@ fn metadata_set(&self, key: &str, value: &str) -> Result<(), StoreError>;
     // default: one `core/store-metadata` item per key, payload {key, value}
 // on ItemStore
 fn change_token(&self) -> Result<u64, StoreError>;
-    // "something committed": SQLite's data_version, the directory's clock file,
-    // the memory store's clock. Monotonic within a handle; not comparable across backends.
+    // "something committed": SQLite's data_version plus its own total_changes (data_version
+    // alone does not move for the writing connection), the directory's clock file, the
+    // memory store's clock. Monotonic within a handle; not comparable across backends.
 ```
 
 The conformance suite gains a case for each. The builtin kind manifest is
