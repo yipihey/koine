@@ -27,7 +27,10 @@
 //! (`koine_store::process::install`), the kind manifest
 //! (`impress_pane_query::process_manifest::install`) and the background
 //! runner (`impress_service_core::pipeline::adverbs`) and the secret source
-//! (`impress_service_core::secrets`, layered by [`secrets::host_source`]).
+//! (`impress_service_core::secrets`, layered by [`secrets::host_source`]),
+//! then starts the [`feed`] (a store write wakes the surfaces that read it)
+//! and re-arms the routines a previous launch left running
+//! ([`runner::JobRunner::rearm_routines`]).
 //! Two hosts in one
 //! process therefore share them — the last to start wins — which is why
 //! the integration tests take turns.
@@ -41,8 +44,10 @@
 //! the network bearer; no response carries an `Access-Control-*` header.
 
 pub mod cli;
+pub mod feed;
 mod guard;
 pub mod manifest;
+pub mod materialize;
 mod routes;
 pub mod runner;
 pub mod secrets;
@@ -158,6 +163,7 @@ pub struct Served {
     token: String,
     token_path: PathBuf,
     runner: Arc<JobRunner>,
+    feed: Option<feed::FeedHandle>,
     stop: Option<oneshot::Sender<()>>,
     task: Option<JoinHandle<()>>,
 }
@@ -185,7 +191,7 @@ impl Served {
         &self.token_path
     }
 
-    /// The job runner `in_background` calls start on.
+    /// The job runner `in_background` and `every` calls start on.
     pub fn runner(&self) -> &Arc<JobRunner> {
         &self.runner
     }
@@ -213,6 +219,7 @@ impl Served {
         if let Some(stop) = self.stop.take() {
             let _ = stop.send(());
         }
+        self.feed.take();
         self.runner.cancel_all();
         let _ = std::fs::remove_file(&self.token_path);
     }
@@ -273,10 +280,26 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
 
     koine_store::process::install(store.clone());
     process_manifest::install(config.manifest.clone());
-    let runner = Arc::new(JobRunner::new(store, tokio::runtime::Handle::current()));
+    let runner = Arc::new(JobRunner::new(
+        store.clone(),
+        tokio::runtime::Handle::current(),
+    ));
     install_background_runner(runner.clone());
     let secret_source = secrets::host_source(config.secrets_path(), config.keychain);
     impress_service_core::secrets::install(secret_source.clone());
+    // After the seams a routine's verb may read: the store, the manifest and
+    // the secrets.
+    let rearmed = runner.rearm_routines();
+    if rearmed > 0 {
+        tracing::info!(target: "koine-host", "re-armed {rearmed} routine(s)");
+    }
+    let feed = feed::start(
+        store,
+        impress_surface_service::SessionRegistry::shared(),
+        impress_layout_service::DefaultLayoutService::new(),
+        config.app_id.clone(),
+        config.device.clone(),
+    );
 
     let state = Arc::new(HostState {
         app_id: config.app_id.clone(),
@@ -328,6 +351,7 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
         token,
         token_path,
         runner,
+        feed: Some(feed),
         stop: Some(stop),
         task: Some(task),
     })

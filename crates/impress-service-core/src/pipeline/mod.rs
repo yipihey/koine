@@ -36,7 +36,7 @@
 //!
 //! Adverbs (docs/grammar.md § Adverbs) thread through these: parsed after
 //! identity and before strict args; support-checked before reachability;
-//! `with_review`, `tentatively`, `once` and `in_background` are settled right
+//! `with_review`, `tentatively`, `once`, `in_background` and `every` are settled right
 //! after policy decides; `within` wraps invoke; `reversibly` and the
 //! `simulated` tag are applied in the envelope layer; the span and the audit
 //! row record them ([`adverbs`] holds the host hooks).
@@ -50,6 +50,7 @@ pub mod adverbs;
 pub mod audit;
 pub mod context;
 pub mod identity;
+pub mod materialize;
 pub mod perf;
 pub mod policy;
 pub mod reachability;
@@ -282,6 +283,21 @@ fn check_adverbs(verb: &VerbHandle, adverbs: &Adverbs, sync_entry: bool) -> Resu
                         codes::UNSUPPORTED_ADVERB,
                         format!(
                             "{} cannot run in_background: no background runner is installed in \
+                             this process",
+                            verb.name()
+                        ),
+                    ));
+                }
+            }
+            Adverb::Every => {
+                if !verb.supports(adverb) {
+                    return Err(Refusal::unsupported_adverb(adverb, verb.name()));
+                }
+                if !adverbs::has_background_runner() {
+                    return Err(Refusal::new(
+                        codes::UNSUPPORTED_ADVERB,
+                        format!(
+                            "{} cannot run every: no background runner is installed in \
                              this process",
                             verb.name()
                         ),
@@ -530,13 +546,17 @@ fn prepare_inner(
 
             // `in_background`: the runner replaces invoke, after every check
             // above has passed (it cannot bypass policy).
-            if adverbs.in_background && matches!(disposition, Disposition::Run) {
+            // `every` implies it: the runner's `repeat` replaces `start`.
+            if (adverbs.in_background || adverbs.every.is_some())
+                && matches!(disposition, Disposition::Run)
+            {
                 policy::give_back_lease(verb);
                 holds_lease = false;
                 let answer = match adverbs::background_runner() {
                     Some(runner) => {
                         let mut inner = adverbs.clone();
                         inner.in_background = false;
+                        inner.every = None;
                         inner.once = None;
                         let handed = Call {
                             args: args.clone(),
@@ -547,7 +567,11 @@ fn prepare_inner(
                             requested_name: requested_name.clone(),
                             adverbs: inner,
                         };
-                        match runner.start(verb.clone(), handed) {
+                        let started = match adverbs.every {
+                            Some(interval) => runner.repeat(verb.clone(), handed, interval),
+                            None => runner.start(verb.clone(), handed),
+                        };
+                        match started {
                             Ok(handle) => serde_json::to_value(crate::job::JobStarted::started(
                                 handle.id,
                                 handle.kind,
@@ -559,9 +583,14 @@ fn prepare_inner(
                     None => crate::strict::refusal_value(&Refusal::new(
                         codes::UNSUPPORTED_ADVERB,
                         format!(
-                            "{} cannot run in_background: no background runner is installed \
+                            "{} cannot run {}: no background runner is installed \
                              in this process",
-                            verb.name()
+                            verb.name(),
+                            if adverbs.every.is_some() {
+                                "every"
+                            } else {
+                                "in_background"
+                            }
                         ),
                     )),
                 };
@@ -618,7 +647,7 @@ fn prepare_inner(
         arg_bytes,
         span,
         requested_name,
-        audit_always: adverbs.tentatively || adverbs.in_background,
+        audit_always: adverbs.tentatively || adverbs.in_background || adverbs.every.is_some(),
         adverbs,
         disposition,
         holds_lease,
@@ -1476,6 +1505,7 @@ pub(crate) mod tests {
     adv_verb!(WITHIN_OK, "t-service_adv-within-ok", slow, supports: &[Adverb::Within]);
     adv_verb!(WITHIN_SYNC, "t-service_adv-within-sync", counting, safety: READ_ONLY);
     adv_verb!(BACKGROUND, "t-service_adv-background", counting, supports: &[Adverb::Within]);
+    adv_verb!(EVERY, "t-service_adv-every", counting, supports: &[Adverb::Every]);
 
     fn with(adverbs: Adverbs) -> Call {
         Call::person(json!({})).with_adverbs(adverbs)
@@ -1838,8 +1868,23 @@ pub(crate) mod tests {
 
     #[test]
     fn in_background_needs_a_runner_and_hands_it_the_call_without_the_adverb() {
-        struct Fake(Mutex<Vec<Call>>);
+        struct Fake(Mutex<Vec<Call>>, Mutex<Vec<Duration>>);
         impl adverbs::BackgroundRunner for Fake {
+            fn repeat(
+                &self,
+                verb: VerbHandle,
+                call: Call,
+                interval: Duration,
+            ) -> Result<crate::job::JobHandle, Refusal> {
+                self.0.lock().unwrap().push(call);
+                self.1.lock().unwrap().push(interval);
+                Ok(crate::job::JobHandle {
+                    id: "routine-9".into(),
+                    kind: verb.name().to_string(),
+                    state: "running".into(),
+                })
+            }
+
             fn start(
                 &self,
                 verb: VerbHandle,
@@ -1865,7 +1910,27 @@ pub(crate) mod tests {
         assert!(refused["message"].as_str().unwrap().contains("runner"));
         assert_eq!(hits("t-service_adv-background"), 0);
 
-        let fake = Arc::new(Fake(Mutex::new(Vec::new())));
+        // `every`: the verb must declare it, and a runner must be installed.
+        let every = Adverbs {
+            every: Some(Duration::from_secs(90)),
+            ..Default::default()
+        };
+        let undeclared = invoke_blocking(&BACKGROUND, with(every.clone())).unwrap();
+        assert_eq!(undeclared["code"], "unsupported-adverb");
+        assert_eq!(
+            undeclared["message"],
+            "t-service_adv-background does not support the adverb 'every'"
+        );
+        let no_runner = invoke_blocking(&EVERY, with(every.clone())).unwrap();
+        assert_eq!(no_runner["code"], "unsupported-adverb");
+        assert_eq!(
+            no_runner["message"],
+            "t-service_adv-every cannot run every: no background runner is installed in \
+             this process"
+        );
+        assert_eq!(hits("t-service_adv-every"), 0);
+
+        let fake = Arc::new(Fake(Mutex::new(Vec::new()), Mutex::new(Vec::new())));
         adverbs::install_background_runner(fake.clone());
         assert!(adverbs::has_background_runner());
         let mut call = with(background);
@@ -1888,5 +1953,27 @@ pub(crate) mod tests {
             .as_array()
             .unwrap()
             .contains(&json!("in_background")));
+
+        // `every` goes to `repeat`, with the interval and without the adverb
+        // (or `in_background`, which it implies).
+        let mut call = with(Adverbs {
+            in_background: true,
+            ..every
+        });
+        call.args = json!({"n": 4});
+        let answer = invoke_blocking(&EVERY, call).unwrap();
+        assert_eq!(answer["ok"], true);
+        assert_eq!(answer["job"]["id"], "routine-9");
+        assert_eq!(answer["job"]["kind"], "t-service_adv-every");
+        assert_eq!(hits("t-service_adv-every"), 0, "the runner runs it");
+        let seen = fake.0.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(seen[1].adverbs.every.is_none() && !seen[1].adverbs.in_background);
+        assert_eq!(seen[1].args, json!({"n": 4}));
+        assert_eq!(*fake.1.lock().unwrap(), vec![Duration::from_secs(90)]);
+        drop(seen);
+        let row = record_of("t-service_adv-every");
+        assert_eq!(used(&row), json!(["in_background", "every"]));
+        assert_eq!(row.adverbs["every"], "90s");
     }
 }

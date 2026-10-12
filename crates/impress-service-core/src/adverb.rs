@@ -6,13 +6,14 @@
 //! arguments are exactly what its schema says.
 
 use std::fmt;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::refusal::Refusal;
 
-/// The six adverbs (docs/grammar.md § Adverbs, "The vocabulary").
+/// The seven adverbs (docs/grammar.md § Adverbs, "The vocabulary").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Adverb {
     Tentatively,
@@ -21,17 +22,19 @@ pub enum Adverb {
     Reversibly,
     Within,
     InBackground,
+    Every,
 }
 
 impl Adverb {
     /// Every adverb, in vocabulary order.
-    pub const ALL: [Adverb; 6] = [
+    pub const ALL: [Adverb; 7] = [
         Adverb::Tentatively,
         Adverb::WithReview,
         Adverb::Once,
         Adverb::Reversibly,
         Adverb::Within,
         Adverb::InBackground,
+        Adverb::Every,
     ];
 
     /// The wire spelling, snake_case.
@@ -43,6 +46,7 @@ impl Adverb {
             Adverb::Reversibly => "reversibly",
             Adverb::Within => "within",
             Adverb::InBackground => "in_background",
+            Adverb::Every => "every",
         }
     }
 
@@ -101,6 +105,98 @@ pub struct Adverbs {
     pub within: Option<Within>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub in_background: bool,
+    /// `every`'s value: a repeat interval. The wire spelling is the duration
+    /// string (`"2s"`, `"10m"`); see [`parse_every`].
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "every_wire")]
+    pub every: Option<Duration>,
+}
+
+/// The smallest `every` interval.
+pub const EVERY_MIN: Duration = Duration::from_secs(1);
+/// The largest `every` interval (days at most).
+pub const EVERY_MAX: Duration = Duration::from_secs(365 * 86_400);
+
+/// Parse `every`'s duration string: an unsigned integer and one unit,
+/// `s`, `m`, `h` or `d` (`"2s"`, `"10m"`, `"1h"`, `"2d"`). Sub-second units
+/// (`"500ms"`) are refused: the interval is at least one second, and at most
+/// [`EVERY_MAX`] (365 days).
+pub fn parse_every(text: &str) -> Result<Duration, String> {
+    let shape = "'every' must be a duration such as \"2s\", \"10m\", \"1h\" or \"2d\"";
+    let text = text.trim();
+    let split = text
+        .find(|c: char| !c.is_ascii_digit())
+        .ok_or_else(|| format!("{shape} (got \"{text}\": no unit)"))?;
+    let (digits, unit) = text.split_at(split);
+    if digits.is_empty() {
+        return Err(format!("{shape} (got \"{text}\": no number)"));
+    }
+    let n: u64 = digits
+        .parse()
+        .map_err(|_| format!("{shape} (got \"{text}\": the number is too large)"))?;
+    let unit_secs: u64 = match unit {
+        "s" => 1,
+        "m" => 60,
+        "h" => 3_600,
+        "d" => 86_400,
+        "ms" | "us" | "ns" => {
+            return Err(format!(
+                "'every' must be at least 1s (got \"{text}\": sub-second intervals are refused)"
+            ))
+        }
+        other => {
+            return Err(format!(
+                "{shape} (got \"{text}\": unknown unit \"{other}\")"
+            ))
+        }
+    };
+    let secs = n
+        .checked_mul(unit_secs)
+        .ok_or_else(|| format!("{shape} (got \"{text}\": the number is too large)"))?;
+    let d = Duration::from_secs(secs);
+    if d < EVERY_MIN {
+        return Err(format!("'every' must be at least 1s (got \"{text}\")"));
+    }
+    if d > EVERY_MAX {
+        return Err(format!("'every' must be at most 365d (got \"{text}\")"));
+    }
+    Ok(d)
+}
+
+/// The canonical spelling of an `every` interval: the largest unit that
+/// divides it exactly. The inverse of [`parse_every`].
+pub fn format_every(d: Duration) -> String {
+    let s = d.as_secs();
+    if s != 0 && s.is_multiple_of(86_400) {
+        format!("{}d", s / 86_400)
+    } else if s != 0 && s.is_multiple_of(3_600) {
+        format!("{}h", s / 3_600)
+    } else if s != 0 && s.is_multiple_of(60) {
+        format!("{}m", s / 60)
+    } else {
+        format!("{s}s")
+    }
+}
+
+mod every_wire {
+    use super::{format_every, parse_every};
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::time::Duration;
+
+    pub fn serialize<S: Serializer>(v: &Option<Duration>, s: S) -> Result<S::Ok, S::Error> {
+        match v {
+            Some(d) => s.serialize_str(&format_every(*d)),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Duration>, D::Error> {
+        match Option::<String>::deserialize(d)? {
+            Some(text) => parse_every(&text)
+                .map(Some)
+                .map_err(serde::de::Error::custom),
+            None => Ok(None),
+        }
+    }
 }
 
 impl Adverbs {
@@ -152,6 +248,16 @@ impl Adverbs {
                     Value::String(s) => out.once = Some(s),
                     _ => return Err(bad("'once' must be a non-empty string key".into())),
                 },
+                Adverb::Every => match value {
+                    Value::String(text) => {
+                        out.every = Some(parse_every(&text).map_err(bad)?);
+                    }
+                    _ => {
+                        return Err(bad(
+                            "'every' must be a duration string such as \"2s\" or \"10m\"".into(),
+                        ))
+                    }
+                },
                 Adverb::Within => {
                     let w: Within = serde_json::from_value(value).map_err(|e| {
                         bad(format!("'within' must be an object {{\"ms\": N}} ({e})"))
@@ -192,6 +298,9 @@ impl Adverbs {
         if self.in_background {
             out.push(Adverb::InBackground);
         }
+        if self.every.is_some() {
+            out.push(Adverb::Every);
+        }
         out
     }
 
@@ -205,11 +314,12 @@ impl Adverbs {
             reversibly: self.reversibly || other.reversibly,
             within: self.within.or(other.within),
             in_background: self.in_background || other.in_background,
+            every: self.every.or(other.every),
         }
     }
 
     /// What the span and the audit row record:
-    /// `{"used": [...], "within_ms": N}`, never the `once` key's value
+    /// `{"used": [...], "within_ms": N, "every": "2s"}`, never the `once` key's value
     /// (`"once": true` instead). `Value::Null` when empty.
     pub fn to_record_value(&self) -> Value {
         if self.is_empty() {
@@ -218,6 +328,9 @@ impl Adverbs {
         let mut v = json!({ "used": self.used().iter().map(|a| a.as_str()).collect::<Vec<_>>() });
         if let Some(w) = self.within {
             v["within_ms"] = json!(w.ms);
+        }
+        if let Some(d) = self.every {
+            v["every"] = json!(format_every(d));
         }
         if self.once.is_some() {
             v["once"] = json!(true);
@@ -243,9 +356,10 @@ mod tests {
     #[test]
     fn wire_round_trip() {
         let wire = json!({"tentatively": true, "with_review": true, "once": "k",
-            "reversibly": true, "within": {"ms": 500}, "in_background": true});
+            "reversibly": true, "within": {"ms": 500}, "in_background": true, "every": "2s"});
         let a: Adverbs = serde_json::from_value(wire.clone()).unwrap();
         assert_eq!(a.within, Some(Within { ms: 500 }));
+        assert_eq!(a.every, Some(Duration::from_secs(2)));
         assert_eq!(serde_json::to_value(&a).unwrap(), wire);
         assert_eq!(serde_json::to_value(Adverbs::default()).unwrap(), json!({}));
     }
@@ -288,6 +402,12 @@ mod tests {
             json!({"adverbs": {"once": ""}}),
             json!({"adverbs": {"once": 3}}),
             json!({"adverbs": {"tentatively": "yes"}}),
+            json!({"adverbs": {"every": 5}}),
+            json!({"adverbs": {"every": "500ms"}}),
+            json!({"adverbs": {"every": "0s"}}),
+            json!({"adverbs": {"every": "366d"}}),
+            json!({"adverbs": {"every": "soon"}}),
+            json!({"adverbs": {"every": "10"}}),
         ] {
             let mut args = bad.clone();
             let r = Adverbs::take_from(&mut args).expect_err(&bad.to_string());
@@ -343,5 +463,42 @@ mod tests {
             a.used(),
             vec![Adverb::WithReview, Adverb::Reversibly, Adverb::InBackground]
         );
+    }
+
+    #[test]
+    fn every_parses_units_and_refuses_what_the_grammar_refuses() {
+        assert_eq!(parse_every("2s"), Ok(Duration::from_secs(2)));
+        assert_eq!(parse_every("10m"), Ok(Duration::from_secs(600)));
+        assert_eq!(parse_every("1h"), Ok(Duration::from_secs(3_600)));
+        assert_eq!(parse_every("2d"), Ok(Duration::from_secs(172_800)));
+        assert_eq!(parse_every("365d"), Ok(EVERY_MAX));
+        let sub = parse_every("500ms").unwrap_err();
+        assert!(sub.contains("at least 1s"), "{sub}");
+        assert!(parse_every("0s").unwrap_err().contains("at least 1s"));
+        assert!(parse_every("366d").unwrap_err().contains("at most 365d"));
+        assert!(parse_every("5w").unwrap_err().contains("unknown unit"));
+        assert!(parse_every("s").unwrap_err().contains("no number"));
+        assert!(parse_every("12").unwrap_err().contains("no unit"));
+        for d in ["1s", "59s", "2m", "90s", "1h", "5d"] {
+            let parsed = parse_every(d).unwrap();
+            assert_eq!(parse_every(&format_every(parsed)), Ok(parsed), "{d}");
+        }
+        assert_eq!(format_every(Duration::from_secs(90)), "90s");
+        assert_eq!(format_every(Duration::from_secs(7_200)), "2h");
+    }
+
+    #[test]
+    fn every_is_not_universal_and_is_recorded_without_losing_the_rest() {
+        assert!(!Adverb::Every.is_universal());
+        let mut args = json!({"adverbs": {"every": "10m", "in_background": true}});
+        let a = Adverbs::take_from(&mut args).unwrap();
+        assert_eq!(a.every, Some(Duration::from_secs(600)));
+        assert_eq!(a.used(), vec![Adverb::InBackground, Adverb::Every]);
+        assert_eq!(
+            a.to_record_value(),
+            json!({"used": ["in_background", "every"], "every": "10m"})
+        );
+        let merged = Adverbs::default().merge(a);
+        assert_eq!(merged.every, Some(Duration::from_secs(600)));
     }
 }

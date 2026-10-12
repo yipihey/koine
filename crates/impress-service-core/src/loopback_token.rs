@@ -37,6 +37,13 @@
 //! * **Override:** `IMPRESS_APP_TOKEN`, when set and non-empty, wins over the
 //!   file in every client. It is the same variable a remote (non-loopback)
 //!   client sets to the app's network bearer, so one name covers both cases.
+//! * **Where a client looks, in order** ([`client_token`]): `IMPRESS_APP_TOKEN`;
+//!   the suite container's file (`<container>/workspace/automation/…`);
+//!   `$KOINE_WORKSPACE/automation/…`; `~/.koine/automation/…`. The last two are
+//!   a koine host's (plan-koine-live L-D10): `koine-host` defaults its
+//!   workspace to the container when that exists on the machine, else
+//!   `$KOINE_WORKSPACE`, else `~/.koine`, so a client finds its token
+//!   whichever of the three the host chose.
 //!
 //! The file is per launch: a fresh token on every start, and a caller that
 //! cached the old one gets 401 and re-reads. The app removes the file when it
@@ -52,6 +59,14 @@ pub const TOKEN_ENV: &str = "IMPRESS_APP_TOKEN";
 
 /// The directory under the app-group container that holds the token files.
 pub const TOKEN_DIR: &str = "workspace/automation";
+
+/// The environment variable that names a koine host's workspace; its token
+/// is `$KOINE_WORKSPACE/automation/loopback-<port>.token`.
+pub const KOINE_WORKSPACE_ENV: &str = "KOINE_WORKSPACE";
+
+/// The directory under `$HOME` a koine host uses when nothing else names a
+/// workspace; its token is `~/.koine/automation/loopback-<port>.token`.
+pub const KOINE_HOME_DIR: &str = ".koine";
 
 /// The suite app group's container id on macOS (team-prefixed; the same
 /// literal `impress-store-service`, `imbib-service` and Swift's
@@ -175,10 +190,34 @@ pub fn read(path: &Path) -> io::Result<Option<String>> {
     }
 }
 
+/// Where a client looks for the token of the server on `port`, in order: the
+/// suite container's file, `<koine_workspace>/automation/…`, then
+/// `<home>/.koine/automation/…`. A `None` input leaves its candidate out.
+pub fn candidate_paths(
+    port: u16,
+    container_root: Option<&Path>,
+    koine_workspace: Option<&Path>,
+    home: Option<&Path>,
+) -> Vec<PathBuf> {
+    let file = token_file_name(port);
+    let mut out = Vec::new();
+    if let Some(root) = container_root {
+        out.push(token_path_under(root, port));
+    }
+    if let Some(workspace) = koine_workspace {
+        out.push(workspace.join("automation").join(&file));
+    }
+    if let Some(home) = home {
+        out.push(home.join(KOINE_HOME_DIR).join("automation").join(&file));
+    }
+    out
+}
+
 /// The token a client should send to the server on `port`: `IMPRESS_APP_TOKEN`
-/// when set, else the token file under the default container, else `None`
-/// (the client sends nothing and a mutating request will be refused 401 —
-/// which is the right failure, not a silent one).
+/// when set, else the first token file that exists among
+/// [`candidate_paths`] (the suite container, `$KOINE_WORKSPACE`,
+/// `~/.koine`), else `None` (the client sends nothing and a mutating request
+/// will be refused 401 — which is the right failure, not a silent one).
 pub fn client_token(port: u16) -> Option<String> {
     if let Some(token) = std::env::var(TOKEN_ENV)
         .ok()
@@ -187,8 +226,20 @@ pub fn client_token(port: u16) -> Option<String> {
     {
         return Some(token);
     }
-    let path = default_token_path(port)?;
-    read(&path).ok().flatten()
+    let workspace = std::env::var_os(KOINE_WORKSPACE_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+    let home = std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .map(|home| real_home(Path::new(&home)));
+    candidate_paths(
+        port,
+        default_container_root().as_deref(),
+        workspace.as_deref(),
+        home.as_deref(),
+    )
+    .into_iter()
+    .find_map(|path| read(&path).ok().flatten())
 }
 
 /// [`client_token`] for a base URL: the URL's port, or the scheme's default
@@ -272,6 +323,29 @@ mod tests {
             token_path_under(root, 23120),
             PathBuf::from("/tmp/container/workspace/automation/loopback-23120.token")
         );
+    }
+
+    #[test]
+    fn a_client_looks_in_the_container_then_the_koine_workspace_then_home() {
+        let paths = candidate_paths(
+            23130,
+            Some(Path::new("/c")),
+            Some(Path::new("/w")),
+            Some(Path::new("/h")),
+        );
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("/c/workspace/automation/loopback-23130.token"),
+                PathBuf::from("/w/automation/loopback-23130.token"),
+                PathBuf::from("/h/.koine/automation/loopback-23130.token"),
+            ]
+        );
+        assert_eq!(
+            candidate_paths(1, None, None, Some(Path::new("/h"))),
+            vec![PathBuf::from("/h/.koine/automation/loopback-1.token")]
+        );
+        assert!(candidate_paths(1, None, None, None).is_empty());
     }
 
     #[test]

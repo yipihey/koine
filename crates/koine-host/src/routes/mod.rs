@@ -9,7 +9,7 @@
 //! | `GET /api/verb/<name>/surface` | the generated form for that verb (`verb_surface`) | here |
 //! | `GET /ui`, `/ui/*` | the `koine-web` bundle | [`ui`] |
 //! | `GET/PUT/DELETE /api/blob/<item>/<name>` | the store's blobs | [`blob`] |
-//! | `GET /api/job/<id>`, `POST /api/job/<id>/cancel` | the default job runner | here |
+//! | `GET /api/job`, `GET /api/job/<id>`, `POST /api/job/<id>/cancel` | the default job runner: what is running, a job's or routine's row (state, `progress`, `runs`), stopping it | here |
 //! | `GET /api/secret`, `PUT/DELETE /api/secret/<name>` | the secrets linked verbs declare (never a value) | [`secret`] |
 //! | `POST /mcp` | MCP over JSON-RPC | here |
 //!
@@ -69,6 +69,7 @@ pub(crate) fn router(state: Shared) -> Router {
             "/api/secret/{name}",
             axum::routing::put(secret::put).delete(secret::delete),
         )
+        .route("/api/job", get(job_list))
         .route("/api/job/{id}", get(job_status))
         .route("/api/job/{id}/cancel", post(job_cancel))
         .route("/mcp", post(mcp))
@@ -235,6 +236,19 @@ fn job_id(raw: &str) -> Result<impress_item::ItemId, Box<Response>> {
             format!("'{raw}' is not a job id"),
         ))
     })
+}
+
+/// `GET /api/job`: every job this process is running and every routine, each
+/// as `GET /api/job/<id>` shows it.
+async fn job_list(State(state): State<Shared>) -> Response {
+    json_response(
+        200,
+        &json!({
+            "ok": true,
+            "wire_version": WIRE_VERSION,
+            "jobs": state.runner.list(),
+        }),
+    )
 }
 
 async fn job_status(State(state): State<Shared>, Path(id): Path<String>) -> Response {

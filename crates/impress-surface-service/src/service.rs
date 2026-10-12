@@ -59,9 +59,12 @@ use crate::runtime::{
 };
 use crate::store::SurfaceStore;
 
-/// How often `surface_wait` polls the event ring (ADR-0033 D6 gives the app's
-/// invalidation feed the same period; this crate has no feed to hook, so it
-/// polls the store directly at the same cadence).
+/// How often `surface_wait` polls the event ring and the registry's wake
+/// counter (ADR-0033 D6 gives the app's invalidation feed the same period).
+/// The feed itself belongs to the host (the app's, or `koine-host`'s
+/// `feed`): it calls [`SessionRegistry::invalidate_refs`], which advances the
+/// counter this poll reads. This crate only reads the event ring from the
+/// store, so a wait for an emitted event needs no feed.
 const WAIT_POLL_MS: u64 = 250;
 
 /// The longest `surface_wait` holds a call open (AC-F2). Longer than this
@@ -256,7 +259,10 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// Long-poll for the next event past `after_seq`, up to `timeout_ms`
     /// (at most 55000). Returns as soon as one lands, or on timeout with
     /// `timed_out: true` and no events — the primitive the five-verb loop
-    /// calls "wait" (ADR-0033 D5/D6).
+    /// calls "wait" (ADR-0033 D5/D6). It also returns early, with no events,
+    /// `next_seq` unchanged and `invalidated: true`, when the host's store
+    /// feed marks the surface (a record kind its query sources read was
+    /// written): render again. A host with no feed never sees that answer.
     #[impress_method(replay = full, effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-event@1.0.0"]))]
     #[impress_example(
         name = "g3-wait",
@@ -1188,6 +1194,8 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
             Err(e) => return SurfaceWaitResult::refused(e),
         }
 
+        let registry = self.registry();
+        let woken_at = registry.wake_generation(surface_id);
         let deadline = std::time::Instant::now()
             + std::time::Duration::from_millis(timeout_ms.min(MAX_WAIT_MS));
         loop {
@@ -1202,11 +1210,25 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
                         next_seq,
                         timed_out: false,
                         gap,
+                        invalidated: false,
                         wire_version: WIRE_VERSION,
                     };
                 }
                 Ok(_) => {}
                 Err(e) => return SurfaceWaitResult::refused(e),
+            }
+            if registry.wake_generation(surface_id) != woken_at {
+                return SurfaceWaitResult {
+                    ok: true,
+                    code: None,
+                    message: "invalidated; a record this surface reads changed".to_string(),
+                    events: Vec::new(),
+                    next_seq: after_seq,
+                    timed_out: false,
+                    gap: false,
+                    invalidated: true,
+                    wire_version: WIRE_VERSION,
+                };
             }
             if std::time::Instant::now() >= deadline {
                 // Nothing past the cursor: the cursor stands. Never a second
@@ -1220,6 +1242,7 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
                     next_seq: after_seq,
                     timed_out: true,
                     gap: false,
+                    invalidated: false,
                     wire_version: WIRE_VERSION,
                 };
             }

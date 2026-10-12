@@ -15,6 +15,8 @@
 //! is `impress_core::job`; the runner is `impress_store_service::job`. This
 //! module is deliberately store-free: it is the wire.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 use crate::refusal::Refusal;
@@ -90,9 +92,73 @@ impl JobStarted {
     }
 }
 
+/// Where a running job's [`progress`] calls go. The runner builds one per
+/// job (or per routine run) and runs the job inside [`PROGRESS`]`.scope`.
+#[derive(Clone)]
+pub struct ProgressSink(pub Arc<ProgressFn>);
+
+/// What a [`ProgressSink`] calls: the fraction and the message.
+pub type ProgressFn = dyn Fn(Option<f32>, &str) + Send + Sync;
+
+impl ProgressSink {
+    /// A sink that calls `f` for every report.
+    pub fn new(f: impl Fn(Option<f32>, &str) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(f))
+    }
+}
+
+tokio::task_local! {
+    /// The sink of the job this task is running, set by the runner around
+    /// the verb (L-D3). Unset everywhere else.
+    pub static PROGRESS: ProgressSink;
+}
+
+/// Report a long-running verb's progress: `fraction` in `0.0..=1.0` (clamped;
+/// `None` when the verb cannot say how far along it is) and a short
+/// `message`. The runner shows both on the job (`GET /api/job/<id>`,
+/// `progress` and `progress_message`), at most twice a second.
+///
+/// A no-op outside a job: a verb calls it unconditionally, and a call that is
+/// not running as a job (a form's Run, the CLI, a test) does nothing. The
+/// scope is the task: work a verb hands to `tokio::spawn` or a blocking
+/// thread does not carry it, so report from the verb's own task.
+pub fn progress(fraction: Option<f32>, message: &str) {
+    let fraction = fraction.map(|f| if f.is_nan() { 0.0 } else { f.clamp(0.0, 1.0) });
+    let _ = PROGRESS.try_with(|sink| (sink.0)(fraction, message));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn progress_reaches_the_sink_inside_a_scope_and_nowhere_else() {
+        use std::sync::Mutex;
+        // Outside a job: a no-op, not a panic.
+        progress(Some(0.1), "ignored");
+        type Seen = Vec<(Option<f32>, String)>;
+        let seen: Arc<Mutex<Seen>> = Arc::default();
+        let sink = {
+            let seen = seen.clone();
+            ProgressSink::new(move |f, m| seen.lock().unwrap().push((f, m.to_string())))
+        };
+        PROGRESS
+            .scope(sink, async {
+                progress(Some(0.5), "half");
+                progress(Some(7.0), "clamped");
+                progress(None, "unknown");
+            })
+            .await;
+        progress(Some(0.9), "after");
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![
+                (Some(0.5), "half".to_string()),
+                (Some(1.0), "clamped".to_string()),
+                (None, "unknown".to_string()),
+            ]
+        );
+    }
 
     #[test]
     fn the_handle_is_the_documented_shape() {

@@ -163,6 +163,7 @@ HTTP).
 | `reversibly` | `true` | Record an undo step; the result names the inverse call | any caller | the verb declares `supports(reversibly)` |
 | `within` | `{ "ms": N }` | Give up after N ms with `timed-out` | any caller | read-only verbs, or `supports(within)` |
 | `in_background` | `true` | Start as a job and answer the handle | any caller | a `BackgroundRunner` the host installed |
+| `every` | duration string | Run again on this interval until cancelled; answers the job handle of the routine | any caller | the verb declares `supports(every)`, and a `BackgroundRunner` that can `repeat` |
 
 ### Rules
 
@@ -203,13 +204,28 @@ HTTP).
    of `impress-service-core::job`. With no runner installed the adverb is
    refused `unsupported-adverb`. The runner is where the job row, the
    progress and the cancel live; the pipeline stays store-free.
-7. **Adverbs are on the record.** The span and the audit row carry the
-   adverbs a call used (the names, and `within.ms`; never the `once` key's
-   value). The call log can therefore say that a change was made
+7. **`every` is `in_background`, repeated.** Its value is a duration
+   string, an unsigned integer and one unit: `"2s"`, `"10m"`, `"1h"`,
+   `"2d"`. Seconds at least 1 (`"500ms"` is refused), days at most (365). A
+   bad string is `invalid-argument` saying what it takes. It is never
+   universal: a verb that does not declare `supports(every)` is refused
+   `unsupported-adverb` like any other undeclared adverb, and so is a call
+   in a process with no runner installed. It implies the background path:
+   the pipeline hands the call, with `every` and `in_background` cleared,
+   to `BackgroundRunner::repeat(verb, call, interval)`, which answers the
+   `JobStarted` shape of the routine (a runner that cannot repeat answers
+   `unsupported-adverb`, "this runner cannot repeat"). Each run goes
+   through the pipeline again, so policy and audit see every one; `cancel`
+   stops the routine. What the host's runner keeps (`runs`, `last_result`,
+   `last_finished`, re-arming after a restart) is the host's
+   (`docs/plan-koine-live.md` L-D1).
+8. **Adverbs are on the record.** The span and the audit row carry the
+   adverbs a call used (the names, `within.ms` and the `every` string;
+   never the `once` key's value). The call log can therefore say that a change was made
    tentatively, under review, or in the background.
-8. **The generated form shows the adverbs the verb accepts.** The verb
-   surface adds one toggle per universal adverb and per declared one, and
-   the Run action passes them. A frontend holds no logic for them.
+9. **The generated form shows the adverbs the verb accepts.** The verb
+   surface adds one toggle per universal adverb and per declared boolean
+   one, and the Run action passes them. A frontend holds no logic for them.
 
 ### Order in the pipeline
 
@@ -220,15 +236,16 @@ before anything else happens. `tentatively` is answered after policy has
 without queuing, denying or taking a write lease. `once` consults its
 table just before invoke and records just after. `with_review` turns the
 policy decision into `Review` before it is acted on. `in_background`
-replaces invoke with the runner. `within` wraps invoke. `reversibly`
+(and `every`) replaces invoke with the runner. `within` wraps invoke. `reversibly`
 reads the inverse the handler recorded, in the envelope layer.
 
 ### Known limits (2026-10-11)
 
-- The generated form offers only the boolean adverbs. `once` and `within`
-  wait on a reduce-time rule that drops an empty adverb, because the form
-  sends every template it offers and the pipeline refuses an empty key or a
-  zero deadline.
+- The generated form offers only the boolean adverbs. `once`, `within` and
+  `every` wait on a reduce-time rule that drops an empty adverb, because the
+  form sends every template it offers and the pipeline refuses an empty key,
+  a zero deadline or an empty interval. A routine is started from a button
+  whose `call` action carries `"adverbs": {"every": "2s"}`.
 - Two concurrent first calls with the same `once` key can both run; the
   table does not lock across the call. A durable `IdempotencyStore` may.
 - A tentative call on an app that is not running is answered unavailable,
@@ -247,6 +264,7 @@ reads the inverse the handler recorded, in the envelope layer.
 | Unknown adverb key is `invalid-argument`; unsupported adverb is `unsupported-adverb` | `impress-service-core::pipeline` tests |
 | A tentative call never runs an undeclared handler, and reports the policy decision | `impress-service-core::pipeline` tests |
 | `once` replays, `within` times out a read-only verb, `in_background` refuses without a runner | `impress-service-core::pipeline` tests |
+| `every` parses `2s`/`10m`/`1h`/`2d` and refuses `500ms`, `0s`, over a year and a non-string; it needs the verb's declaration and a runner, and reaches `repeat` with the interval and neither adverb | `impress-service-core` adverb and pipeline tests; `koine-host` `tests/host.rs` (`every_*`) |
 | The macro refuses `supports(x)` for an unknown adverb | `impress-service-macros` compile-fail test |
 | A surface `call` action's `adverbs` reach the effect unchanged | `impress-surface` reduce tests |
 | A scenario `call` step's `adverbs` reach the caller | `impress-scenario` tests |

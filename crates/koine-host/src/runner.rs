@@ -17,24 +17,40 @@
 //! * **status** reads the row. A row that says `running` for a job this
 //!   process is not running (a previous launch died) reads as `interrupted`.
 //!
-//! Not here, on purpose: progress. A verb in this codebase has no channel to
-//! report it, so a job is running or it is not. `GET /api/job/<id>` and
-//! `POST /api/job/<id>/cancel` are the host's reading and cancelling; the
-//! `impel-service_job-*` verbs the job module's docs name belong to impel and
-//! are not linked here.
+//! * **repeat** (`every`, plan-koine-live L-D1) writes a `task@1.0.0` row with
+//!   `kind: "routine"` (`verb`, `args` as a JSON string, `every_ms`, `runs`,
+//!   `caller`) and loops: run the verb through the pipeline, record the run
+//!   (`runs`, `last_result` truncated to 4 KiB, `last_finished`, and
+//!   `last_code`/`last_message` when it was refused), sleep the interval,
+//!   again, until `cancel`. [`JobRunner::rearm_routines`] re-arms every routine
+//!   row that says `running` when the host starts, from the row's own verb,
+//!   arguments and interval; one whose verb is no longer linked is written
+//!   `interrupted`.
+//! * **progress** (L-D3): the verb reports through
+//!   `impress_service_core::job::progress`; the runner runs it inside a
+//!   task-local sink that writes `progress` (0..1, or null) and
+//!   `progress_message` to the row at most twice a second, and the last value
+//!   lands when the job ends. A routine's progress is its current run's.
+//!
+//! `GET /api/job`, `GET /api/job/<id>` and `POST /api/job/<id>/cancel` are the
+//! host's listing, reading and cancelling; the `impel-service_job-*` verbs the
+//! job module's docs name belong to impel and are not linked here.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use impress_item::schema::refs;
-use impress_item::{ActorKind, AttributedStore, FieldMutation, Item, ItemId, Priority, Value};
-use impress_service_core::job::JobHandle;
+use impress_item::{
+    ActorKind, AttributedStore, FieldMutation, Item, ItemId, ItemQuery, Priority, Value,
+};
+use impress_service_core::job::{JobHandle, ProgressSink, PROGRESS};
 use impress_service_core::pipeline::adverbs::BackgroundRunner;
 use impress_service_core::pipeline::{self, Call, CallerIdentity};
 use impress_service_core::refusal::{codes, Refusal};
 use impress_service_core::wire::WIRE_VERSION;
-use impress_service_core::VerbHandle;
+use impress_service_core::{Adverbs, VerbHandle};
 use serde_json::{json, Value as Json};
 
 /// Field names of a job's `task@1.0.0` row.
@@ -47,13 +63,141 @@ mod field {
     pub const RESULT: &str = "result";
     pub const CODE: &str = "code";
     pub const MESSAGE: &str = "message";
+    pub const VERB: &str = "verb";
+    pub const ARGS: &str = "args";
+    pub const ADVERBS: &str = "adverbs";
+    pub const EVERY_MS: &str = "every_ms";
+    pub const RUNS: &str = "runs";
+    pub const LAST_RESULT: &str = "last_result";
+    pub const LAST_TRUNCATED: &str = "last_truncated";
+    pub const LAST_FINISHED: &str = "last_finished";
+    pub const LAST_CODE: &str = "last_code";
+    pub const LAST_MESSAGE: &str = "last_message";
+    pub const PROGRESS: &str = "progress";
+    pub const PROGRESS_MESSAGE: &str = "progress_message";
+}
+
+/// A routine row's `kind`.
+const ROUTINE: &str = "routine";
+
+/// The most of a run's answer a routine row keeps.
+pub const LAST_RESULT_LIMIT: usize = 4096;
+
+/// The least time between two progress writes to one row.
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
+
+/// What the runner keeps for a job it is running now.
+struct LiveJob {
+    abort: tokio::task::AbortHandle,
+    progress: Arc<ProgressWriter>,
+    /// A routine ([`BackgroundRunner::repeat`]) rather than a one-off job.
+    routine: bool,
+}
+
+/// Writes a job's reported progress to its row, at most twice a second. A
+/// report inside the window is held, and one trailing write lands when the
+/// window ends; [`Self::close`] writes whatever is held, so the last value
+/// always lands.
+struct ProgressWriter {
+    store: Arc<dyn AttributedStore>,
+    id: ItemId,
+    runtime: tokio::runtime::Handle,
+    state: Mutex<ProgressState>,
+}
+
+#[derive(Default)]
+struct ProgressState {
+    last_write: Option<Instant>,
+    pending: Option<(Option<f32>, String)>,
+    trailing: bool,
+    closed: bool,
+}
+
+impl ProgressWriter {
+    fn new(
+        store: Arc<dyn AttributedStore>,
+        id: ItemId,
+        runtime: tokio::runtime::Handle,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            store,
+            id,
+            runtime,
+            state: Mutex::default(),
+        })
+    }
+
+    fn sink(self: &Arc<Self>) -> ProgressSink {
+        let writer = self.clone();
+        ProgressSink::new(move |fraction, message| writer.report(fraction, message))
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, ProgressState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn report(self: &Arc<Self>, fraction: Option<f32>, message: &str) {
+        let mut state = self.lock();
+        if state.closed {
+            return;
+        }
+        state.pending = Some((fraction, message.to_string()));
+        let wait = state.last_write.map_or(Duration::ZERO, |at| {
+            PROGRESS_INTERVAL.saturating_sub(at.elapsed())
+        });
+        if wait.is_zero() {
+            self.write_pending(&mut state);
+        } else if !state.trailing {
+            state.trailing = true;
+            let writer = self.clone();
+            self.runtime.spawn(async move {
+                tokio::time::sleep(wait).await;
+                let mut state = writer.lock();
+                state.trailing = false;
+                if !state.closed {
+                    writer.write_pending(&mut state);
+                }
+            });
+        }
+    }
+
+    fn write_pending(&self, state: &mut ProgressState) {
+        let Some((fraction, message)) = state.pending.take() else {
+            return;
+        };
+        state.last_write = Some(Instant::now());
+        let fraction = fraction.map_or(Value::Null, |f| Value::Float(f64::from(f)));
+        if let Err(e) = self.store.update(
+            self.id,
+            vec![
+                FieldMutation::SetPayload(field::PROGRESS.into(), fraction),
+                FieldMutation::SetPayload(field::PROGRESS_MESSAGE.into(), Value::String(message)),
+            ],
+        ) {
+            tracing::warn!(target: "koine-host", "job {}: could not record progress: {e}", self.id);
+        }
+    }
+
+    /// Write whatever is held now (a run ended).
+    fn flush(&self) {
+        let mut state = self.lock();
+        self.write_pending(&mut state);
+    }
+
+    /// Write whatever is held and take no more (the job ended or was
+    /// cancelled).
+    fn close(&self) {
+        let mut state = self.lock();
+        self.write_pending(&mut state);
+        state.closed = true;
+    }
 }
 
 /// Tokio-task job runner over a store. See the module docs.
 pub struct JobRunner {
     store: Arc<dyn AttributedStore>,
     runtime: tokio::runtime::Handle,
-    live: Arc<Mutex<HashMap<ItemId, tokio::task::AbortHandle>>>,
+    live: Arc<Mutex<HashMap<ItemId, LiveJob>>>,
 }
 
 impl JobRunner {
@@ -66,22 +210,34 @@ impl JobRunner {
         }
     }
 
-    /// How many jobs this process is running now.
-    pub fn running(&self) -> usize {
-        self.live.lock().unwrap_or_else(|e| e.into_inner()).len()
+    fn live(&self) -> std::sync::MutexGuard<'_, HashMap<ItemId, LiveJob>> {
+        self.live.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Abort every running job (the host is stopping), writing `cancelled`.
+    /// How many jobs (and routines) this process is running now.
+    pub fn running(&self) -> usize {
+        self.live().len()
+    }
+
+    /// Stop everything this process runs (the host is stopping). A job is
+    /// aborted and written `cancelled`; a routine is aborted and its row
+    /// left `running`, so the next launch re-arms it
+    /// ([`Self::rearm_routines`]).
     pub fn cancel_all(&self) {
-        let ids: Vec<ItemId> = self
-            .live
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .keys()
-            .copied()
+        let jobs: Vec<(ItemId, bool)> = self
+            .live()
+            .iter()
+            .map(|(id, job)| (*id, job.routine))
             .collect();
-        for id in ids {
-            let _ = self.cancel(id);
+        for (id, routine) in jobs {
+            if routine {
+                if let Some(job) = self.live().remove(&id) {
+                    job.abort.abort();
+                    job.progress.close();
+                }
+            } else {
+                let _ = self.cancel(id);
+            }
         }
     }
 
@@ -92,23 +248,34 @@ impl JobRunner {
         if item.schema != refs::TASK {
             return None;
         }
+        Some(self.render(&item))
+    }
+
+    fn render(&self, item: &Item) -> Json {
+        let id = item.id;
         let text = |key: &str| match item.payload.get(key) {
             Some(Value::String(s)) => Some(s.clone()),
             _ => None,
         };
+        let int = |key: &str| match item.payload.get(key) {
+            Some(Value::Int(n)) => Some(*n),
+            _ => None,
+        };
+        let routine = text(field::KIND).as_deref() == Some(ROUTINE);
         let mut state = text(field::STATE).unwrap_or_default();
-        let live = self
-            .live
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .contains_key(&id);
+        let live = self.live().contains_key(&id);
         if state == "running" && !live {
             state = "interrupted".into();
         }
+        let kind = if routine {
+            text(field::VERB)
+        } else {
+            text(field::KIND)
+        };
         let mut out = json!({
             "ok": true,
             "wire_version": WIRE_VERSION,
-            "job": { "id": id.to_string(), "kind": text(field::KIND), "state": state },
+            "job": { "id": id.to_string(), "kind": kind, "state": state },
             "started": text(field::STARTED),
         });
         if let Some(finished) = text(field::FINISHED) {
@@ -123,50 +290,203 @@ impl JobRunner {
         if let Some(message) = text(field::MESSAGE) {
             out["message"] = json!(message);
         }
-        Some(out)
+        match item.payload.get(field::PROGRESS) {
+            Some(Value::Float(f)) => out["progress"] = json!(f),
+            Some(Value::Null) => out["progress"] = Json::Null,
+            _ => {}
+        }
+        if let Some(message) = text(field::PROGRESS_MESSAGE) {
+            out["progress_message"] = json!(message);
+        }
+        if routine {
+            out["routine"] = json!(true);
+            out["verb"] = json!(text(field::VERB));
+            out["every_ms"] = json!(int(field::EVERY_MS));
+            out["runs"] = json!(int(field::RUNS).unwrap_or(0));
+            if let Some(args) = text(field::ARGS) {
+                out["args"] = serde_json::from_str(&args).unwrap_or(Json::String(args));
+            }
+            if let Some(result) = text(field::LAST_RESULT) {
+                out["last_result"] = serde_json::from_str(&result).unwrap_or(Json::String(result));
+            }
+            if matches!(
+                item.payload.get(field::LAST_TRUNCATED),
+                Some(Value::Bool(true))
+            ) {
+                out["last_truncated"] = json!(true);
+            }
+            for key in [field::LAST_FINISHED, field::LAST_CODE, field::LAST_MESSAGE] {
+                if let Some(value) = text(key) {
+                    out[key] = json!(value);
+                }
+            }
+        }
+        out
+    }
+
+    /// Every job this process is running now, and every routine row (running,
+    /// cancelled or interrupted), newest first, each as [`Self::status`]
+    /// shows it.
+    pub fn list(&self) -> Vec<Json> {
+        let mut ids: Vec<ItemId> = self.live().keys().copied().collect();
+        let rows = self
+            .store
+            .query(&ItemQuery {
+                schema: Some(refs::TASK),
+                ..Default::default()
+            })
+            .unwrap_or_default();
+        let mut out: Vec<Json> = Vec::new();
+        for item in rows {
+            let routine = matches!(item.payload.get(field::KIND),
+                Some(Value::String(kind)) if kind == ROUTINE);
+            let live = ids.contains(&item.id);
+            if routine || live {
+                ids.retain(|id| *id != item.id);
+                out.push(self.render(&item));
+            }
+        }
+        // A live job whose row the query did not return still reads by id.
+        out.extend(ids.into_iter().filter_map(|id| self.status(id)));
+        out.sort_by(|a, b| {
+            let started = |v: &Json| v["started"].as_str().unwrap_or_default().to_string();
+            started(b).cmp(&started(a))
+        });
+        out
     }
 
     /// Cancel a running job. `Ok(true)` when this call stopped it,
     /// `Ok(false)` when it was not running here (finished, or never
     /// started by this process).
     pub fn cancel(&self, id: ItemId) -> Result<bool, Refusal> {
-        let handle = self
-            .live
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&id);
-        let Some(handle) = handle else {
+        let job = self.live().remove(&id);
+        let Some(job) = job else {
             return Ok(false);
         };
-        handle.abort();
+        job.abort.abort();
+        job.progress.close();
         write_end(&*self.store, id, "cancelled", None, None, None)?;
         Ok(true)
     }
-}
 
-impl BackgroundRunner for JobRunner {
-    fn start(&self, verb: VerbHandle, call: Call) -> Result<JobHandle, Refusal> {
-        let id = uuid::Uuid::new_v4();
-        let kind = verb.name().to_string();
-        let now = Utc::now();
-        let (author_kind, author) = match &call.caller {
-            CallerIdentity::Person => (ActorKind::Human, call.caller.author()),
-            CallerIdentity::Agent(_) | CallerIdentity::Provider(_) => {
-                (ActorKind::Agent, call.caller.author())
+    /// Re-arm every routine row that says `running` and that this process is
+    /// not running, from the row's own verb, arguments and interval. A row
+    /// whose verb is no longer linked (or whose interval or arguments cannot
+    /// be read) is written `interrupted` with a message. Returns how many
+    /// were re-armed. `serve` calls this once, after the runner is
+    /// installed.
+    pub fn rearm_routines(&self) -> usize {
+        let rows = self
+            .store
+            .query(&ItemQuery {
+                schema: Some(refs::TASK),
+                ..Default::default()
+            })
+            .unwrap_or_default();
+        let mut armed = 0;
+        for item in rows {
+            let text = |key: &str| match item.payload.get(key) {
+                Some(Value::String(s)) => Some(s.clone()),
+                _ => None,
+            };
+            if text(field::KIND).as_deref() != Some(ROUTINE)
+                || text(field::STATE).as_deref() != Some("running")
+                || self.live().contains_key(&item.id)
+            {
+                continue;
             }
-            _ => (ActorKind::System, call.caller.author()),
+            match self.routine_call(&item) {
+                Ok((verb, call, interval, runs)) => {
+                    self.spawn_routine(item.id, verb, call, interval, runs);
+                    armed += 1;
+                }
+                Err(message) => {
+                    tracing::warn!(target: "koine-host", "routine {}: {message}", item.id);
+                    let _ = self.store.update(
+                        item.id,
+                        vec![
+                            FieldMutation::SetPayload(
+                                field::STATE.into(),
+                                Value::String("interrupted".into()),
+                            ),
+                            FieldMutation::SetPayload(
+                                field::MESSAGE.into(),
+                                Value::String(message),
+                            ),
+                            FieldMutation::SetPayload(
+                                field::FINISHED.into(),
+                                Value::String(Utc::now().to_rfc3339()),
+                            ),
+                        ],
+                    );
+                }
+            }
+        }
+        armed
+    }
+
+    /// The call a routine row says to repeat, or why it cannot be.
+    fn routine_call(&self, item: &Item) -> Result<(VerbHandle, Call, Duration, i64), String> {
+        let text = |key: &str| match item.payload.get(key) {
+            Some(Value::String(s)) => Some(s.clone()),
+            _ => None,
         };
+        let name = text(field::VERB).ok_or("the routine row names no verb")?;
+        let verb = impress_service_core::call::find(&name).ok_or_else(|| {
+            format!("{name} is not linked in this process, so the routine cannot be re-armed")
+        })?;
+        let every_ms = match item.payload.get(field::EVERY_MS) {
+            Some(Value::Int(n)) if *n > 0 => *n as u64,
+            _ => return Err("the routine row has no usable every_ms".into()),
+        };
+        let args = match text(field::ARGS) {
+            Some(raw) => serde_json::from_str::<Json>(&raw)
+                .map_err(|e| format!("the routine's args are not JSON: {e}"))?,
+            None => json!({}),
+        };
+        let adverbs = match text(field::ADVERBS) {
+            Some(raw) => serde_json::from_str::<Adverbs>(&raw)
+                .map_err(|e| format!("the routine's adverbs are not readable: {e}"))?,
+            None => Adverbs::default(),
+        };
+        let caller = caller_from_author(&text(field::CALLER).unwrap_or_default());
+        let runs = match item.payload.get(field::RUNS) {
+            Some(Value::Int(n)) => *n,
+            _ => 0,
+        };
+        Ok((
+            verb,
+            Call::new(caller, args).with_adverbs(adverbs),
+            Duration::from_millis(every_ms.max(1_000)),
+            runs,
+        ))
+    }
+
+    /// A new `task@1.0.0` row, `running`, for a job or a routine.
+    fn insert_row(
+        &self,
+        id: ItemId,
+        caller: &CallerIdentity,
+        fields: Vec<(&str, Value)>,
+    ) -> Result<(), Refusal> {
+        let now = Utc::now();
+        let author = caller.author();
+        let author_kind = match caller {
+            CallerIdentity::Person => ActorKind::Human,
+            CallerIdentity::Agent(_) | CallerIdentity::Provider(_) => ActorKind::Agent,
+            _ => ActorKind::System,
+        };
+        let mut payload: std::collections::BTreeMap<String, Value> = fields
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), value))
+            .collect();
+        payload.insert(field::STATE.into(), Value::String("running".into()));
+        payload.insert(field::CALLER.into(), Value::String(author.clone()));
+        payload.insert(field::STARTED.into(), Value::String(now.to_rfc3339()));
         let item = Item {
             id,
             schema: refs::TASK,
-            payload: [
-                (field::KIND.to_string(), Value::String(kind.clone())),
-                (field::STATE.to_string(), Value::String("running".into())),
-                (field::CALLER.to_string(), Value::String(author.clone())),
-                (field::STARTED.to_string(), Value::String(now.to_rfc3339())),
-            ]
-            .into_iter()
-            .collect(),
+            payload: payload.into_iter().collect(),
             created: now,
             modified: now,
             author,
@@ -189,43 +509,74 @@ impl BackgroundRunner for JobRunner {
         };
         self.store
             .insert(item)
-            .map_err(|e| Refusal::store(format!("write job row: {e}")))?;
+            .map(|_| ())
+            .map_err(|e| Refusal::store(format!("write job row: {e}")))
+    }
+
+    /// Spawn the loop of a routine whose row exists. `runs` is how many runs
+    /// the row already records.
+    fn spawn_routine(
+        &self,
+        id: ItemId,
+        verb: VerbHandle,
+        call: Call,
+        interval: Duration,
+        runs: i64,
+    ) {
+        let store = self.store.clone();
+        let progress = ProgressWriter::new(store.clone(), id, self.runtime.clone());
+        let sink = progress.sink();
+        let writer = progress.clone();
+        let mut table = self.live();
+        let task = self.runtime.spawn(async move {
+            let mut runs = runs;
+            loop {
+                let outcome =
+                    PROGRESS.scope(sink.clone(), pipeline::invoke_handle(verb.clone(), call.clone()))
+                        .await;
+                runs += 1;
+                writer.flush();
+                let (_, result, code, message) = outcome_fields(outcome);
+                if let Err(e) = write_run(&*store, id, runs, result, code, message) {
+                    tracing::warn!(target: "koine-host", "routine {id}: could not record a run: {e}");
+                }
+                tokio::time::sleep(interval).await;
+            }
+        });
+        table.insert(
+            id,
+            LiveJob {
+                abort: task.abort_handle(),
+                progress,
+                routine: true,
+            },
+        );
+    }
+}
+
+impl BackgroundRunner for JobRunner {
+    fn start(&self, verb: VerbHandle, call: Call) -> Result<JobHandle, Refusal> {
+        let id = uuid::Uuid::new_v4();
+        let kind = verb.name().to_string();
+        self.insert_row(
+            id,
+            &call.caller,
+            vec![(field::KIND, Value::String(kind.clone()))],
+        )?;
 
         let store = self.store.clone();
         let live = self.live.clone();
+        let progress = ProgressWriter::new(store.clone(), id, self.runtime.clone());
+        let sink = progress.sink();
+        let writer = progress.clone();
         // Held across the spawn and the insert, so a job that finishes at
         // once cannot remove an entry that is not there yet.
-        let mut table = self.live.lock().unwrap_or_else(|e| e.into_inner());
+        let mut table = self.live();
         let task = self.runtime.spawn(async move {
-            let outcome = pipeline::invoke_handle(verb, call).await;
-            let (state, result, code, message) = match outcome {
-                Ok(value) => {
-                    let refused = value.get("ok").and_then(Json::as_bool) == Some(false);
-                    let code = refused
-                        .then(|| value.get("code").and_then(Json::as_str).map(str::to_string))
-                        .flatten();
-                    let message = refused
-                        .then(|| {
-                            value
-                                .get("message")
-                                .and_then(Json::as_str)
-                                .map(str::to_string)
-                        })
-                        .flatten();
-                    (
-                        if refused { "failed" } else { "completed" },
-                        Some(value.to_string()),
-                        code,
-                        message,
-                    )
-                }
-                Err(error) => (
-                    "failed",
-                    None,
-                    Some(codes::VERB_FAILED.to_string()),
-                    Some(error.to_string()),
-                ),
-            };
+            let outcome = PROGRESS
+                .scope(sink, pipeline::invoke_handle(verb, call))
+                .await;
+            let (state, result, code, message) = outcome_fields(outcome);
             // A cancel removed the entry first and wrote its own end.
             let still_ours = live
                 .lock()
@@ -233,12 +584,20 @@ impl BackgroundRunner for JobRunner {
                 .remove(&id)
                 .is_some();
             if still_ours {
+                writer.close();
                 if let Err(e) = write_end(&*store, id, state, result, code, message) {
                     tracing::warn!(target: "koine-host", "job {id}: could not record its end: {e}");
                 }
             }
         });
-        table.insert(id, task.abort_handle());
+        table.insert(
+            id,
+            LiveJob {
+                abort: task.abort_handle(),
+                progress,
+                routine: false,
+            },
+        );
         drop(table);
         Ok(JobHandle {
             id: id.to_string(),
@@ -246,6 +605,136 @@ impl BackgroundRunner for JobRunner {
             state: "running".into(),
         })
     }
+
+    fn repeat(
+        &self,
+        verb: VerbHandle,
+        call: Call,
+        interval: Duration,
+    ) -> Result<JobHandle, Refusal> {
+        let id = uuid::Uuid::new_v4();
+        let kind = verb.name().to_string();
+        let mut fields = vec![
+            (field::KIND, Value::String(ROUTINE.into())),
+            (field::VERB, Value::String(kind.clone())),
+            (field::ARGS, Value::String(call.args.to_string())),
+            (
+                field::EVERY_MS,
+                Value::Int(i64::try_from(interval.as_millis()).unwrap_or(i64::MAX)),
+            ),
+            (field::RUNS, Value::Int(0)),
+        ];
+        if !call.adverbs.is_empty() {
+            if let Ok(adverbs) = serde_json::to_string(&call.adverbs) {
+                fields.push((field::ADVERBS, Value::String(adverbs)));
+            }
+        }
+        self.insert_row(id, &call.caller, fields)?;
+        self.spawn_routine(id, verb, call, interval, 0);
+        Ok(JobHandle {
+            id: id.to_string(),
+            kind,
+            state: "running".into(),
+        })
+    }
+}
+
+/// `human`, `agent:mcp`, `system:impel-taskd`: the inverse of
+/// [`CallerIdentity::author`]. An author this does not know runs as the
+/// host's own system caller.
+fn caller_from_author(author: &str) -> CallerIdentity {
+    match author.split_once(':') {
+        None if author == "human" => CallerIdentity::Person,
+        Some(("agent", name)) => CallerIdentity::agent(name),
+        Some(("app", name)) => CallerIdentity::App(name.into()),
+        Some(("provider", name)) => CallerIdentity::Provider(name.into()),
+        Some(("system", name)) => CallerIdentity::system(name),
+        _ => CallerIdentity::system("koine-host"),
+    }
+}
+
+/// `(state, result, code, message)` of one finished run: `failed` with the
+/// refusal's code and message when the verb answered `ok: false` or the
+/// pipeline refused.
+type Outcome = (&'static str, Option<String>, Option<String>, Option<String>);
+
+fn outcome_fields(outcome: Result<Json, pipeline::PipelineError>) -> Outcome {
+    match outcome {
+        Ok(value) => {
+            let refused = value.get("ok").and_then(Json::as_bool) == Some(false);
+            let code = refused
+                .then(|| value.get("code").and_then(Json::as_str).map(str::to_string))
+                .flatten();
+            let message = refused
+                .then(|| {
+                    value
+                        .get("message")
+                        .and_then(Json::as_str)
+                        .map(str::to_string)
+                })
+                .flatten();
+            (
+                if refused { "failed" } else { "completed" },
+                Some(value.to_string()),
+                code,
+                message,
+            )
+        }
+        Err(error) => (
+            "failed",
+            None,
+            Some(codes::VERB_FAILED.to_string()),
+            Some(error.to_string()),
+        ),
+    }
+}
+
+/// `text` cut to at most `limit` bytes at a character boundary, and whether
+/// it was cut.
+fn truncate(text: String, limit: usize) -> (String, bool) {
+    if text.len() <= limit {
+        return (text, false);
+    }
+    let mut end = limit;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    (text[..end].to_string(), true)
+}
+
+/// Record one finished run of a routine.
+fn write_run(
+    store: &dyn AttributedStore,
+    id: ItemId,
+    runs: i64,
+    result: Option<String>,
+    code: Option<String>,
+    message: Option<String>,
+) -> Result<(), Refusal> {
+    let (last, truncated) = match result {
+        Some(text) => {
+            let (text, cut) = truncate(text, LAST_RESULT_LIMIT);
+            (Value::String(text), cut)
+        }
+        None => (Value::Null, false),
+    };
+    let optional = |value: Option<String>| value.map_or(Value::Null, Value::String);
+    store
+        .update(
+            id,
+            vec![
+                FieldMutation::SetPayload(field::RUNS.into(), Value::Int(runs)),
+                FieldMutation::SetPayload(field::LAST_RESULT.into(), last),
+                FieldMutation::SetPayload(field::LAST_TRUNCATED.into(), Value::Bool(truncated)),
+                FieldMutation::SetPayload(
+                    field::LAST_FINISHED.into(),
+                    Value::String(Utc::now().to_rfc3339()),
+                ),
+                FieldMutation::SetPayload(field::LAST_CODE.into(), optional(code)),
+                FieldMutation::SetPayload(field::LAST_MESSAGE.into(), optional(message)),
+            ],
+        )
+        .map_err(|e| Refusal::store(format!("write routine row: {e}")))
 }
 
 fn write_end(
@@ -275,4 +764,74 @@ fn write_end(
     store
         .update(id, mutations)
         .map_err(|e| Refusal::store(format!("write job row: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_author_round_trips_to_its_caller() {
+        for caller in [
+            CallerIdentity::Person,
+            CallerIdentity::agent("http"),
+            CallerIdentity::App("imbib".into()),
+            CallerIdentity::Provider("p".into()),
+            CallerIdentity::system("impel-taskd"),
+        ] {
+            assert_eq!(caller_from_author(&caller.author()), caller);
+        }
+        assert_eq!(
+            caller_from_author("???"),
+            CallerIdentity::system("koine-host")
+        );
+    }
+
+    #[tokio::test]
+    async fn progress_writes_at_most_twice_a_second_and_the_last_value_lands() {
+        let store: Arc<dyn AttributedStore> = Arc::from(koine_store::open("memory:").unwrap());
+        let runner = JobRunner::new(store.clone(), tokio::runtime::Handle::current());
+        let id = uuid::Uuid::new_v4();
+        runner
+            .insert_row(id, &CallerIdentity::Person, vec![])
+            .unwrap();
+        let writer = ProgressWriter::new(store.clone(), id, tokio::runtime::Handle::current());
+        let read = || {
+            let item = store.get(id).unwrap().unwrap();
+            (
+                item.payload.get(field::PROGRESS).cloned(),
+                item.payload.get(field::PROGRESS_MESSAGE).cloned(),
+            )
+        };
+        for step in 1..=5u8 {
+            writer.report(Some(f32::from(step) / 10.0), &format!("step {step}"));
+        }
+        // The first report landed; the rest are held.
+        let (fraction, message) = read();
+        assert_eq!(fraction, Some(Value::Float(f64::from(0.1_f32))));
+        assert_eq!(message, Some(Value::String("step 1".into())));
+        // One trailing write lands when the window ends, with the last value.
+        tokio::time::sleep(PROGRESS_INTERVAL + Duration::from_millis(250)).await;
+        assert_eq!(read().1, Some(Value::String("step 5".into())));
+        // A report inside a new window is held until close, which writes it.
+        writer.report(None, "unknown");
+        writer.report(Some(1.0), "done");
+        assert_eq!(read().1, Some(Value::String("step 5".into())));
+        writer.close();
+        assert_eq!(
+            read(),
+            (Some(Value::Float(1.0)), Some(Value::String("done".into())))
+        );
+        // Closed: later reports are dropped.
+        writer.report(Some(0.0), "late");
+        assert_eq!(read().1, Some(Value::String("done".into())));
+    }
+
+    #[test]
+    fn truncation_keeps_a_character_boundary() {
+        assert_eq!(truncate("abc".into(), 8), ("abc".into(), false));
+        let (cut, was) = truncate("ééé".into(), 3);
+        assert!(was);
+        assert_eq!(cut, "é");
+    }
 }

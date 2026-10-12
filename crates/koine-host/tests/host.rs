@@ -84,6 +84,44 @@ fn needs_token(_: Value) -> ServiceFuture {
     })
 }
 
+/// A verb that declares `every` and `in_background` and counts its runs.
+static TICK: VerbDescriptor = VerbDescriptor {
+    name: "host-fixture_tick",
+    method: "tick",
+    description: "Test fixture: counts how many times it ran.",
+    handler: tick,
+    supports: &[Adverb::InBackground, Adverb::Every],
+    ..NAP
+};
+inventory::submit! { McpToolDescriptor::of(&TICK) }
+
+static TICKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn tick(_: Value) -> ServiceFuture {
+    Box::pin(async {
+        let n = TICKS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        Ok(json!({ "ok": true, "n": n }))
+    })
+}
+
+/// A verb that reports progress, then works for a while.
+static WORK: VerbDescriptor = VerbDescriptor {
+    name: "host-fixture_work",
+    method: "work",
+    description: "Test fixture: reports half done, works 600 ms.",
+    handler: work,
+    ..NAP
+};
+inventory::submit! { McpToolDescriptor::of(&WORK) }
+
+fn work(_: Value) -> ServiceFuture {
+    Box::pin(async {
+        impress_service_core::job::progress(Some(0.5), "half");
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        Ok(json!({ "ok": true }))
+    })
+}
+
 fn nap_schema() -> Value {
     json!({ "type": "object", "properties": { "ms": { "type": "integer" } } })
 }
@@ -1312,5 +1350,349 @@ async fn secrets_dir_moves_the_file_layer() {
     assert_eq!(status, 200, "{put}");
     assert!(dir.join("t-host-token").exists());
     assert!(!host.workspace.path().join("secrets").exists());
+    host.served.shutdown().await;
+}
+
+// ------------------------------------------------------------------- routines
+
+/// Poll `GET /api/job/<id>` until `done` holds of the answer.
+async fn job_until(host: &Host, id: &str, done: impl Fn(&Value) -> bool) -> Value {
+    let mut last = Value::Null;
+    for _ in 0..300 {
+        let (status, job) = host.get_json(&format!("/api/job/{id}")).await;
+        assert_eq!(status, 200, "{job}");
+        if done(&job) {
+            return job;
+        }
+        last = job;
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("the job never got there: {last}");
+}
+
+#[tokio::test]
+async fn every_refuses_what_the_grammar_refuses() {
+    let _turn = TURN.lock().await;
+    let host = start("memory:", "every-refuse-app").await;
+    async fn every_call(host: &Host, every: Value, verb: &str) -> (StatusCode, Value) {
+        host.post(
+            &format!("/api/verb/{verb}"),
+            json!({ "adverbs": { "every": every } }),
+        )
+        .await
+    }
+    let post = |every: Value, verb: &'static str| every_call(&host, every, verb);
+    // A verb that does not declare `every` is refused for exactly that.
+    let (_, refused) = post(json!("2s"), "host-fixture_nap").await;
+    assert_eq!(refused["code"], "unsupported-adverb", "{refused}");
+    assert_eq!(
+        refused["message"],
+        "host-fixture_nap does not support the adverb 'every'"
+    );
+    // A bad interval is `invalid-argument`, saying what it takes.
+    let (status, sub) = post(json!("500ms"), "host-fixture_tick").await;
+    assert_eq!(status, 400, "{sub}");
+    assert_eq!(sub["code"], "invalid-argument");
+    assert!(
+        sub["message"]
+            .as_str()
+            .unwrap()
+            .contains("'every' must be at least 1s"),
+        "{sub}"
+    );
+    let (_, number) = post(json!(5), "host-fixture_tick").await;
+    assert_eq!(number["code"], "invalid-argument", "{number}");
+    let (_, word) = post(json!("soon"), "host-fixture_tick").await;
+    assert_eq!(word["code"], "invalid-argument", "{word}");
+    let (_, days) = post(json!("999d"), "host-fixture_tick").await;
+    assert!(
+        days["message"].as_str().unwrap().contains("at most 365d"),
+        "{days}"
+    );
+    assert_eq!(host.served.runner().running(), 0, "nothing was started");
+    host.served.shutdown().await;
+}
+
+#[tokio::test]
+async fn every_runs_a_verb_repeatedly_until_cancelled_and_job_lists_it() {
+    let _turn = TURN.lock().await;
+    let host = start("memory:", "every-app").await;
+
+    let (status, started) = host
+        .post(
+            "/api/verb/host-fixture_tick",
+            json!({ "adverbs": { "every": "1s" } }),
+        )
+        .await;
+    assert_eq!(status, 200, "{started}");
+    assert_eq!(started["job"]["state"], "running");
+    assert_eq!(started["job"]["kind"], "host-fixture_tick");
+    let id = started["job"]["id"].as_str().unwrap().to_string();
+
+    // The first run is at once; the second a second later.
+    let job = job_until(&host, &id, |j| j["runs"].as_i64().unwrap_or(0) >= 2).await;
+    assert_eq!(job["routine"], true, "{job}");
+    assert_eq!(job["verb"], "host-fixture_tick");
+    assert_eq!(job["every_ms"], 1000);
+    assert_eq!(job["job"]["state"], "running");
+    assert_eq!(job["last_result"]["ok"], true, "{job}");
+    assert!(job["last_result"]["n"].as_u64().unwrap() >= 2, "{job}");
+    assert!(job["last_finished"].is_string());
+    assert_eq!(job["args"], json!({}));
+
+    // `GET /api/job` lists it, with the rest of the shape.
+    let (status, listed) = host.get_json("/api/job").await;
+    assert_eq!(status, 200, "{listed}");
+    assert_eq!(listed["ok"], true);
+    assert_eq!(listed["wire_version"], 1);
+    let jobs = listed["jobs"].as_array().expect("an array of jobs");
+    assert!(
+        jobs.iter().any(|j| j["job"]["id"] == id.as_str()),
+        "{listed}"
+    );
+
+    // Cancel stops it for good.
+    let (_, cancelled) = host.post(&format!("/api/job/{id}/cancel"), json!({})).await;
+    assert_eq!(cancelled["cancelled"], true, "{cancelled}");
+    assert_eq!(cancelled["job"]["state"], "cancelled");
+    assert_eq!(host.served.runner().running(), 0);
+    let at = cancelled["runs"].as_i64().unwrap();
+    tokio::time::sleep(Duration::from_millis(1300)).await;
+    let (_, after) = host.get_json(&format!("/api/job/{id}")).await;
+    assert_eq!(after["runs"].as_i64().unwrap(), at, "{after}");
+    // A cancelled routine is still listed.
+    let (_, listed) = host.get_json("/api/job").await;
+    assert!(
+        listed["jobs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|j| j["job"]["id"] == id.as_str() && j["job"]["state"] == "cancelled"),
+        "{listed}"
+    );
+    host.served.shutdown().await;
+}
+
+fn routine_row(verb: &str) -> impress_item::Item {
+    use impress_item::Value as V;
+    let now = chrono_now();
+    impress_item::Item {
+        id: uuid::Uuid::new_v4(),
+        schema: impress_item::schema::refs::TASK,
+        payload: [
+            ("kind", V::String("routine".into())),
+            ("verb", V::String(verb.into())),
+            ("args", V::String("{}".into())),
+            ("every_ms", V::Int(1000)),
+            ("runs", V::Int(0)),
+            ("state", V::String("running".into())),
+            ("caller", V::String("agent:http".into())),
+            ("started", V::String(now.to_rfc3339())),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect(),
+        created: now,
+        modified: now,
+        author: "agent:http".into(),
+        author_kind: impress_item::ActorKind::Agent,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
+        tags: vec![],
+        flag: None,
+        is_read: false,
+        is_starred: false,
+        priority: impress_item::Priority::None,
+        visibility: impress_item::Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
+        references: vec![],
+        parent: None,
+    }
+}
+
+fn chrono_now() -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc::now()
+}
+
+#[tokio::test]
+async fn a_routine_left_running_is_re_armed_and_one_without_its_verb_is_interrupted() {
+    let _turn = TURN.lock().await;
+    let store_root = tempfile::tempdir().unwrap();
+    let url = format!("dir:{}", store_root.path().display());
+
+    let host = start(&url, "rearm-app").await;
+    let (_, started) = host
+        .post(
+            "/api/verb/host-fixture_tick",
+            json!({ "adverbs": { "every": "1s" } }),
+        )
+        .await;
+    let id = started["job"]["id"].as_str().unwrap().to_string();
+    let before = job_until(&host, &id, |j| j["runs"].as_i64().unwrap_or(0) >= 1).await;
+    let ran = before["runs"].as_i64().unwrap();
+    // A routine whose verb this binary does not link.
+    let orphan = routine_row("host-fixture_gone");
+    let orphan_id = orphan.id.to_string();
+    koine_store::process::current()
+        .unwrap()
+        .insert(orphan)
+        .unwrap();
+    host.served.shutdown().await;
+
+    // The host stopped without cancelling the routine: the row still says so.
+    let host = start(&url, "rearm-app").await;
+    let after = job_until(&host, &id, |j| j["runs"].as_i64().unwrap_or(0) > ran).await;
+    assert_eq!(after["job"]["state"], "running", "{after}");
+    assert_eq!(host.served.runner().running(), 1);
+    let (_, orphan) = host.get_json(&format!("/api/job/{orphan_id}")).await;
+    assert_eq!(orphan["job"]["state"], "interrupted", "{orphan}");
+    assert!(
+        orphan["message"]
+            .as_str()
+            .unwrap()
+            .contains("host-fixture_gone is not linked"),
+        "{orphan}"
+    );
+    host.served.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_job_reports_progress_that_status_shows() {
+    let _turn = TURN.lock().await;
+    let host = start("memory:", "progress-app").await;
+    let (_, started) = host
+        .post(
+            "/api/verb/host-fixture_work",
+            json!({ "adverbs": { "in_background": true } }),
+        )
+        .await;
+    let id = started["job"]["id"].as_str().unwrap().to_string();
+    // While it works the report is already on the row.
+    let working = job_until(&host, &id, |j| j.get("progress").is_some()).await;
+    assert_eq!(working["job"]["state"], "running", "{working}");
+    assert_eq!(working["progress"], 0.5);
+    assert_eq!(working["progress_message"], "half");
+    // And it is still there when the job has ended.
+    let done = job_until(&host, &id, |j| j["job"]["state"] != "running").await;
+    assert_eq!(done["job"]["state"], "completed", "{done}");
+    assert_eq!(done["progress"], 0.5);
+    assert_eq!(done["progress_message"], "half");
+    host.served.shutdown().await;
+}
+
+// ------------------------------------------------------------------------ feed
+
+/// A surface whose one source reads every `surface` row.
+fn watcher() -> Value {
+    json!({
+        "surface": "1.0",
+        "name": "Watcher",
+        "sources": { "surfaces": { "query": {
+            "kinds": ["surface"], "scope": { "scope": "all" }, "limit": 10 } } },
+        "root": { "column": [
+            { "text": "# Watching" },
+            { "id": "t", "table": { "rows": "{{source.surfaces}}", "columns": ["name"] } }
+        ] }
+    })
+}
+
+/// Create and render the watcher (so the registry knows what it reads), and
+/// start a long `surface_wait` on it.
+async fn wait_on_a_watcher(
+    host: &Host,
+) -> (
+    String,
+    tokio::task::JoinHandle<(StatusCode, Value, Duration)>,
+) {
+    let (status, created) = host.post("/api/surface", watcher()).await;
+    assert_eq!(status, 200, "{created}");
+    let id = created["id"].as_str().unwrap().to_string();
+    let (status, rendered) = host.get_json(&format!("/api/surface/{id}/render")).await;
+    assert_eq!(status, 200, "{rendered}");
+    assert!(
+        rendered["source_errors"]
+            .as_array()
+            .is_none_or(|e| e.is_empty()),
+        "{rendered}"
+    );
+    let client = host.client.clone();
+    let url = host.url(&format!(
+        "/api/surface/{id}/wait?after_seq=0&timeout_ms=30000"
+    ));
+    let waiting = tokio::spawn(async move {
+        let started = std::time::Instant::now();
+        let (status, body) = json_of(client.get(url).send().await.unwrap()).await;
+        (status, body, started.elapsed())
+    });
+    // Let the wait take its reading before anything is written.
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    (id, waiting)
+}
+
+#[tokio::test]
+async fn a_store_write_wakes_a_surface_that_reads_it() {
+    let _turn = TURN.lock().await;
+    let host = start("memory:", "wake-app").await;
+    let (_, waiting) = wait_on_a_watcher(&host).await;
+
+    // Any write of a kind the surface reads: a second surface.
+    let (status, created) = host.post("/api/surface", explorer()).await;
+    assert_eq!(status, 200, "{created}");
+
+    let (status, woken, took) = tokio::time::timeout(Duration::from_secs(5), waiting)
+        .await
+        .expect("the wait ended")
+        .unwrap();
+    assert_eq!(status, 200, "{woken}");
+    assert_eq!(woken["ok"], true);
+    assert_eq!(woken["invalidated"], true, "{woken}");
+    assert_eq!(woken["events"], json!([]));
+    assert_eq!(woken["next_seq"], 0);
+    assert_eq!(woken["timed_out"], false);
+    assert!(took < Duration::from_secs(2), "woke in {took:?}");
+
+    // A wait that is not woken keeps the old wire: no `invalidated` key.
+    let id = created["id"].as_str().unwrap();
+    let (_, quiet) = host
+        .get_json(&format!(
+            "/api/surface/{id}/wait?after_seq=0&timeout_ms=100"
+        ))
+        .await;
+    assert_eq!(quiet["timed_out"], true, "{quiet}");
+    assert!(quiet.get("invalidated").is_none(), "{quiet}");
+    host.served.shutdown().await;
+}
+
+#[tokio::test]
+async fn another_process_writing_the_same_directory_wakes_it_too() {
+    let _turn = TURN.lock().await;
+    let store_root = tempfile::tempdir().unwrap();
+    let url = format!("dir:{}", store_root.path().display());
+    let host = start(&url, "wake-dir-app").await;
+    let (id, waiting) = wait_on_a_watcher(&host).await;
+
+    // A second handle on the same root: what a second process would hold.
+    let other = koine_store::open(&url).expect("a second handle opens");
+    // Let its watcher finish its first scan before it writes.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    other
+        .update(
+            id.parse().unwrap(),
+            vec![impress_item::FieldMutation::SetStarred(true)],
+        )
+        .expect("the second handle writes");
+
+    let (status, woken, took) = tokio::time::timeout(Duration::from_secs(10), waiting)
+        .await
+        .expect("the wait ended")
+        .unwrap();
+    assert_eq!(status, 200, "{woken}");
+    assert_eq!(woken["invalidated"], true, "{woken}");
+    assert!(took < Duration::from_secs(8), "woke in {took:?}");
+    drop(other);
     host.served.shutdown().await;
 }

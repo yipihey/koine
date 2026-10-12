@@ -12,6 +12,8 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use impress_service_core::loopback_token;
+
 use crate::{serve, Config};
 
 /// The `--help` text for a binary called `program`.
@@ -31,7 +33,10 @@ OPTIONS:
     --bind <addr>            address to bind (default: 127.0.0.1)
     --workspace <dir>        where the loopback token is written, as
                              <dir>/automation/loopback-<port>.token
-                             (default: $KOINE_WORKSPACE, else ~/.koine)
+                             (default: $KOINE_WORKSPACE; else the impress suite's
+                             workspace, <app-group container>/workspace, when that
+                             container exists on this machine, so the suite's own
+                             clients find the token; else ~/.koine)
     --web-dir <dir>          the built koine-web bundle (holds index.html), served at /ui
     --app-id <id>            who the host says it is (default: koine-demo)
     --device <name>          the device the layout and surface state are scoped to
@@ -56,9 +61,68 @@ pub struct Cli {
     pub check: bool,
 }
 
+/// What the flags default from outside the command line. [`Env::process`] is
+/// this process's; a test builds its own instead of setting variables.
+#[derive(Debug, Clone, Default)]
+pub struct Env {
+    /// `$KOINE_WORKSPACE`.
+    pub koine_workspace: Option<PathBuf>,
+    /// The suite's app-group container
+    /// ([`loopback_token::default_container_root`]), whether or not it
+    /// exists.
+    pub container_root: Option<PathBuf>,
+    /// `$HOME`.
+    pub home: Option<PathBuf>,
+    /// `$KOINE_NETWORK_BEARER`.
+    pub network_bearer: Option<String>,
+}
+
+impl Env {
+    /// This process's environment.
+    pub fn process() -> Self {
+        let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty());
+        Env {
+            koine_workspace: var("KOINE_WORKSPACE").map(PathBuf::from),
+            container_root: loopback_token::default_container_root(),
+            home: var("HOME").map(PathBuf::from),
+            network_bearer: std::env::var("KOINE_NETWORK_BEARER").ok(),
+        }
+    }
+
+    /// The workspace when `--workspace` is not given (plan-koine-live L-D10):
+    /// `$KOINE_WORKSPACE`; else `<container>/workspace` when the suite's
+    /// container is an existing directory (the token then lands where the
+    /// suite's Rust clients look first); else `~/.koine`. `None` when there is
+    /// no home to fall back on.
+    pub fn default_workspace(&self) -> Option<PathBuf> {
+        self.koine_workspace
+            .clone()
+            .or_else(|| {
+                self.container_root
+                    .as_ref()
+                    .filter(|root| root.is_dir())
+                    .map(|root| root.join("workspace"))
+            })
+            .or_else(|| {
+                self.home
+                    .as_ref()
+                    .map(|home| home.join(loopback_token::KOINE_HOME_DIR))
+            })
+    }
+}
+
 /// Parse the flags of a host binary (`--help` text: [`usage`]). `Ok(None)` is
 /// `--help`; `app_id` is who the host says it is unless `--app-id` overrides.
 pub fn parse(args: impl IntoIterator<Item = String>, app_id: &str) -> Result<Option<Cli>, String> {
+    parse_with_env(args, app_id, &Env::process())
+}
+
+/// [`parse`] over an explicit [`Env`].
+pub fn parse_with_env(
+    args: impl IntoIterator<Item = String>,
+    app_id: &str,
+    env: &Env,
+) -> Result<Option<Cli>, String> {
     let mut args = args.into_iter();
     let mut store: Option<String> = None;
     let mut port: u16 = 23130;
@@ -68,7 +132,7 @@ pub fn parse(args: impl IntoIterator<Item = String>, app_id: &str) -> Result<Opt
     let mut app_id_flag: Option<String> = None;
     let mut device: Option<String> = None;
     let mut allow_network = false;
-    let mut bearer = std::env::var("KOINE_NETWORK_BEARER").ok();
+    let mut bearer = env.network_bearer.clone();
     let mut secrets_dir: Option<PathBuf> = None;
     let mut keychain = false;
     let mut check = false;
@@ -114,16 +178,7 @@ pub fn parse(args: impl IntoIterator<Item = String>, app_id: &str) -> Result<Opt
         }
     }
     let workspace = workspace
-        .or_else(|| {
-            std::env::var_os("KOINE_WORKSPACE")
-                .filter(|v| !v.is_empty())
-                .map(PathBuf::from)
-        })
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .filter(|v| !v.is_empty())
-                .map(|home| PathBuf::from(home).join(".koine"))
-        })
+        .or_else(|| env.default_workspace())
         .ok_or("no --workspace, $KOINE_WORKSPACE or $HOME to put the token under")?;
     let store = store.unwrap_or_else(|| format!("dir:{}", workspace.join("store").display()));
     let mut config = Config::new(store, workspace);
@@ -229,6 +284,8 @@ pub async fn run(cli: Cli, program: &str) -> ExitCode {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     fn parse_args(a: Vec<String>) -> Result<Option<Cli>, String> {
@@ -291,6 +348,73 @@ mod tests {
             .unwrap();
         assert_eq!(cli.config.store_url, "dir:/tmp/ws/store");
         assert_eq!(cli.config.port, 23130);
+    }
+
+    fn env(workspace: Option<&str>, container: Option<&Path>, home: Option<&str>) -> Env {
+        Env {
+            koine_workspace: workspace.map(PathBuf::from),
+            container_root: container.map(Path::to_path_buf),
+            home: home.map(PathBuf::from),
+            network_bearer: None,
+        }
+    }
+
+    #[test]
+    fn the_workspace_defaults_to_koine_workspace_then_the_container_then_home() {
+        let container = tempfile::tempdir().unwrap();
+        // $KOINE_WORKSPACE wins over everything.
+        let cli = parse_with_env(
+            args(&["--port=0"]),
+            "x",
+            &env(Some("/tmp/kw"), Some(container.path()), Some("/home/u")),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(cli.config.workspace, PathBuf::from("/tmp/kw"));
+        assert_eq!(cli.config.store_url, "dir:/tmp/kw/store");
+        // The token lands where a client's second candidate looks.
+        let port = 23199;
+        let token = cli
+            .config
+            .workspace
+            .join("automation")
+            .join(loopback_token::token_file_name(port));
+        assert_eq!(
+            loopback_token::candidate_paths(port, None, Some(&cli.config.workspace), None),
+            vec![token]
+        );
+        // Else the suite's container, when it exists: under its workspace/.
+        let cli = parse_with_env(
+            args(&[]),
+            "x",
+            &env(None, Some(container.path()), Some("/home/u")),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(cli.config.workspace, container.path().join("workspace"));
+        assert_eq!(
+            loopback_token::token_path_under(container.path(), port),
+            cli.config
+                .workspace
+                .join("automation")
+                .join(loopback_token::token_file_name(port))
+        );
+        // A container that is not on this machine is skipped.
+        let absent = container.path().join("absent");
+        let cli = parse_with_env(args(&[]), "x", &env(None, Some(&absent), Some("/home/u")))
+            .unwrap()
+            .unwrap();
+        assert_eq!(cli.config.workspace, PathBuf::from("/home/u/.koine"));
+        // --workspace wins over all of it; nothing at all is an error.
+        let cli = parse_with_env(
+            args(&["--workspace", "/tmp/flag"]),
+            "x",
+            &env(Some("/tmp/kw"), None, None),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(cli.config.workspace, PathBuf::from("/tmp/flag"));
+        assert!(parse_with_env(args(&[]), "x", &env(None, None, None)).is_err());
     }
 
     #[test]

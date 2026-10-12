@@ -5,12 +5,13 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
+use std::time::Duration;
 
 use serde_json::Value;
 
 use crate::descriptor_handle::VerbHandle;
 use crate::job::JobHandle;
-use crate::refusal::Refusal;
+use crate::refusal::{codes, Refusal};
 
 use super::Call;
 
@@ -34,6 +35,23 @@ pub trait IdempotencyStore: Send + Sync {
 /// pipeline again when the runner executes it.
 pub trait BackgroundRunner: Send + Sync {
     fn start(&self, verb: VerbHandle, call: Call) -> Result<JobHandle, Refusal>;
+
+    /// Starts a call that repeats (`every`): run it, wait `interval`, run it
+    /// again, until the job is cancelled. The call handed over has `every`
+    /// and `in_background` cleared, like [`Self::start`]'s. A runner that
+    /// cannot repeat answers the default refusal.
+    fn repeat(
+        &self,
+        verb: VerbHandle,
+        call: Call,
+        interval: Duration,
+    ) -> Result<JobHandle, Refusal> {
+        let _ = (verb, call, interval);
+        Err(Refusal::new(
+            codes::UNSUPPORTED_ADVERB,
+            "this runner cannot repeat",
+        ))
+    }
 }
 
 static STORE: RwLock<Option<Arc<dyn IdempotencyStore>>> = RwLock::new(None);

@@ -371,6 +371,12 @@ check "GET /api/secret answers ok with an array" jq -e '.ok == true and (.secret
 req PUT /api/secret/not-declared '{"value":"x"}'
 expect_eq "PUT /api/secret/not-declared is 404" "$STATUS" "404"
 
+# The job list (L-D1): the scaffolded app declares no `every` verb, so only
+# the list itself is asserted.
+req GET /api/job
+expect_eq "GET /api/job is 200" "$STATUS" "200"
+check "GET /api/job answers ok with an array" jq -e '.ok == true and (.jobs | type == "array")' <<<"$BODY"
+
 req POST /api/verb/stats-app-service_mean '{"values":[1,2,3]}'
 expect_eq "POST mean is 200" "$STATUS" "200"
 check "mean of 1,2,3 is 2" jq -e '.ok == true and .value == 2' <<<"$BODY"

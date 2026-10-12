@@ -85,7 +85,7 @@
 //! three (`tentatively`, `with_review`, `once`) the service's verbs honor, and
 //! `#[impress_method(supports(reversibly, within))]` replaces that set for one
 //! method; the vocabulary is `tentatively | with_review | once | reversibly |
-//! within | in_background`. `#[impress_method(adjective(name = "stale", kinds
+//! within | in_background | every`. `#[impress_method(adjective(name = "stale", kinds
 //! = ["publication"]))]` declares the verb a derived adjective.
 //! `#[impress_method(returns_kind = "publication")]` (plan-koine-host H-D8)
 //! says which pane-query kind the rows of the verb's result are, so a
@@ -539,7 +539,7 @@ fn parse_rows(meta: &syn::meta::ParseNestedMeta<'_>) -> syn::Result<RowsDecl> {
 }
 
 const ADVERB_VOCABULARY: &str =
-    "`tentatively`, `with_review`, `once`, `reversibly`, `within` or `in_background`";
+    "`tentatively`, `with_review`, `once`, `reversibly`, `within`, `in_background` or `every`";
 
 /// The `Adverb` variant for a wire spelling.
 fn adverb_variant(spelling: &str) -> Option<&'static str> {
@@ -550,17 +550,19 @@ fn adverb_variant(spelling: &str) -> Option<&'static str> {
         "reversibly" => Some("Reversibly"),
         "within" => Some("Within"),
         "in_background" => Some("InBackground"),
+        "every" => Some("Every"),
         _ => None,
     }
 }
 
-const ADVERB_SPELLINGS: [&str; 6] = [
+const ADVERB_SPELLINGS: [&str; 7] = [
     "tentatively",
     "with_review",
     "once",
     "reversibly",
     "within",
     "in_background",
+    "every",
 ];
 
 /// Edit distance between two short words, for "did you mean" on a misspelt
@@ -1875,6 +1877,26 @@ mod tests {
         assert!(
             !lenient_tokens.contains("strict :: parse_refusal"),
             "{lenient_tokens}"
+        );
+    }
+
+    #[test]
+    fn supports_every_is_in_the_vocabulary() {
+        let ts = expand(
+            r#"
+            pub trait EchoService: Send + Sync + 'static {
+                /// Echo.
+                #[impress_method(supports(in_background, every))]
+                async fn echo(&self, message: String) -> String;
+            }
+            "#,
+        )
+        .expect("expands")
+        .to_string()
+        .replace(' ', "");
+        assert!(
+            ts.contains("Adverb::InBackground,::impress_service_core::Adverb::Every"),
+            "{ts}"
         );
     }
 

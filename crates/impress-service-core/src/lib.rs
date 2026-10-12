@@ -19,6 +19,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub mod adverb;
+pub mod blob_ref;
 pub mod call;
 pub mod descriptor;
 pub mod descriptor_handle;
@@ -36,7 +37,8 @@ pub mod secrets;
 pub mod strict;
 pub mod wire;
 
-pub use adverb::{Adverb, Adverbs, Within};
+pub use adverb::{format_every, parse_every, Adverb, Adverbs, Within};
+pub use blob_ref::{BlobArg, BlobError, BlobReader, BlobRef};
 pub use descriptor::{
     is_kind_id, method_meta, resolve_adjective, resolve_aliases, resolve_budget_ms,
     resolve_deprecated, resolve_effects, resolve_examples, resolve_idempotent, resolve_replay_full,
@@ -266,6 +268,9 @@ pub fn adverb_meaning(adverb: Adverb) -> &'static str {
         Adverb::Reversibly => "Record an undo step; the result names the inverse call",
         Adverb::Within => "Give up after N ms with `timed-out`",
         Adverb::InBackground => "Start as a job and answer the handle",
+        Adverb::Every => {
+            "Run again on this interval until cancelled (\"2s\", \"10m\", \"1h\", \"2d\")"
+        }
     }
 }
 
@@ -277,6 +282,11 @@ pub fn adverbs_schema() -> serde_json::Value {
     for a in Adverb::ALL {
         let mut p = match a {
             Adverb::Once => json!({"type": "string", "minLength": 1}),
+            Adverb::Every => json!({
+                "type": "string",
+                "pattern": "^[0-9]+[smhd]$",
+                "description": "A duration: at least 1s, at most 365d.",
+            }),
             Adverb::Within => json!({
                 "type": "object",
                 "properties": {"ms": {"type": "integer", "minimum": 1}},
@@ -477,7 +487,7 @@ mod tests {
         for a in Adverb::ALL {
             assert!(keys.contains(&a.as_str().to_string()), "{a}");
         }
-        assert_eq!(keys.len(), 6);
+        assert_eq!(keys.len(), 7);
         assert_eq!((tool.input_schema)(), fixture_schema());
         assert_eq!(
             tool.mcp_input_schema()["properties"]["q"],

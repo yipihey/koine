@@ -805,7 +805,7 @@ impl SurfaceEventsResult {
 }
 
 /// `surface_wait`'s answer: the same shape as [`SurfaceEventsResult`] plus
-/// `timed_out`.
+/// `timed_out` and `invalidated`.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SurfaceWaitResult {
     pub ok: bool,
@@ -823,9 +823,20 @@ pub struct SurfaceWaitResult {
     /// See [`SurfaceEventsResult::gap`].
     #[serde(default)]
     pub gap: bool,
+    /// `true` when the wait ended early because the store feed marked this
+    /// surface (a record kind one of its query sources reads was written):
+    /// `events` is empty, `next_seq` is the cursor passed in, and the
+    /// caller should render again. Absent (false) on every other answer, so
+    /// the wire is unchanged for a caller that never sees one.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub invalidated: bool,
     /// The wire version (1): see this module's docs.
     #[serde(default = "wire_version")]
     pub wire_version: u32,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl SurfaceWaitResult {
@@ -839,6 +850,7 @@ impl SurfaceWaitResult {
             next_seq: 0,
             timed_out: false,
             gap: false,
+            invalidated: false,
             wire_version: WIRE_VERSION,
         }
     }

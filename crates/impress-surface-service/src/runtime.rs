@@ -1762,6 +1762,10 @@ type SessionMap = HashMap<(ItemId, String), Arc<Slot>>;
 /// in parallel.
 pub struct SessionRegistry {
     sessions: Mutex<SessionMap>,
+    /// Per surface, how many times [`Self::invalidate_refs`] marked it. A
+    /// `surface_wait` reads it on entry and at every poll and answers early
+    /// when it moved ([`Self::wake_generation`]).
+    wakes: Mutex<HashMap<ItemId, u64>>,
     /// The record kinds every runtime in this registry reads in — handed to
     /// each [`SurfaceRuntime`] as it loads.
     manifest: Arc<KindManifest>,
@@ -1785,6 +1789,7 @@ impl SessionRegistry {
     pub fn with_manifest(manifest: impl Into<Arc<KindManifest>>) -> Self {
         Self {
             sessions: Mutex::new(SessionMap::new()),
+            wakes: Mutex::new(HashMap::new()),
             manifest: manifest.into(),
         }
     }
@@ -1881,7 +1886,30 @@ impl SessionRegistry {
                 marked.push(*surface_id);
             }
         }
+        if !marked.is_empty() {
+            let mut wakes = self
+                .wakes
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            for surface_id in &marked {
+                *wakes.entry(*surface_id).or_insert(0) += 1;
+            }
+        }
         marked
+    }
+
+    /// How many times a store write has marked `surface_id` (via
+    /// [`Self::invalidate_refs`]) in this registry's life; `0` for a surface
+    /// never marked. Only "is it the value I saw" is meaningful: a
+    /// `surface_wait` records it on entry and returns early, `invalidated`,
+    /// when it changes.
+    pub fn wake_generation(&self, surface_id: ItemId) -> u64 {
+        self.wakes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&surface_id)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// What can answer a verb changed (a verb host was installed): let every

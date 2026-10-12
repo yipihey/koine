@@ -198,7 +198,7 @@ fn adverb_id(adverb: Adverb) -> String {
     format!("{ADVERB_ID_PREFIX}{}", adverb.as_str())
 }
 
-/// The six adverb flags every generated subcommand carries
+/// The adverb flags every generated subcommand carries
 /// (docs/grammar.md § Adverbs). Help text is the vocabulary table's meaning.
 pub fn adverb_args() -> Vec<Arg> {
     Adverb::ALL
@@ -216,6 +216,10 @@ pub fn adverb_args() -> Vec<Arg> {
                     .action(ArgAction::Set)
                     .value_name("KEY")
                     .value_parser(NonEmptyStringValueParser::new()),
+                Adverb::Every => arg
+                    .action(ArgAction::Set)
+                    .value_name("DURATION")
+                    .value_parser(crate::adverb::parse_every),
                 Adverb::Within => arg
                     .long("within-ms")
                     .action(ArgAction::Set)
@@ -267,6 +271,11 @@ fn adverbs_from_matches(matches: &ArgMatches) -> Adverbs {
             .flatten()
             .map(|&ms| Within { ms }),
         in_background: flag(Adverb::InBackground),
+        every: matches
+            .try_get_one::<std::time::Duration>(&adverb_id(Adverb::Every))
+            .ok()
+            .flatten()
+            .copied(),
     }
 }
 

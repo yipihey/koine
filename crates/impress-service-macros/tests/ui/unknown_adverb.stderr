@@ -1,4 +1,4 @@
-error: unknown adverb `reversbly` (did you mean `reversibly`?); `supports(…)` lists the adverbs beyond the universal three that this verb honors, one of `tentatively`, `with_review`, `once`, `reversibly`, `within` or `in_background` (`tentatively`, `with_review` and `once` need no declaration)
+error: unknown adverb `reversbly` (did you mean `reversibly`?); `supports(…)` lists the adverbs beyond the universal three that this verb honors, one of `tentatively`, `with_review`, `once`, `reversibly`, `within`, `in_background` or `every` (`tentatively`, `with_review` and `once` need no declaration)
   --> tests/ui/unknown_adverb.rs:18:31
    |
 18 |     #[impress_method(supports(reversbly))]
