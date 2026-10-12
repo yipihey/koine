@@ -82,7 +82,7 @@ fn every_adverb_key_a_surface_example_uses_is_in_the_pipelines_vocabulary() {
 }
 
 #[test]
-fn the_adverb_vocabulary_is_the_six_the_grammar_lists() {
+fn the_adverb_vocabulary_is_the_seven_the_grammar_lists() {
     let spelled: Vec<&str> = Adverb::ALL.iter().map(|a| a.as_str()).collect();
     assert_eq!(
         spelled,
@@ -92,7 +92,8 @@ fn the_adverb_vocabulary_is_the_six_the_grammar_lists() {
             "once",
             "reversibly",
             "within",
-            "in_background"
+            "in_background",
+            "every"
         ]
     );
     assert_eq!(Adverbs::KEY, "adverbs");
