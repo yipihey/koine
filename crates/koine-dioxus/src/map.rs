@@ -96,7 +96,11 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                 "{text}"
             }
         },
-        RenderKind::Table { rows, columns } => table_node(id, label, help, rows, columns, ctx),
+        RenderKind::Table {
+            rows,
+            columns,
+            id_field,
+        } => table_node(id, label, help, rows, columns, id_field.as_deref(), ctx),
         RenderKind::List { rows } => list_node(id, label, help, rows, ctx),
         RenderKind::Plot { spec } => {
             let spec_text = spec.to_string();
@@ -328,6 +332,7 @@ fn table_node(
     help: Option<String>,
     rows: &Value,
     columns: &[String],
+    id_field: Option<&str>,
     ctx: &Ctx<'_>,
 ) -> Element {
     let focused = is_focused(ctx, id).then_some("true");
@@ -352,7 +357,7 @@ fn table_node(
                     {
                         let on_event = ctx.on_event;
                         let widget = id.to_string();
-                        let selected = selection_of(row, index);
+                        let selected = selection_of(row, id_field, index);
                         rsx! {
                             tr {
                                 key: "{index}",
@@ -392,7 +397,7 @@ fn list_node(
                 {
                     let on_event = ctx.on_event;
                     let widget = id.to_string();
-                    let selected = selection_of(row, index);
+                    let selected = selection_of(row, None, index);
                     rsx! {
                         li {
                             key: "{index}",
@@ -612,9 +617,11 @@ fn number_of(raw: &str) -> Value {
 /// A select event's value, as every `select` in the grammar carries it: an
 /// array of the ids selected. A row with an `id` selects that id; a row
 /// without one selects its index.
-fn selection_of(row: &Value, index: usize) -> Value {
+/// What a row click selects: the row's `id_field` when the table names one
+/// (plan-koine-followups F-D2), else its `id`, else its index.
+fn selection_of(row: &Value, id_field: Option<&str>, index: usize) -> Value {
     let id = row
-        .get("id")
+        .get(id_field.unwrap_or("id"))
         .filter(|id| id.is_string() || id.is_number())
         .cloned()
         .unwrap_or_else(|| Value::from(index));
@@ -689,8 +696,17 @@ mod tests {
 
     #[test]
     fn a_select_carries_an_array_of_ids_as_every_select_does() {
-        assert_eq!(selection_of(&json!({"id": "p1"}), 4), json!(["p1"]));
-        assert_eq!(selection_of(&json!("alpha"), 4), json!([4]));
+        assert_eq!(selection_of(&json!({"id": "p1"}), None, 4), json!(["p1"]));
+        assert_eq!(selection_of(&json!("alpha"), None, 4), json!([4]));
+        // A table that names its id field selects by it (F-D2).
+        assert_eq!(
+            selection_of(&json!({"id": "p1", "bibcode": "2024A"}), Some("bibcode"), 4),
+            json!(["2024A"])
+        );
+        assert_eq!(
+            selection_of(&json!({"id": "p1"}), Some("bibcode"), 4),
+            json!([4])
+        );
     }
 
     #[test]

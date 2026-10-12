@@ -429,6 +429,15 @@ pub struct Tab {
 pub struct Table {
     pub rows: Value,
     pub columns: Vec<String>,
+    /// The field of each row that identifies it (plan-koine-followups F-D2): a
+    /// literal property name, never a template. A `select` on a table that
+    /// names one carries that field of each selected row; a table without
+    /// one selects by `id`, then by row index, as before. Absent from the
+    /// wire when `None`, so every existing surface serialises as it did.
+    /// This crate does not read rows (the renderer builds the `select` event
+    /// value), so it only carries the name through to the renderer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id_field: Option<String>,
     #[serde(default)]
     pub on_select: Vec<Action>,
 }

@@ -117,7 +117,8 @@ pub fn reset_slot(workspace: &Path, frontend: &str, slot: &str) -> Result<String
 
 pub fn render_with_saved_sheet(workspace: &Path) -> Result<String, HostError> {
     let book = load_book(workspace)?;
-    let mut frontend = TextFrontend::new();
+    // The binary draws plots; `render` alone keeps one line per node.
+    let mut frontend = TextFrontend::new().with_plots(true);
     if let Some(sheet) = book.sheet("tui") {
         for (slot, value) in sheet.values() {
             frontend.set_style(slot, value)?;

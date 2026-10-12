@@ -60,6 +60,10 @@ pub mod codes {
     pub const UNSUPPORTED_ADVERB: &str = "unsupported-adverb";
     /// A `within` deadline passed before the verb answered.
     pub const TIMED_OUT: &str = "timed-out";
+    /// The verb declares a secret (`secrets = […]`) that no installed source
+    /// holds (plan-koine-followups F-D1); the message names it and says how
+    /// to set it. Nothing ran.
+    pub const MISSING_SECRET: &str = "missing-secret";
 }
 
 /// A refusal: a stable `code` and the prose `message` a person reads.
@@ -167,6 +171,7 @@ pub fn http_status(code: &str) -> u16 {
         codes::VERB_FAILED => 502,
         codes::UNSUPPORTED_ADVERB => 422,
         codes::TIMED_OUT => 504,
+        codes::MISSING_SECRET => 412,
         codes::STORE_ERROR | codes::INTERNAL => 500,
         _ => 422,
     }
@@ -202,6 +207,7 @@ mod tests {
         assert_eq!(http_status("undo-conflict"), 409);
         assert_eq!(http_status(codes::UNSUPPORTED_ADVERB), 422);
         assert_eq!(http_status(codes::TIMED_OUT), 504);
+        assert_eq!(http_status(codes::MISSING_SECRET), 412);
     }
 
     #[test]

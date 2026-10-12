@@ -114,6 +114,10 @@ pub enum RenderKind {
     Table {
         rows: Value,
         columns: Vec<String>,
+        /// The row field a `select` carries (`Table::id_field`); absent when
+        /// the table selects by `id`, then by index.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id_field: Option<String>,
     },
     List {
         rows: Value,
@@ -309,6 +313,7 @@ fn resolve_kind(
         NodeKind::Table(t) => RenderKind::Table {
             rows: resolve_value(&t.rows, ctx)?,
             columns: t.columns.clone(),
+            id_field: t.id_field.clone(),
         },
         NodeKind::List(l) => RenderKind::List {
             rows: resolve_value(&l.rows, ctx)?,

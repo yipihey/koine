@@ -34,6 +34,10 @@ use koine::surface::{Event, RenderKind, RenderNode, RenderTree, SurfaceSpec};
 pub struct TextFrontend {
     cursor: Cursor,
     style: StyleHost,
+    /// Draw a `plot` node's sketch under its line (`with_plots`). Off by
+    /// default so [`render`] keeps one line per node, the contract the
+    /// cursor and the frontends suite rely on.
+    draw_plots: bool,
 }
 
 impl Default for TextFrontend {
@@ -47,7 +51,16 @@ impl TextFrontend {
         Self {
             cursor: Cursor::new(),
             style: StyleHost::new("tui").expect("tui is a koine frontend"),
+            draw_plots: false,
         }
+    }
+
+    /// Print each `plot` node's sketch (`koine_plot::text`, 60x14) under its
+    /// line. The binary turns this on; a renderer that counts lines per node
+    /// leaves it off.
+    pub fn with_plots(mut self, draw: bool) -> Self {
+        self.draw_plots = draw;
+        self
     }
 
     pub fn sheet(&self) -> &koine::style::StyleSheet {
@@ -82,7 +95,14 @@ impl TextFrontend {
     pub fn render(&self, tree: &RenderTree) -> String {
         let focused = self.focused_id(tree);
         let mut lines = Vec::new();
-        write_node(&tree.root, 0, focused, self.style.sheet(), &mut lines);
+        write_node(
+            &tree.root,
+            0,
+            focused,
+            self.style.sheet(),
+            self.draw_plots,
+            &mut lines,
+        );
         lines.join("\n")
     }
 
@@ -129,6 +149,7 @@ fn write_node(
     indent: usize,
     focused: Option<&str>,
     sheet: &koine::style::StyleSheet,
+    draw_plots: bool,
     out: &mut Vec<String>,
 ) {
     let mut focus_mark = fill(sheet.value("focus"), &[]);
@@ -142,7 +163,7 @@ fn write_node(
         " ".repeat(focus_width)
     };
     let pad = " ".repeat(indent);
-    if let RenderKind::Plot { spec } = &node.node {
+    if let (true, RenderKind::Plot { spec }) = (draw_plots, &node.node) {
         // A plot is a header line and then the sketch, one line each, under
         // the same indent. A spec that does not parse is the one line.
         match koine_plot::render_text_json(spec, PLOT_COLS, PLOT_ROWS) {
@@ -158,7 +179,7 @@ fn write_node(
     out.push(format!("{mark}{pad}{}", line_of(node, sheet)));
     let child_indent = indent + indent_of(node, sheet);
     for child in children_of(node) {
-        write_node(child, child_indent, focused, sheet, out);
+        write_node(child, child_indent, focused, sheet, draw_plots, out);
     }
 }
 
@@ -418,7 +439,9 @@ mod tests {
     #[test]
     fn a_plot_prints_its_sketch_under_a_header() {
         let spec = serde_json::json!({"title": "t", "series": [{"label": "s", "x": [0, 1, 2], "y": [0, 1, 4]}]});
-        let text = TextFrontend::new().render(&plot_tree(spec));
+        let text = TextFrontend::new()
+            .with_plots(true)
+            .render(&plot_tree(spec));
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines[0], " plot", "{text}");
         assert_eq!(lines[1], "   t", "{text}");
@@ -430,11 +453,14 @@ mod tests {
 
     #[test]
     fn a_plot_that_does_not_parse_is_one_line_naming_the_error() {
-        let text =
-            TextFrontend::new().render(&plot_tree(serde_json::json!({"series": [{"x": [1]}]})));
+        let text = TextFrontend::new()
+            .with_plots(true)
+            .render(&plot_tree(serde_json::json!({"series": [{"x": [1]}]})));
         assert_eq!(text.lines().count(), 1, "{text}");
         assert!(text.starts_with(" plot: plot spec: "), "{text}");
-        let wrong = TextFrontend::new().render(&plot_tree(serde_json::json!({"series": 3})));
+        let wrong = TextFrontend::new()
+            .with_plots(true)
+            .render(&plot_tree(serde_json::json!({"series": 3})));
         assert!(wrong.starts_with(" plot: plot spec: "), "{wrong}");
     }
 

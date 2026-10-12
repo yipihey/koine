@@ -28,7 +28,35 @@ kind then agree on columns, ids and selection, because both name the kind
 rather than guess at it. The macro checks the value is a well-formed kind id
 (lowercase letters, digits, `_` and `-`, starting with a letter); that it is
 a kind of the host's manifest is the host's check, since the manifest does
-not exist at expansion time. A bespoke app is surfaces over verbs: its
+not exist at expansion time.
+
+`rows(…)` beside it says which fields of those rows matter:
+`#[impress_method(returns_kind = "paper", rows(id = "bibcode", title =
+"title", columns = ["bibcode", "title", "year"]))]`. `id` is required and is
+the field a selection carries; `title` defaults to the id; `columns` defaults
+to the row object's properties in the order the output schema lists them.
+`rows(…)` without `returns_kind` on the same method is refused at expansion
+(rows are of a kind). The descriptor carries `rows: Option<RowSchema>`, and
+`VerbDescriptor::row_schema_check()` reads the output schema (the `items` of
+an array result, or the one array-of-objects property of an object result,
+following a local `$ref`) and refuses a result that is not rows or an id,
+title or column that is not a property of the row object, naming it and the
+properties that exist. The Tier A report runs that check for every linked verb
+that declares `rows(…)`, so a renamed DTO field fails `cargo test`, not a form.
+`tools/list` shows `_meta.rows` (`id`, `title`, `columns`, defaults filled in)
+beside `_meta.returns_kind`; the generated result table takes its `columns`
+from it, sets `Table.id_field` to the id (absent from the wire otherwise, so
+every other surface serialises as before) and writes a select to
+`state.selected`.
+
+A verb may also declare the secrets it needs, `#[impress_method(secrets =
+["scix-api-token"])]` (`VerbDescriptor::secrets`, `_meta.secrets`). They are
+held by the host or the environment (`impress_service_core::secrets`), never
+passed as arguments, and the pipeline refuses a call while one is absent, as
+`missing-secret` (HTTP 412), before the policy layer. See
+[capability.md](capability.md) § 6.
+
+A bespoke app is surfaces over verbs: its
 layout's panes are `surface` panes, and no view kind is written in Swift or
 Dioxus for it.
 
@@ -226,3 +254,6 @@ reads the inverse the handler recorded, in the envelope layer.
 | The verb surface offers exactly the adverbs the descriptor accepts | `impress-verb-surface` tests |
 | The macro refuses a `returns_kind` that is not a kind id, and accepts one that is | `impress-service-macros` compile-fail test (`returns_kind_not_a_kind`) and pass case |
 | A declared `returns_kind` is a well-formed kind id, reaches `_meta` and labels the result table | `koine` crate test |
+| The macro refuses `rows(…)` without `returns_kind` or without `id`, and a `secrets` name that is not a name; it accepts the well-formed forms | `impress-service-macros` compile-fail tests (`rows_without_returns_kind`, `rows_missing_id`, `secret_not_a_name`) and pass case (`secrets_and_rows`) |
+| A `rows(…)` field the output schema lacks fails `row_schema_check` and the Tier A report; declared rows reach `_meta.rows`, the table's `id_field` and `state.selected` | `impress-service-core` descriptor and Tier A tests, `impress-verb-surface` tests, `koine` crate test |
+| A verb whose declared secret is absent is refused `missing-secret` before the handler and runs once it is set; the form warns | `impress-service-core::pipeline` test, `impress-verb-surface` test |

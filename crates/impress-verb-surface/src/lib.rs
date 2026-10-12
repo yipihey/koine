@@ -53,7 +53,9 @@
 //! rather than adding a "render this spec inline" node kind).
 
 use impress_service_core::descriptor::SafetyClass;
-use impress_service_core::{Adverb, ProviderStatus, VerbDescriptor, VerbHandle};
+use impress_service_core::{
+    row_layout, secrets, Adverb, ProviderStatus, RowSchema, VerbDescriptor, VerbHandle,
+};
 use impress_surface::spec::{
     Action, Button, FieldKind, Node, NodeKind, Section, SurfaceSpec, When, SURFACE_VERSION,
 };
@@ -91,6 +93,8 @@ pub fn verb_surface(desc: &VerbDescriptor) -> SurfaceSpec {
         true,
         &accepted_adverbs(desc.safety.class, |a| desc.supports(a)),
         desc.returns_kind,
+        desc.rows,
+        &secrets::missing_for(desc),
     )
 }
 
@@ -115,6 +119,8 @@ pub fn verb_surface_handle(desc: &VerbHandle) -> SurfaceSpec {
                 && desc.deprecation_notice().is_none()),
         &accepted_adverbs(desc.safety().class, |a| desc.supports(a)),
         desc.returns_kind(),
+        desc.rows(),
+        &desc.linked().map(secrets::missing_for).unwrap_or_default(),
     )
 }
 
@@ -129,6 +135,8 @@ fn render_surface(
     available: bool,
     adverbs: &[Adverb],
     returns_kind: Option<&str>,
+    rows: Option<RowSchema>,
+    missing_secrets: &[&str],
 ) -> SurfaceSpec {
     let mut form_fields: Vec<Node> = Vec::new();
     let required = required_names(input_schema);
@@ -142,6 +150,30 @@ fn render_surface(
     let review = available && matches!(safety, SafetyClass::Destructive | SafetyClass::External);
 
     let mut column: Vec<Node> = Vec::new();
+    // A declared secret that no source holds (plan-koine-followups F-D1): the
+    // form says so first. Run stays — the pipeline's `missing-secret` refusal
+    // is what a press of it shows.
+    if !missing_secrets.is_empty() {
+        let how = missing_secrets
+            .iter()
+            .map(|secret| format!("`{secret}`: {}", secrets::how_to_set(secret)))
+            .collect::<Vec<_>>()
+            .join("; ");
+        column.push(
+            Node::leaf(NodeKind::Status(impress_surface::spec::Status {
+                level: "warning".to_string(),
+                message: json!(format!(
+                    "Missing secret {} — {how}. Run is refused until it is set.",
+                    missing_secrets
+                        .iter()
+                        .map(|secret| format!("`{secret}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )),
+            }))
+            .with_id("missing-secret"),
+        );
+    }
     column.push(
         Node::leaf(NodeKind::Text(format!("**{}**\n\n{}", name, description)))
             .with_id("description"),
@@ -241,7 +273,7 @@ fn render_surface(
         column.push(run_button);
     }
 
-    column.push(result_node(output_schema, returns_kind));
+    column.push(result_node(output_schema, returns_kind, rows));
 
     let mut state = Map::new();
     if let Some(props) = input_schema.get("properties").and_then(|p| p.as_object()) {
@@ -265,6 +297,11 @@ fn render_surface(
         state.insert("adverbs".to_string(), Value::Object(adverb_state));
     }
     state.insert("result".to_string(), Value::Null);
+    if rows.is_some() {
+        // The result table writes its selection here (`rows(…)`, F-D2), so a
+        // second button on the same form can pass `{{state.selected}}`.
+        state.insert("selected".to_string(), json!([]));
+    }
 
     SurfaceSpec {
         surface: SURFACE_VERSION.to_string(),
@@ -449,18 +486,49 @@ fn default_for(prop: &Value) -> Value {
 /// table of rows with that kind, `Result (publication)`, so the reader and a
 /// layout pane agree on what a row is. Only a table is labelled: a flat
 /// object or a string is not "rows of" anything.
-fn result_node(output_schema: &Value, returns_kind: Option<&str>) -> Node {
-    let shape = result_shape(output_schema);
+///
+/// A verb that also declares `rows(…)` (plan-koine-followups F-D2) says what
+/// the rows are, so its result is a table whatever the schema's shape (a
+/// `$ref` items schema would otherwise read as raw JSON): `columns` are the
+/// declared ones (else the row object's properties), `id_field` is the
+/// declared id, and a select writes the selected ids to `state.selected`
+/// (`{{event.value}}`, the array of ids every select event carries). A result
+/// object that wraps the one array of rows is read through that property.
+fn result_node(output_schema: &Value, returns_kind: Option<&str>, rows: Option<RowSchema>) -> Node {
+    let layout = rows.and_then(|_| row_layout(output_schema));
+    let shape = match (&rows, &layout) {
+        (Some(_), Some(_)) => ResultShape::Table,
+        _ => result_shape(output_schema),
+    };
     let label = match (&shape, returns_kind) {
         (ResultShape::Table, Some(kind)) => format!("Result ({kind})"),
         _ => "Result".to_string(),
     };
     let node_kind = match shape {
-        ResultShape::Table => NodeKind::Table(impress_surface::spec::Table {
-            rows: json!("{{state.result}}"),
-            columns: table_columns(output_schema),
-            on_select: Vec::new(),
-        }),
+        ResultShape::Table => match (rows, layout) {
+            (Some(rows), Some(layout)) => NodeKind::Table(impress_surface::spec::Table {
+                rows: json!(match &layout.container {
+                    Some(property) => format!("{{{{state.result.{property}}}}}"),
+                    None => "{{state.result}}".to_string(),
+                }),
+                columns: if rows.columns.is_empty() {
+                    layout.properties.clone()
+                } else {
+                    rows.columns.iter().map(|c| (*c).to_string()).collect()
+                },
+                id_field: Some(rows.id.to_string()),
+                on_select: vec![Action::Set {
+                    path: "state.selected".to_string(),
+                    value: json!("{{event.value}}"),
+                }],
+            }),
+            _ => NodeKind::Table(impress_surface::spec::Table {
+                rows: json!("{{state.result}}"),
+                columns: table_columns(output_schema),
+                id_field: None,
+                on_select: Vec::new(),
+            }),
+        },
         ResultShape::Kv => NodeKind::Kv(json!("{{state.result}}")),
         ResultShape::Text => NodeKind::Text("{{state.result}}".to_string()),
         ResultShape::Raw => NodeKind::Text("{{state.result}}".to_string()),
@@ -562,6 +630,7 @@ pub fn catalogue() -> SurfaceSpec {
     let table = Node::leaf(NodeKind::Table(impress_surface::spec::Table {
         rows: json!("{{source.verbs}}"),
         columns,
+        id_field: None,
         on_select: vec![Action::Set {
             path: "state.selected".to_string(),
             value: json!("{{event.value}}"),
@@ -693,6 +762,8 @@ mod tests {
             supports: &[],
             adjective: None,
             returns_kind: None,
+            rows: None,
+            secrets: &[],
             source: Source::Linked,
             handler: |_| Box::pin(async { Ok(Value::Null) }),
         }
@@ -722,6 +793,177 @@ mod tests {
         let mut flat = desc("t-service_x", SafetyClass::ReadOnly, schema_output_flat);
         flat.returns_kind = Some("publication");
         assert_eq!(result_label(&verb_surface(&flat)), "Result");
+    }
+
+    fn result_table(spec: &SurfaceSpec) -> impress_surface::spec::Table {
+        let NodeKind::Column(children) = &spec.root.kind else {
+            panic!("root is a column");
+        };
+        let node = children
+            .iter()
+            .find(|n| n.id.as_deref() == Some("result-view"))
+            .expect("a result view");
+        match &node.kind {
+            NodeKind::Table(table) => table.clone(),
+            other => panic!("expected a table, got {other:?}"),
+        }
+    }
+
+    fn schema_output_papers() -> Value {
+        json!({"type": "array", "items": {"type": "object", "properties": {
+            "bibcode": {"type": "string"}, "title": {"type": "string"}, "year": {"type": "integer"}
+        }}})
+    }
+
+    fn papers_verb(rows: RowSchema) -> VerbDescriptor {
+        let mut d = desc("t-service_x", SafetyClass::ReadOnly, schema_output_papers);
+        d.returns_kind = Some("paper");
+        d.rows = Some(rows);
+        d
+    }
+
+    /// F-D2: the declared columns and id reach the table, and a select writes
+    /// the selected ids to `state.selected`.
+    #[test]
+    fn rows_set_the_tables_columns_id_field_and_selection() {
+        let d = papers_verb(RowSchema {
+            id: "bibcode",
+            title: Some("title"),
+            columns: &["bibcode", "year"],
+        });
+        let spec = verb_surface(&d);
+        let problems = validate::validate(&spec);
+        assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
+        assert_eq!(result_label(&spec), "Result (paper)");
+        let table = result_table(&spec);
+        assert_eq!(table.rows, json!("{{state.result}}"));
+        assert_eq!(table.columns, vec!["bibcode", "year"]);
+        assert_eq!(table.id_field.as_deref(), Some("bibcode"));
+        assert_eq!(
+            table.on_select,
+            vec![Action::Set {
+                path: "state.selected".to_string(),
+                value: json!("{{event.value}}"),
+            }]
+        );
+        assert_eq!(spec.state["selected"], json!([]));
+
+        // After a select, `state.selected` holds the selected id array.
+        let event = impress_surface::spec::Event {
+            widget: "result-view".to_string(),
+            kind: impress_surface::spec::EventKind::Select,
+            value: json!(["2020ApJ...1B"]),
+        };
+        let (state, effects) =
+            impress_surface::reduce(&spec, &spec.state, &Value::Null, &Value::Null, &event)
+                .unwrap();
+        assert!(effects.is_empty());
+        assert_eq!(state["selected"], json!(["2020ApJ...1B"]));
+    }
+
+    #[test]
+    fn rows_without_columns_default_to_the_row_objects_properties() {
+        let d = papers_verb(RowSchema {
+            id: "bibcode",
+            title: None,
+            columns: &[],
+        });
+        let table = result_table(&verb_surface(&d));
+        assert_eq!(table.columns, vec!["bibcode", "title", "year"]);
+        assert_eq!(table.id_field.as_deref(), Some("bibcode"));
+    }
+
+    /// An object result wrapping the one array of rows is read through that
+    /// property, and a `$ref` items schema (how schemars writes a struct) is
+    /// still a table because the verb said it returns rows.
+    #[test]
+    fn rows_read_through_a_wrapper_property_and_a_ref() {
+        fn wrapped() -> Value {
+            json!({"type": "object", "properties": {"papers": {"type": "array",
+                "items": {"$ref": "#/definitions/Paper"}}},
+                "definitions": {"Paper": {"type": "object", "properties": {
+                    "bibcode": {"type": "string"}, "title": {"type": "string"}}}}})
+        }
+        let mut d = desc("t-service_x", SafetyClass::ReadOnly, wrapped);
+        d.returns_kind = Some("paper");
+        d.rows = Some(RowSchema {
+            id: "bibcode",
+            title: None,
+            columns: &[],
+        });
+        let spec = verb_surface(&d);
+        let problems = validate::validate(&spec);
+        assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
+        let table = result_table(&spec);
+        assert_eq!(table.rows, json!("{{state.result.papers}}"));
+        assert_eq!(table.columns, vec!["bibcode", "title"]);
+    }
+
+    /// Without `rows(…)` the table is as it was: no id field, no selection.
+    #[test]
+    fn a_table_without_rows_declares_no_id_field_and_no_selection() {
+        let d = desc("t-service_x", SafetyClass::ReadOnly, schema_output_list);
+        let spec = verb_surface(&d);
+        let table = result_table(&spec);
+        assert_eq!(table.id_field, None);
+        assert!(table.on_select.is_empty());
+        assert!(spec.state.get("selected").is_none());
+        assert!(!serde_json::to_string(&spec).unwrap().contains("id_field"));
+    }
+
+    struct Held(&'static [&'static str]);
+    impl secrets::SecretSource for Held {
+        fn get(&self, name: &str) -> Option<secrets::Secret> {
+            self.0
+                .contains(&name)
+                .then(|| secrets::Secret::new("value"))
+        }
+        fn names(&self) -> Vec<String> {
+            self.0.iter().map(|n| (*n).to_string()).collect()
+        }
+    }
+
+    /// F-D1: a form for a verb whose secret is missing opens with a warning
+    /// naming it and how to set it; Run stays; with the secret held there is
+    /// no warning.
+    #[test]
+    fn a_missing_secret_opens_the_form_with_a_warning_and_keeps_run() {
+        static SECRETS: &[&str] = &["tok-a", "tok-b"];
+        let mut d = desc("t-service_x", SafetyClass::ReadOnly, schema_output_flat);
+        d.secrets = SECRETS;
+        secrets::install(std::sync::Arc::new(Held(&["tok-b"])));
+        let spec = verb_surface(&d);
+        let problems = validate::validate(&spec);
+        assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
+        let NodeKind::Column(children) = &spec.root.kind else {
+            panic!("root is a column");
+        };
+        assert_eq!(children[0].id.as_deref(), Some("missing-secret"));
+        let NodeKind::Status(status) = &children[0].kind else {
+            panic!("a status node, got {:?}", children[0].kind);
+        };
+        assert_eq!(status.level, "warning");
+        let message = status.message.as_str().unwrap();
+        assert!(message.contains("`tok-a`"), "{message}");
+        assert!(
+            !message.contains("tok-b"),
+            "only the missing one: {message}"
+        );
+        assert!(message.contains("KOINE_SECRET_TOK_A"), "{message}");
+        assert!(message.contains("PUT /api/secret/tok-a"), "{message}");
+        assert!(
+            children.iter().any(|n| n.id.as_deref() == Some("run")),
+            "Run stays"
+        );
+
+        secrets::install(std::sync::Arc::new(Held(&["tok-a", "tok-b"])));
+        let spec = verb_surface(&d);
+        let NodeKind::Column(children) = &spec.root.kind else {
+            panic!("root is a column");
+        };
+        assert!(children
+            .iter()
+            .all(|n| n.id.as_deref() != Some("missing-secret")));
     }
 
     #[test]

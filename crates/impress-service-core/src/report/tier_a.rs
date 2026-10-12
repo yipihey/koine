@@ -75,6 +75,9 @@ pub struct ProviderExampleResult {
     pub outcome: Outcome,
 }
 
+/// The name the row-schema check reports under.
+pub const ROWS_CHECK: &str = "rows(…)";
+
 /// How long a single example may run before this runner calls it a failure.
 /// Generous: this is a correctness check, not the `budget_ms` performance
 /// gate below.
@@ -95,11 +98,29 @@ const BUDGET_SLACK_FACTOR: u32 = 3;
 
 /// Run the A examples of one Tier A-eligible verb, checking `expect` where
 /// given. B examples and verbs outside Tier A are never invoked here.
+///
+/// A verb that declares `rows(…)` also contributes one `rows(…)` result, for
+/// every linked verb whether or not it is Tier A-eligible (the check reads
+/// the output schema and runs nothing): a renamed DTO field fails the
+/// report with [`VerbDescriptor::row_schema_check`]'s message
+/// (plan-koine-followups F-D2).
 pub async fn run_verb(v: &'static VerbDescriptor) -> Vec<ExampleResult> {
-    if !is_tier_a(v) {
-        return Vec::new();
+    let mut out = Vec::with_capacity(v.examples.len() + 1);
+    if v.rows.is_some() {
+        out.push(ExampleResult {
+            verb: v.name,
+            example: ROWS_CHECK,
+            outcome: match v.row_schema_check() {
+                Ok(()) => Outcome::Passed {
+                    result: v.rows_view().unwrap_or(Value::Null),
+                },
+                Err(message) => Outcome::Failed(message),
+            },
+        });
     }
-    let mut out = Vec::with_capacity(v.examples.len());
+    if !is_tier_a(v) {
+        return out;
+    }
     let handle = VerbHandle::Linked(v);
     for ex in v.examples.iter().filter(|ex| ex.tier == ExampleTier::A) {
         let outcome = run_one(
@@ -462,9 +483,60 @@ mod tests {
             supports: &[],
             adjective: None,
             returns_kind: None,
+            rows: None,
+            secrets: &[],
             source: Source::Linked,
             handler,
         }
+    }
+
+    fn people_schema() -> Value {
+        serde_json::json!({"type": "array", "items": {"type": "object",
+            "properties": {"id": {"type": "string"}, "name": {"type": "string"}}}})
+    }
+
+    /// F-D2: a verb whose `rows(…)` names a field the row object lacks fails
+    /// the report with the check's message; a correct one passes.
+    #[tokio::test]
+    async fn a_rows_declaration_naming_a_missing_field_fails_the_report() {
+        static BAD: std::sync::OnceLock<VerbDescriptor> = std::sync::OnceLock::new();
+        static GOOD: std::sync::OnceLock<VerbDescriptor> = std::sync::OnceLock::new();
+        let bad = BAD.get_or_init(|| {
+            let mut verb = budgeted_verb("rows-test_bad", None, instant_ok);
+            verb.output_schema = people_schema;
+            verb.returns_kind = Some("person");
+            verb.rows = Some(crate::RowSchema {
+                id: "bibcode",
+                title: None,
+                columns: &[],
+            });
+            verb
+        });
+        let results = run_verb(bad).await;
+        let rows = results.iter().find(|r| r.example == ROWS_CHECK).unwrap();
+        match &rows.outcome {
+            Outcome::Failed(message) => {
+                assert!(
+                    message.contains("id `bibcode` is not a property"),
+                    "{message}"
+                );
+                assert!(message.contains("`id`, `name`"), "{message}");
+            }
+            other => panic!("expected a failure, got {other:?}"),
+        }
+        let good = GOOD.get_or_init(|| {
+            let mut verb = budgeted_verb("rows-test_good", None, instant_ok);
+            verb.output_schema = people_schema;
+            verb.returns_kind = Some("person");
+            verb.rows = Some(crate::RowSchema {
+                id: "id",
+                title: Some("name"),
+                columns: &["id", "name"],
+            });
+            verb
+        });
+        let results = run_verb(good).await;
+        assert!(results.iter().all(|r| r.outcome.is_pass()), "{results:?}");
     }
 
     fn tiered_verb() -> &'static VerbDescriptor {

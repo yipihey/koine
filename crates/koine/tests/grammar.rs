@@ -28,6 +28,8 @@ fn fixture(class: SafetyClass) -> VerbDescriptor {
         supports: &[Adverb::Reversibly, Adverb::Within, Adverb::InBackground],
         adjective: None,
         returns_kind: None,
+        rows: None,
+        secrets: &[],
         source: Source::Linked,
         handler: |_| Box::pin(async { Ok(Value::Null) }),
     }
@@ -145,4 +147,45 @@ fn every_declared_returns_kind_is_a_well_formed_kind_id_and_a_demo_manifest_kind
     );
     assert!(!is_kind_id("Publication!"));
     assert!(demo.schema_refs("nonesuch").is_none());
+}
+
+/// docs/grammar.md § Verbs return rows, `rows(…)`. The declared id and
+/// columns reach `_meta.rows` and the generated table, and a declaration the
+/// schema cannot honour fails `row_schema_check`.
+#[test]
+fn a_rows_declaration_reaches_meta_and_the_table_and_is_checked_against_the_schema() {
+    use koine::verbs::descriptor::RowSchema;
+
+    let mut verb = fixture(SafetyClass::ReadOnly);
+    verb.output_schema = || {
+        json!({"type": "array", "items": {"type": "object", "properties": {
+            "bibcode": {"type": "string"}, "title": {"type": "string"}, "year": {"type": "integer"}
+        }}})
+    };
+    verb.returns_kind = Some("paper");
+    verb.rows = Some(RowSchema {
+        id: "bibcode",
+        title: None,
+        columns: &[],
+    });
+    assert_eq!(verb.row_schema_check(), Ok(()));
+    assert_eq!(
+        verb.mcp_meta(),
+        Some(json!({
+            "returns_kind": "paper",
+            "rows": {"id": "bibcode", "title": "bibcode", "columns": ["bibcode", "title", "year"]},
+        }))
+    );
+    let spec = koine::verb_surface::verb_surface(&verb);
+    let wire = serde_json::to_string(&spec).unwrap();
+    assert!(wire.contains(r#""id_field":"bibcode""#), "{wire}");
+    assert!(wire.contains("state.selected"), "{wire}");
+
+    verb.rows = Some(RowSchema {
+        id: "doi",
+        title: None,
+        columns: &[],
+    });
+    let err = verb.row_schema_check().unwrap_err();
+    assert!(err.contains("id `doi` is not a property"), "{err}");
 }

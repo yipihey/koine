@@ -32,6 +32,7 @@ pub mod refusal;
 pub mod registry_runtime;
 pub mod report;
 pub mod runtime;
+pub mod secrets;
 pub mod strict;
 pub mod wire;
 
@@ -39,9 +40,9 @@ pub use adverb::{Adverb, Adverbs, Within};
 pub use descriptor::{
     is_kind_id, method_meta, resolve_adjective, resolve_aliases, resolve_budget_ms,
     resolve_deprecated, resolve_effects, resolve_examples, resolve_idempotent, resolve_replay_full,
-    resolve_returns_kind, resolve_safety_class, resolve_supports, AdjectiveDecl, Deprecation,
-    Effects, Example, ExampleTier, Kind, MethodMeta, Reach, Safety, SafetyClass, Source,
-    VerbDescriptor,
+    resolve_returns_kind, resolve_rows, resolve_safety_class, resolve_secrets, resolve_supports,
+    row_layout, AdjectiveDecl, Deprecation, Effects, Example, ExampleTier, Kind, MethodMeta, Reach,
+    RowLayout, RowSchema, Safety, SafetyClass, Source, VerbDescriptor,
 };
 pub use descriptor_handle::{ExampleView, HandleSource, VerbHandle};
 pub use provider::{
@@ -459,6 +460,8 @@ mod tests {
             supports: &[],
             adjective: None,
             returns_kind: None,
+            rows: None,
+            secrets: &[],
             source: Source::Linked,
             handler: fixture_handler,
         };
@@ -491,7 +494,7 @@ mod tests {
     /// The transport-level guarantee behind "no generated tool can emit a
     /// non-object structuredContent": every JSON kind a generated handler can
     /// return leaves this function as an object. Transports (impress-mcp's
-    /// flat and grouped paths, impress-mcp-host) all route through it.
+    /// flat and grouped paths, koine-mcp-host) all route through it.
     #[test]
     fn envelope_yields_an_object_for_every_json_kind() {
         let cases = [

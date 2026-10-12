@@ -71,6 +71,17 @@ fn both_shipped_examples_validate_against_the_emitted_schema() {
     }
 }
 
+/// `id_field` is part of the vocabulary: a table that names one is valid.
+#[test]
+fn a_table_naming_its_id_field_passes_the_emitted_schema() {
+    let validator = validator();
+    let spec = serde_json::json!({
+        "surface": "1.0", "name": "ok", "state": {},
+        "root": { "table": { "rows": [], "columns": ["bibcode"], "id_field": "bibcode" } }
+    });
+    assert_eq!(errors(&validator, &spec), Vec::<String>::new());
+}
+
 /// A spec with one thing wrong, and the schema must say so — each of these
 /// was accepted by the old `{"type": "object"}` Node and Source.
 #[test]
@@ -81,6 +92,10 @@ fn known_bad_specs_fail_the_emitted_schema() {
         (
             "a table with no columns",
             base(serde_json::json!({ "table": { "rows": [] } })),
+        ),
+        (
+            "a table whose id_field is not a string",
+            base(serde_json::json!({ "table": { "rows": [], "columns": ["a"], "id_field": 3 } })),
         ),
         (
             "two kind keys on one node",

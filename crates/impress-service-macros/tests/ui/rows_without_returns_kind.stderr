@@ -1,0 +1,5 @@
+error: `rows(…)` describes the rows of a kind: add `returns_kind = "…"` to the same `#[impress_method]`
+  --> tests/ui/rows_without_returns_kind.rs:18:32
+   |
+18 |     #[impress_method(rows(id = "reply"))]
+   |                                ^^^^^^^

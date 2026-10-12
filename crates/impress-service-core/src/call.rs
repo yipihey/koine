@@ -161,6 +161,8 @@ mod tests {
         supports: &[],
         adjective: None,
         returns_kind: None,
+        rows: None,
+        secrets: &[],
         source: Source::Linked,
         handler,
     };

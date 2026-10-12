@@ -369,6 +369,29 @@ pub struct MethodMeta {
     /// `#[impress_method(returns_kind = "publication")]` (plan-koine-host
     /// H-D8): the pane-query kind id of the rows the verb's result carries.
     pub returns_kind: Option<&'static str>,
+    /// `#[impress_method(rows(id = "…", title = "…", columns = […]))]`
+    /// (plan-koine-followups F-D2): which fields of the result's rows are
+    /// the id, the title and the columns. Needs `returns_kind` on the same
+    /// method (the macro refuses one without the other).
+    pub rows: Option<RowSchema>,
+    /// `#[impress_method(secrets = ["scix-api-token"])]` (plan-koine-followups
+    /// F-D1): the secrets the verb reads through
+    /// [`crate::secrets::get`]. The pipeline refuses the call, before policy,
+    /// while one is absent.
+    pub secrets: &'static [&'static str],
+}
+
+/// The shape of a verb's rows (`rows(…)`, plan-koine-followups F-D2): the
+/// kind is the descriptor's `returns_kind`; this names the fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowSchema {
+    /// The field that identifies a row — what a selection carries.
+    pub id: &'static str,
+    /// The field a row is titled by; `None` means the id.
+    pub title: Option<&'static str>,
+    /// The columns a table shows, in order; empty means every property of
+    /// the row object, in the order the output schema lists them.
+    pub columns: &'static [&'static str],
 }
 
 /// Find a method's captured facts by identifier. `const` because
@@ -470,6 +493,26 @@ pub const fn resolve_returns_kind(
     }
 }
 
+/// The row schema a method declares (`#[impress_method(rows(…))]`), if any.
+pub const fn resolve_rows(table: &'static [MethodMeta], method: &str) -> Option<RowSchema> {
+    match method_meta(table, method) {
+        Some(meta) => meta.rows,
+        None => None,
+    }
+}
+
+/// The secrets a method declares (`#[impress_method(secrets = […])]`); empty
+/// for every verb that declares none.
+pub const fn resolve_secrets(
+    table: &'static [MethodMeta],
+    method: &str,
+) -> &'static [&'static str] {
+    match method_meta(table, method) {
+        Some(meta) => meta.secrets,
+        None => &[],
+    }
+}
+
 /// Whether `id` is a well-formed pane-query kind id: a lowercase ASCII
 /// letter, then lowercase letters, digits, `_` or `-` (`publication`,
 /// `email-message`). The rule `#[impress_method(returns_kind = "…")]`
@@ -559,6 +602,12 @@ pub const fn resolve_aliases(
 /// - `returns_kind`: `#[impress_method(returns_kind = "…")]` (declared; the
 ///   pane-query kind id of the rows the result carries, so a surface's table
 ///   and a layout's pane agree on columns, ids and selection);
+/// - `rows`: `#[impress_method(rows(id = "…", title = "…", columns = […]))]`
+///   (declared; which fields of the rows are the id, the title and the
+///   columns — checked against the output schema by
+///   [`VerbDescriptor::row_schema_check`]);
+/// - `secrets`: `#[impress_method(secrets = ["…"])]` (declared; what the verb
+///   reads from [`crate::secrets`], which the pipeline requires present);
 /// - `source`, `handler`: how the verb runs.
 pub struct VerbDescriptor {
     /// The qualified tool name, `<service>_<method>` in kebab case — the MCP
@@ -594,6 +643,12 @@ pub struct VerbDescriptor {
     /// The pane-query kind id of the rows this verb's result carries
     /// (plan-koine-host H-D8); `None` for a verb that does not declare one.
     pub returns_kind: Option<&'static str>,
+    /// Which fields of this verb's rows are the id, the title and the
+    /// columns (plan-koine-followups F-D2); `None` when not declared.
+    pub rows: Option<RowSchema>,
+    /// The secrets this verb needs (plan-koine-followups F-D1); empty for a
+    /// verb that needs none.
+    pub secrets: &'static [&'static str],
     pub source: Source,
     pub handler: fn(Value) -> ServiceFuture,
 }
@@ -652,12 +707,78 @@ impl VerbDescriptor {
     }
 
     /// The additive MCP `_meta` object a `tools/list` entry carries beside
-    /// `annotations`: `{"returns_kind": "<kind>"}` when the verb declares
-    /// the kind of its rows, `None` otherwise. The CLI listing prints the
-    /// same key.
+    /// `annotations`: one object with whichever keys apply, `None` when none
+    /// do. `returns_kind` is the kind of the rows the verb returns;
+    /// `secrets` the names it needs; `rows` is
+    /// `{"id", "title", "columns"}` (`title` is the explicit one or the id,
+    /// `columns` the explicit list or the row object's properties in the
+    /// order the output schema lists them, so the wire never shows an empty
+    /// default). The CLI listing prints the same keys.
     pub fn mcp_meta(&self) -> Option<Value> {
-        self.returns_kind
-            .map(|kind| json!({ "returns_kind": kind }))
+        let mut meta = serde_json::Map::new();
+        if let Some(kind) = self.returns_kind {
+            meta.insert("returns_kind".into(), json!(kind));
+        }
+        if !self.secrets.is_empty() {
+            meta.insert("secrets".into(), json!(self.secrets));
+        }
+        if let Some(rows) = self.rows_view() {
+            meta.insert("rows".into(), rows);
+        }
+        (!meta.is_empty()).then_some(Value::Object(meta))
+    }
+
+    /// `{"id", "title", "columns"}` for a verb that declares `rows(…)`, with
+    /// the defaults filled in (see [`Self::mcp_meta`]).
+    pub fn rows_view(&self) -> Option<Value> {
+        let rows = self.rows?;
+        let columns: Vec<String> = if rows.columns.is_empty() {
+            row_properties(&(self.output_schema)()).unwrap_or_default()
+        } else {
+            rows.columns.iter().map(|c| (*c).to_string()).collect()
+        };
+        Some(json!({
+            "id": rows.id,
+            "title": rows.title.unwrap_or(rows.id),
+            "columns": columns,
+        }))
+    }
+
+    /// Check a declared `rows(…)` against the output schema: the result must
+    /// be rows (an array of objects, or an object with exactly one property
+    /// that is one), and the id, the title and every column must be a
+    /// property of the row object. `Ok` for a verb that declares none.
+    pub fn row_schema_check(&self) -> Result<(), String> {
+        let Some(rows) = self.rows else {
+            return Ok(());
+        };
+        let schema = (self.output_schema)();
+        let Some(properties) = row_properties(&schema) else {
+            return Err(format!(
+                "rows(…) on {}: the result is not rows (the output schema is neither an array \
+                 of objects nor an object with exactly one array-of-objects property)",
+                self.name
+            ));
+        };
+        let mut fields: Vec<(&str, &str)> = vec![("id", rows.id)];
+        if let Some(title) = rows.title {
+            fields.push(("title", title));
+        }
+        fields.extend(rows.columns.iter().map(|c| ("column", *c)));
+        for (what, field) in fields {
+            if !properties.iter().any(|p| p == field) {
+                return Err(format!(
+                    "rows(…) on {}: {what} `{field}` is not a property of the row object; it has {}",
+                    self.name,
+                    properties
+                        .iter()
+                        .map(|p| format!("`{p}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// The MCP `annotations` object (MCP 2025-03-26 tool annotations), read
@@ -672,6 +793,92 @@ impl VerbDescriptor {
     pub fn mcp_annotations(&self) -> Value {
         self.safety.mcp_annotations()
     }
+}
+
+/// Follow a local `$ref`, and look through the wrappers schemars puts around
+/// one (`allOf` of one, `anyOf`/`oneOf` of one plus `null`), to the schema
+/// that says what the value is.
+fn schema_target<'a>(root: &'a Value, mut node: &'a Value) -> &'a Value {
+    for _ in 0..16 {
+        if let Some(reference) = node.get("$ref").and_then(Value::as_str) {
+            match reference
+                .strip_prefix('#')
+                .and_then(|pointer| root.pointer(pointer))
+            {
+                Some(target) => {
+                    node = target;
+                    continue;
+                }
+                None => return node,
+            }
+        }
+        let mut single = None;
+        for key in ["allOf", "anyOf", "oneOf"] {
+            if let Some(Value::Array(items)) = node.get(key) {
+                let live: Vec<&Value> = items
+                    .iter()
+                    .filter(|item| item.get("type").and_then(Value::as_str) != Some("null"))
+                    .collect();
+                if live.len() == 1 {
+                    single = Some(live[0]);
+                    break;
+                }
+            }
+        }
+        match single {
+            Some(next) => node = next,
+            None => return node,
+        }
+    }
+    node
+}
+
+/// The property names of the object schema `node` describes, in schema order.
+fn object_properties(root: &Value, node: &Value) -> Option<Vec<String>> {
+    match schema_target(root, node).get("properties") {
+        Some(Value::Object(props)) => Some(props.keys().cloned().collect()),
+        _ => None,
+    }
+}
+
+/// Where the rows are in a result and what a row has.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowLayout {
+    /// `None` when the result is itself the array of rows; `Some(property)`
+    /// when it is an object whose one property holds them.
+    pub container: Option<String>,
+    /// The property names of the row object, in schema order.
+    pub properties: Vec<String>,
+}
+
+/// Find the rows in an output schema: the `items` of an array result, or the
+/// one array-of-objects property of an object result. `None` when the result
+/// is not rows. Follows a local `$ref` into `definitions`/`$defs`, which is
+/// how schemars 0.8 writes a struct.
+pub fn row_layout(root: &Value) -> Option<RowLayout> {
+    let top = schema_target(root, root);
+    if let Some(items) = top.get("items") {
+        return Some(RowLayout {
+            container: None,
+            properties: object_properties(root, items)?,
+        });
+    }
+    let Some(Value::Object(props)) = top.get("properties") else {
+        return None;
+    };
+    if props.len() != 1 {
+        return None;
+    }
+    let (name, only) = props.iter().next()?;
+    let only = schema_target(root, only);
+    Some(RowLayout {
+        container: Some(name.clone()),
+        properties: object_properties(root, only.get("items")?)?,
+    })
+}
+
+fn row_properties(root: &Value) -> Option<Vec<String>> {
+    row_layout(root).map(|layout| layout.properties)
 }
 
 impl std::fmt::Debug for VerbDescriptor {
@@ -727,6 +934,8 @@ mod tests {
             supports: &[],
             adjective: None,
             returns_kind: None,
+            rows: None,
+            secrets: &[],
         },
         MethodMeta {
             name: "set_flag",
@@ -746,6 +955,8 @@ mod tests {
             supports: &[],
             adjective: None,
             returns_kind: Some("publication"),
+            rows: None,
+            secrets: &[],
         },
     ];
 
@@ -790,6 +1001,8 @@ mod tests {
                     kinds: &["publication"],
                 }),
                 returns_kind: None,
+                rows: None,
+                secrets: &[],
             },
             MethodMeta {
                 name: "b",
@@ -805,6 +1018,8 @@ mod tests {
                 supports: &[],
                 adjective: None,
                 returns_kind: None,
+                rows: None,
+                secrets: &[],
             },
         ];
         const DEFAULT: &[Adverb] = &[Adverb::Reversibly];
@@ -968,17 +1183,30 @@ mod tests {
             supports: &[],
             adjective: None,
             returns_kind: None,
+            rows: None,
+            secrets: &[],
             source: Source::Linked,
             handler,
         };
         assert_eq!(verb.deprecation_notice(), None);
-        assert_eq!(verb.mcp_meta(), None, "no returns_kind, no _meta");
+        assert_eq!(verb.mcp_meta(), None, "nothing declared, no _meta");
         verb.returns_kind = Some("publication");
         assert_eq!(
             verb.mcp_meta(),
             Some(json!({"returns_kind": "publication"}))
         );
+        verb.secrets = &["scix-api-token"];
+        assert_eq!(
+            verb.mcp_meta(),
+            Some(json!({"returns_kind": "publication", "secrets": ["scix-api-token"]})),
+            "_meta is one object with whichever keys apply"
+        );
         verb.returns_kind = None;
+        assert_eq!(
+            verb.mcp_meta(),
+            Some(json!({"secrets": ["scix-api-token"]}))
+        );
+        verb.secrets = &[];
         verb.deprecated = Some(Deprecation {
             since: "0.9.0",
             alias_of: None,
@@ -1032,6 +1260,8 @@ mod tests {
             supports: &[],
             adjective: None,
             returns_kind: None,
+            rows: None,
+            secrets: &[],
             source: Source::Linked,
             handler,
         };
@@ -1049,6 +1279,168 @@ mod tests {
             verb.deprecation_notice(),
             Some(json!({"since": "0.5.0", "use": "t-service_x", "note": "renamed"})),
             "with no aliases, the verb itself is what's deprecated"
+        );
+    }
+
+    #[derive(schemars::JsonSchema)]
+    #[allow(dead_code)]
+    struct Paper {
+        bibcode: String,
+        title: String,
+        year: Option<i32>,
+    }
+
+    #[derive(schemars::JsonSchema)]
+    #[allow(dead_code)]
+    struct Page {
+        papers: Vec<Paper>,
+    }
+
+    #[derive(schemars::JsonSchema)]
+    #[allow(dead_code)]
+    struct Two {
+        a: Vec<Paper>,
+        b: Vec<Paper>,
+    }
+
+    fn papers_schema() -> Value {
+        serde_json::to_value(schemars::schema_for!(Vec<Paper>)).unwrap()
+    }
+    fn page_schema() -> Value {
+        serde_json::to_value(schemars::schema_for!(Page)).unwrap()
+    }
+    fn two_schema() -> Value {
+        serde_json::to_value(schemars::schema_for!(Two)).unwrap()
+    }
+    fn count_schema() -> Value {
+        serde_json::to_value(schemars::schema_for!(i32)).unwrap()
+    }
+
+    fn rows_verb(output_schema: fn() -> Value, rows: RowSchema) -> VerbDescriptor {
+        VerbDescriptor {
+            name: "t-service_rows",
+            service: "t-service",
+            method: "rows",
+            description: "d",
+            input_schema: schema,
+            output_schema,
+            safety: Safety {
+                class: SafetyClass::ReadOnly,
+                idempotent: true,
+            },
+            effects: Effects::NONE,
+            since: "0.1.0",
+            deprecated: None,
+            aliases: &[],
+            examples: &[],
+            strict: false,
+            budget_ms: None,
+            replay_full: false,
+            supports: &[],
+            adjective: None,
+            returns_kind: Some("paper"),
+            rows: Some(rows),
+            secrets: &[],
+            source: Source::Linked,
+            handler,
+        }
+    }
+
+    const BIBCODE: RowSchema = RowSchema {
+        id: "bibcode",
+        title: Some("title"),
+        columns: &["bibcode", "title", "year"],
+    };
+
+    #[test]
+    fn rows_resolve_per_method_and_default_to_none() {
+        assert_eq!(resolve_rows(&TABLE, "delete"), None);
+        assert_eq!(resolve_rows(&TABLE, "missing"), None);
+        assert_eq!(resolve_secrets(&TABLE, "delete"), &[] as &[&str]);
+        assert_eq!(resolve_secrets(&TABLE, "missing"), &[] as &[&str]);
+    }
+
+    /// The row object is found in an array result (through the `$ref` into
+    /// `definitions` that schemars 0.8 writes) and in an object result with
+    /// exactly one array-of-objects property.
+    #[test]
+    fn row_schema_check_reads_the_row_object_from_a_real_schema() {
+        assert!(
+            papers_schema()["items"].get("$ref").is_some(),
+            "{}",
+            papers_schema()
+        );
+        assert_eq!(rows_verb(papers_schema, BIBCODE).row_schema_check(), Ok(()));
+        assert_eq!(rows_verb(page_schema, BIBCODE).row_schema_check(), Ok(()));
+    }
+
+    #[test]
+    fn row_schema_check_names_the_field_and_the_properties_that_exist() {
+        let missing_id = RowSchema {
+            id: "id",
+            ..BIBCODE
+        };
+        let err = rows_verb(papers_schema, missing_id)
+            .row_schema_check()
+            .unwrap_err();
+        assert_eq!(
+            err,
+            "rows(…) on t-service_rows: id `id` is not a property of the row object; \
+             it has `bibcode`, `title`, `year`"
+        );
+        let bad_title = RowSchema {
+            title: Some("name"),
+            ..BIBCODE
+        };
+        let err = rows_verb(papers_schema, bad_title)
+            .row_schema_check()
+            .unwrap_err();
+        assert!(err.contains("title `name` is not a property"), "{err}");
+        let bad_column = RowSchema {
+            columns: &["bibcode", "doi"],
+            ..BIBCODE
+        };
+        let err = rows_verb(page_schema, bad_column)
+            .row_schema_check()
+            .unwrap_err();
+        assert!(err.contains("column `doi` is not a property"), "{err}");
+    }
+
+    #[test]
+    fn row_schema_check_refuses_a_result_that_is_not_rows() {
+        for output in [count_schema as fn() -> Value, two_schema, schema] {
+            let err = rows_verb(output, BIBCODE).row_schema_check().unwrap_err();
+            assert!(
+                err.starts_with("rows(…) on t-service_rows: the result is not rows"),
+                "{err}"
+            );
+        }
+    }
+
+    #[test]
+    fn mcp_meta_carries_rows_with_the_defaults_filled_in() {
+        let explicit = rows_verb(papers_schema, BIBCODE);
+        assert_eq!(
+            explicit.mcp_meta(),
+            Some(json!({
+                "returns_kind": "paper",
+                "rows": {"id": "bibcode", "title": "title", "columns": ["bibcode", "title", "year"]}
+            }))
+        );
+        let defaulted = rows_verb(
+            page_schema,
+            RowSchema {
+                id: "bibcode",
+                title: None,
+                columns: &[],
+            },
+        );
+        let meta = defaulted.mcp_meta().unwrap();
+        assert_eq!(meta["rows"]["title"], "bibcode", "title defaults to the id");
+        assert_eq!(
+            meta["rows"]["columns"],
+            json!(["bibcode", "title", "year"]),
+            "columns default to the row object's properties, never empty"
         );
     }
 
@@ -1092,6 +1484,8 @@ mod tests {
             supports: &[],
             adjective: None,
             returns_kind: None,
+            rows: None,
+            secrets: &[],
             source: Source::Linked,
             handler,
         };

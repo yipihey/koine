@@ -94,6 +94,15 @@
 //! digits, `_` and `-`, starting with a letter); the macro cannot check it
 //! against a host's kind manifest, which the host builds at runtime, so the
 //! descriptor test of the host does.
+//! `#[impress_method(returns_kind = "paper", rows(id = "bibcode", title =
+//! "title", columns = ["bibcode", "title", "year"]))]` (plan-koine-followups
+//! F-D2) names the fields of those rows: `id` is required, `title` and
+//! `columns` are optional, and `rows(…)` without `returns_kind` on the same
+//! method is refused. The descriptor's `row_schema_check` verifies the names
+//! against the output schema at test time.
+//! `#[impress_method(secrets = ["scix-api-token"])]` (plan-koine-followups
+//! F-D1) declares what the verb reads from the secret slot; each name is held
+//! to the kind-id rule, and the pipeline refuses the call while one is absent.
 //!
 //! Anything more elaborate (custom DTOs, error mapping nuances) is deferred to
 //! Phase 1+.
@@ -265,6 +274,14 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                     Some(lit) => quote! { ::core::option::Option::Some(#lit) },
                     None => quote! { ::core::option::Option::None },
                 };
+                let rows = match &overrides.rows {
+                    Some(decl) => {
+                        let literal = decl.literal();
+                        quote! { ::core::option::Option::Some(#literal) }
+                    }
+                    None => quote! { ::core::option::Option::None },
+                };
+                let secrets = &overrides.secrets;
                 metas.push(quote! {
                     ::impress_service_core::MethodMeta {
                         name: #method_name,
@@ -280,6 +297,8 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                         supports: #supports,
                         adjective: #adjective,
                         returns_kind: #returns_kind,
+                        rows: #rows,
+                        secrets: &[#(#secrets),*],
                     }
                 });
             }
@@ -325,7 +344,7 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
 
 /// What `#[impress_method(safety = …, idempotent = …, effects(…),
 /// deprecated(…), aliases = […], replay = full, supports(…), adjective(…),
-/// returns_kind = "…"]`
+/// returns_kind = "…", rows(…), secrets = […]]`
 /// declares.
 #[derive(Default)]
 struct MethodOverrides {
@@ -354,6 +373,39 @@ struct MethodOverrides {
     /// `returns_kind = "publication"`: the pane-query kind id of the rows the
     /// result carries (plan-koine-host H-D8). Validated as a kind id.
     returns_kind: Option<syn::LitStr>,
+    /// `rows(id = "…", title = "…", columns = […])` (plan-koine-followups
+    /// F-D2): which fields of the result's rows are the id, the title and the
+    /// columns. Needs `returns_kind` on the same method.
+    rows: Option<RowsDecl>,
+    /// `secrets = ["scix-api-token"]` (plan-koine-followups F-D1): what the
+    /// verb reads from the secret slot. Each name validated as a kind id.
+    secrets: Vec<syn::LitStr>,
+}
+
+/// A parsed `rows(…)`.
+struct RowsDecl {
+    id: syn::LitStr,
+    title: Option<syn::LitStr>,
+    columns: Vec<syn::LitStr>,
+}
+
+impl RowsDecl {
+    /// The `impress_service_core::RowSchema` literal.
+    fn literal(&self) -> TokenStream2 {
+        let id = &self.id;
+        let title = match &self.title {
+            Some(t) => quote! { ::core::option::Option::Some(#t) },
+            None => quote! { ::core::option::Option::None },
+        };
+        let columns = &self.columns;
+        quote! {
+            ::impress_service_core::RowSchema {
+                id: #id,
+                title: #title,
+                columns: &[#(#columns),*],
+            }
+        }
+    }
 }
 
 /// Whether `id` is a well-formed pane-query kind id: a lowercase ASCII
@@ -389,6 +441,101 @@ fn parse_returns_kind(meta: &syn::meta::ParseNestedMeta<'_>) -> syn::Result<syn:
         ));
     }
     Ok(lit)
+}
+
+/// `secrets = ["scix-api-token", …]` inside `#[impress_method(…)]`.
+fn parse_secrets(meta: &syn::meta::ParseNestedMeta<'_>) -> syn::Result<Vec<syn::LitStr>> {
+    let value = meta.value()?;
+    let content;
+    syn::bracketed!(content in value);
+    let mut out: Vec<syn::LitStr> = Vec::new();
+    while !content.is_empty() {
+        let lit: syn::LitStr = content.parse().map_err(|e| {
+            syn::Error::new(
+                e.span(),
+                "`secrets` takes a list of string literals naming the secrets the verb reads, \
+                 e.g. `secrets = [\"scix-api-token\"]`",
+            )
+        })?;
+        let value = lit.value();
+        if !is_kind_id(&value) {
+            return Err(syn::Error::new(
+                lit.span(),
+                format!(
+                    "`{value}` is not a secret name; `secrets` names what the verb reads from \
+                     the host's secret slot: lowercase letters, digits, `_` or `-`, starting \
+                     with a letter (for example `secrets = [\"scix-api-token\"]`)"
+                ),
+            ));
+        }
+        if out.iter().any(|seen| seen.value() == value) {
+            return Err(syn::Error::new(
+                lit.span(),
+                format!("secret `{value}` is listed twice in `secrets = […]`"),
+            ));
+        }
+        out.push(lit);
+        if content.peek(syn::Token![,]) {
+            content.parse::<syn::Token![,]>()?;
+        }
+    }
+    Ok(out)
+}
+
+/// `rows(id = "bibcode", title = "title", columns = ["bibcode", "title"])`
+/// inside `#[impress_method(…)]`.
+fn parse_rows(meta: &syn::meta::ParseNestedMeta<'_>) -> syn::Result<RowsDecl> {
+    let content;
+    syn::parenthesized!(content in meta.input);
+    let mut id: Option<syn::LitStr> = None;
+    let mut title: Option<syn::LitStr> = None;
+    let mut columns: Vec<syn::LitStr> = Vec::new();
+    let field = |lit: syn::LitStr, what: &str| -> syn::Result<syn::LitStr> {
+        if lit.value().is_empty() {
+            return Err(syn::Error::new(
+                lit.span(),
+                format!(
+                    "`rows(…)` names fields of the row object by their property name: \
+                     `{what}` is an empty string"
+                ),
+            ));
+        }
+        Ok(lit)
+    };
+    while !content.is_empty() {
+        let key: Ident = content.parse()?;
+        content.parse::<syn::Token![=]>()?;
+        if key == "id" {
+            id = Some(field(content.parse()?, "id")?);
+        } else if key == "title" {
+            title = Some(field(content.parse()?, "title")?);
+        } else if key == "columns" {
+            let list;
+            syn::bracketed!(list in content);
+            while !list.is_empty() {
+                columns.push(field(list.parse()?, "columns")?);
+                if list.peek(syn::Token![,]) {
+                    list.parse::<syn::Token![,]>()?;
+                }
+            }
+        } else {
+            return Err(syn::Error::new(
+                key.span(),
+                "unknown `rows(…)` key; `id = \"…\"`, `title = \"…\"` or `columns = […]`",
+            ));
+        }
+        if content.peek(syn::Token![,]) {
+            content.parse::<syn::Token![,]>()?;
+        }
+    }
+    let id = id.ok_or_else(|| {
+        syn::Error::new_spanned(
+            &meta.path,
+            "`rows(…)` needs `id = \"…\"`: the field of each row that identifies it \
+             (for example `rows(id = \"bibcode\")`)",
+        )
+    })?;
+    Ok(RowsDecl { id, title, columns })
 }
 
 const ADVERB_VOCABULARY: &str =
@@ -801,6 +948,12 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
             } else if meta.path.is_ident("returns_kind") {
                 out.returns_kind = Some(parse_returns_kind(&meta)?);
                 Ok(())
+            } else if meta.path.is_ident("rows") {
+                out.rows = Some(parse_rows(&meta)?);
+                Ok(())
+            } else if meta.path.is_ident("secrets") {
+                out.secrets = parse_secrets(&meta)?;
+                Ok(())
             } else if meta.path.is_ident("replay") {
                 let mode: Ident = meta.value()?.parse()?;
                 if mode != "full" {
@@ -812,10 +965,20 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
                 Err(meta.error(
                     "unknown #[impress_method] key; `safety = …`, `idempotent = …`, \
                      `effects(…)`, `deprecated(…)`, `aliases = […]`, `budget_ms = …`, \
-                     `replay = full`, `supports(…)`, `adjective(…)` or `returns_kind = \"…\"`",
+                     `replay = full`, `supports(…)`, `adjective(…)`, `returns_kind = \"…\"`, \
+                     `rows(…)` or `secrets = […]`",
                 ))
             }
         })?;
+    }
+    if let Some(rows) = &out.rows {
+        if out.returns_kind.is_none() {
+            return Err(syn::Error::new(
+                rows.id.span(),
+                "`rows(…)` describes the rows of a kind: add `returns_kind = \"…\"` to the same \
+                 `#[impress_method]`",
+            ));
+        }
     }
     if !out.aliases.is_empty() && out.deprecated.is_none() {
         return Err(syn::Error::new(
@@ -1568,6 +1731,8 @@ fn expand_method(
                 ),
                 adjective: ::impress_service_core::resolve_adjective(&#meta_table, #method_name_str),
                 returns_kind: ::impress_service_core::resolve_returns_kind(&#meta_table, #method_name_str),
+                rows: ::impress_service_core::resolve_rows(&#meta_table, #method_name_str),
+                secrets: ::impress_service_core::resolve_secrets(&#meta_table, #method_name_str),
                 since: #since,
                 deprecated: ::impress_service_core::resolve_deprecated(&#meta_table, #method_name_str),
                 aliases: ::impress_service_core::resolve_aliases(&#meta_table, #method_name_str),
@@ -1792,6 +1957,52 @@ mod tests {
         assert!(tokens.to_string().contains("\"publication\""));
         let err = expand_with(r#"returns_kind = "Not A Kind""#).expect_err("refused");
         assert!(err.to_string().contains("is not a kind id"), "{err}");
+    }
+
+    /// `secrets = […]` and `rows(…)` (plan-koine-followups F-D1, F-D2) reach
+    /// the method table; the refusals name the rule.
+    #[test]
+    fn secrets_and_rows_are_captured_and_validated() {
+        let expand_with = |attr: &str| {
+            expand(&format!(
+                r#"
+                pub trait EchoService: Send + Sync + 'static {{
+                    /// Echo.
+                    #[impress_method({attr})]
+                    async fn echo(&self, message: String) -> String;
+                }}
+                "#
+            ))
+        };
+        let ts = expand_with(r#"secrets = ["scix-api-token", "other_1"]"#)
+            .expect("secret names expand")
+            .to_string();
+        assert!(ts.contains("\"scix-api-token\""), "{ts}");
+        let err = expand_with(r#"secrets = ["Scix Token"]"#).expect_err("refused");
+        assert!(err.to_string().contains("is not a secret name"), "{err}");
+        let err = expand_with(r#"secrets = ["a", "a"]"#).expect_err("refused");
+        assert!(err.to_string().contains("listed twice"), "{err}");
+
+        let ts = expand_with(
+            r#"returns_kind = "paper", rows(id = "bibcode", title = "title", columns = ["bibcode", "year"])"#,
+        )
+        .expect("rows expand")
+        .to_string();
+        assert!(ts.contains("RowSchema"), "{ts}");
+        assert!(ts.contains("\"bibcode\""), "{ts}");
+        let err = expand_with(r#"rows(id = "bibcode")"#).expect_err("needs returns_kind");
+        assert!(
+            err.to_string().contains("add `returns_kind = \"…\"`"),
+            "{err}"
+        );
+        let err =
+            expand_with(r#"returns_kind = "paper", rows(title = "t")"#).expect_err("needs id");
+        assert!(err.to_string().contains("needs `id"), "{err}");
+        let err = expand_with(r#"returns_kind = "paper", rows(id = "")"#).expect_err("empty");
+        assert!(err.to_string().contains("empty string"), "{err}");
+        let err = expand_with(r#"returns_kind = "paper", rows(id = "a", nope = "b")"#)
+            .expect_err("unknown key");
+        assert!(err.to_string().contains("unknown `rows(…)` key"), "{err}");
     }
 
     #[test]

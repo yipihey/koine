@@ -535,6 +535,81 @@ the adverbs beyond the universal three that this verb honors, one of `tentativel
 ceiling, in whole milliseconds, that a Tier A example of this verb may take.
 Set it on a verb whose speed is a promise (a search, a compile).
 
+**`secrets = [...]`** declares what a verb that calls a remote service needs
+to hold, `#[impress_method(secrets = ["scix-api-token"])]`. Do not take the
+bearer as an argument: an argument is in every form, every CLI line and every
+audit row (`#[impress_private]` redacts the log, not the form). The verb reads
+the value when it runs:
+
+```rust
+let token = impress_service_core::secrets::get("scix-api-token")
+    .expect("declared secrets are present when the handler runs");
+request.bearer_auth(token.expose());
+```
+
+`Secret` prints as `Secret(<redacted>)`; `expose()` is the one way out, so
+write it at the call that needs it and nowhere else. A name is a lowercase
+letter, then lowercase letters, digits, `_` or `-`:
+
+```
+error: `SciX API Token` is not a secret name; `secrets` names what the verb reads from the host's secret slot: lowercase letters, digits, `_` or `-`, starting with a letter (for example `secrets = ["scix-api-token"]`)
+```
+
+Declaring it is the whole contract. A caller who has not set the secret gets
+the verb refused before the handler and before the policy layer, as
+`missing-secret` (HTTP 412), naming every secret that is missing and how to
+set it:
+
+```
+verb scix-service_search needs secret scix-api-token (not set): set KOINE_SECRET_SCIX_API_TOKEN in the environment, or PUT /api/secret/scix-api-token on the host
+```
+
+So the handler never sees `None` for a name it declared. With no host, a bare
+CLI or MCP process reads `KOINE_SECRET_<NAME>` (the name upper-cased, `-` as
+`_`); a host installs a layered source (`impress_service_core::secrets::install`)
+and serves `PUT /api/secret/<name>`. `tools/list` shows the declaration as
+`_meta.secrets`, the CLI prints it under the verb's `--help`, and the
+generated form opens with a warning that names the missing secret. The
+selftest of a verb that needs a secret must install a test source
+(`secrets::install`) rather than set the process environment.
+
+**`rows(...)`** says which field of a verb's rows is their id. A verb that
+returns rows already names the noun with `returns_kind`; `rows` names the
+fields of that noun:
+
+```rust
+#[impress_method(
+    returns_kind = "paper",
+    rows(id = "bibcode", title = "title", columns = ["bibcode", "title", "year"])
+)]
+async fn search(&self, query: String) -> Vec<Paper>;
+```
+
+`id` is required; `title` is the id when omitted; `columns` is every property
+of the row object, in the order the output schema lists them, when omitted.
+The result must be rows: a `Vec` of objects, or an object with exactly one
+property that is one. The macro checks what it can see:
+
+```
+error: `rows(…)` describes the rows of a kind: add `returns_kind = "…"` to the same `#[impress_method]`
+error: `rows(…)` needs `id = "…"`: the field of each row that identifies it (for example `rows(id = "bibcode")`)
+```
+
+What it cannot see is the DTO, so the Tier A report checks every linked verb
+that declares `rows(...)` against the output schema, and a renamed field fails
+`cargo test` instead of a form:
+
+```
+rows(…) on scix-service_search: id `bibcode` is not a property of the row object; it has `authors`, `title`, `year`
+rows(…) on scix-service_count: the result is not rows (the output schema is neither an array of objects nor an object with exactly one array-of-objects property)
+```
+
+The effect is on the generated form: its result table shows `columns`, carries
+`id_field`, and a select writes the selected ids to `state.selected`, so a
+second button on a hand-written surface can pass `{{state.selected}}` to the
+next verb. `tools/list` shows `_meta.rows` with the defaults filled in, and the
+CLI prints it under `--help`.
+
 Also available on a method: `idempotent = true | false`,
 `deprecated(since = "...", note = "...")` with `aliases = ["old-name"]` for a
 rename, `replay = full` to let the call log keep complete arguments, and
@@ -558,6 +633,9 @@ rebuild.
 | `message: &str` | `argument message borrows; ... write the owned type` |
 | `strict_args = "yes"` | `strict_args must be true or false` |
 | `#[impress_method]` with no `///` | `has no doc comment; write a /// line saying what the verb does` |
+| `secrets = ["SciX API Token"]` | `is not a secret name; ... lowercase letters, digits, _ or -, starting with a letter (for example secrets = ["scix-api-token"])` |
+| `rows(id = "x")` without `returns_kind` | `rows(…) describes the rows of a kind: add returns_kind = "…" to the same #[impress_method]` |
+| `rows(title = "x")` | `rows(…) needs id = "…": the field of each row that identifies it` |
 | `effects = { reads: ["bibliography-entries"] }` | `is not a canonical schema ref in schema-refs.json; copy the spelling from the manifest` |
 | a service with no `safety = ...` or `since = ...` | `missing safety = ...` listing the four classes; `missing since = "<version>"` |
 
@@ -623,8 +701,12 @@ in a browser or a terminal, with no code from you:
 - one toggle per adverb the verb accepts;
 - a result view chosen by the output schema: a `Vec` of flat objects is a
   table, a flat object a key-value list, a `string` text, anything else raw
-  JSON;
-- for a `destructive` or `external` verb, Run hidden behind a confirmation.
+  JSON; a verb that declares `rows(...)` always gets its table, with the
+  declared columns and id, and a selection written to `state.selected`;
+- for a `destructive` or `external` verb, Run hidden behind a confirmation;
+- for a verb whose declared `secrets` are not set, a warning above the form
+  naming each one and how to set it (Run stays; the pipeline's refusal is what
+  a press shows).
 
 A running host serves any verb's form as data: `GET
 /api/verb/<name>/surface` answers `{ok, wire_version, verb, spec}`; `POST` the
@@ -674,6 +756,10 @@ Tick every line; each is something you can look at or run.
       upserts say `idempotent = true`.
 - [ ] `strict_args` is left at its default.
 - [ ] `supports(...)` names only adverbs the verb keeps the promise of.
+- [ ] A verb that needs a token declares `secrets = [...]` and reads it with
+      `secrets::get`; no bearer is an argument.
+- [ ] A verb that returns rows declares `returns_kind` and `rows(id = "...")`,
+      and the Tier A report passes its row-schema check.
 - [ ] Every verb has an `#[impress_example]` with an `expect`.
 - [ ] `selftest.rs` calls verbs through `call::call`, covers a refusal and a
       misspelt argument, and `cargo test` is green.

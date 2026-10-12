@@ -905,6 +905,7 @@ mod audit_schema_tests {
         let raw = dispatch_with(RenderKind::Table {
             rows: serde_json::json!([{"id": "private-row"}]),
             columns: vec!["title".into()],
+            id_field: None,
         });
         let schema = serde_json::to_value(schemars::schema_for!(SurfaceDispatchResult)).unwrap();
         let (ids, truncated) = impress_service_core::pipeline::audit::result_ids(&raw, &schema);

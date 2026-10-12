@@ -5,7 +5,8 @@
 //!
 //! This is `impress-mcp-host` moved to koine (docs/plan-koine-host.md H-D5),
 //! unchanged in behaviour, with two additions: a `tools/list` entry carries
-//! the verb's `_meta.returns_kind` when it declares one (H-D8), and
+//! the verb's `_meta` (`returns_kind` H-D8, `rows` and `secrets` plan-koine-followups
+//! F-D2 and F-D1) when it declares any, and
 //! [`handle_message`] is the public form of the triage both transports apply,
 //! for a host that mounts `/mcp` inside its own server (`koine-host`).
 
@@ -195,7 +196,7 @@ pub fn run_http(
             .route("/api/providers/deregister", post(providers::deregister))
             .with_state(state);
         let listener = tokio::net::TcpListener::bind(address).await?;
-        eprintln!("impress-mcp-host: listening on http://{address}/mcp");
+        eprintln!("koine-mcp-host: listening on http://{address}/mcp");
         // Read-only probes begin immediately: they do not mutate user records or
         // emit store notifications. The task belongs to this server runtime.
         let health = tokio::spawn(async {
@@ -356,8 +357,9 @@ pub fn tool_definitions(config: &HostConfig) -> Vec<Value> {
                     "openai/toolInvocation/invoked": ui.invoked,
                 });
             }
-            // `returns_kind` (plan-koine-host H-D8): the pane-query kind of
-            // the rows the verb produces, additive beside any UI binding.
+            // `returns_kind` (plan-koine-host H-D8), `rows` and `secrets`
+            // (plan-koine-followups F-D2, F-D1): additive beside any UI
+            // binding.
             if let Some(Value::Object(extra)) = descriptor.mcp_meta() {
                 let meta = definition
                     .as_object_mut()
@@ -538,6 +540,8 @@ mod tests {
         budget_ms: None,
         replay_full: false,
         returns_kind: None,
+        rows: None,
+        secrets: &[],
         source: impress_service_core::Source::Linked,
         handler: fixture_echo,
     };
@@ -553,6 +557,31 @@ mod tests {
         ..FIXTURE
     };
     impress_service_core::inventory::submit! { McpToolDescriptor::of(&KINDED) }
+
+    // A third that also names the id of its rows and needs a secret
+    // (plan-koine-followups F-D1, F-D2).
+    static SEARCHING: impress_service_core::VerbDescriptor = impress_service_core::VerbDescriptor {
+        name: "allowed-fixture_search-papers",
+        service: "allowed-fixture",
+        method: "search-papers",
+        description: "Test fixture: rows with an id, and a secret.",
+        output_schema: papers_schema,
+        returns_kind: Some("paper"),
+        rows: Some(impress_service_core::RowSchema {
+            id: "bibcode",
+            title: Some("title"),
+            columns: &[],
+        }),
+        secrets: &["scix-api-token"],
+        ..FIXTURE
+    };
+    impress_service_core::inventory::submit! { McpToolDescriptor::of(&SEARCHING) }
+
+    fn papers_schema() -> Value {
+        json!({"type": "array", "items": {"type": "object", "properties": {
+            "bibcode": {"type": "string"}, "title": {"type": "string"}, "year": {"type": "integer"}
+        }}})
+    }
 
     fn fixture_schema() -> Value {
         json!({ "type": "object" })
@@ -650,6 +679,27 @@ mod tests {
         assert_eq!(kinded["_meta"]["ui"]["resourceUri"], "ui://papers");
         let plain = find("allowed-fixture_echo-arguments");
         assert!(plain.get("_meta").is_none(), "{plain}");
+    }
+
+    /// `_meta.secrets` and `_meta.rows` ride beside `returns_kind` on the
+    /// verb that declares them, as one object; the row `columns` default to
+    /// the row object's properties rather than going out empty.
+    #[test]
+    fn tools_list_carries_secrets_and_rows_where_declared() {
+        let tools = tool_definitions(&config());
+        let find = |name: &str| tools.iter().find(|t| t["name"] == name).unwrap().clone();
+        let searching = find("allowed-fixture_search-papers");
+        assert_eq!(
+            searching["_meta"],
+            json!({
+                "returns_kind": "paper",
+                "secrets": ["scix-api-token"],
+                "rows": {"id": "bibcode", "title": "title", "columns": ["bibcode", "title", "year"]},
+            })
+        );
+        let kinded = find("allowed-fixture_list-papers");
+        assert!(kinded["_meta"].get("secrets").is_none(), "{kinded}");
+        assert!(kinded["_meta"].get("rows").is_none(), "{kinded}");
     }
 
     #[test]

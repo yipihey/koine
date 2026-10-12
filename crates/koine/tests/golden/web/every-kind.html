@@ -1,2 +1,88 @@
-<div class="koine" style="--koine-column: 8px; --koine-row: 8px; --koine-list: 0px; --koine-table: 0px; --koine-status-error: var(--koine-color-error); --koine-status-warning: var(--koine-color-warning); --koine-status-info: var(--koine-color-info);"><div class="koine-column" data-koine-id="root"><div class="koine-row" data-koine-id="row"><button class="koine-button koine-focused" type="button" tabindex=0 data-koine-id="b-go" data-koine-focused="true">Go</button><div class="koine-spacer" data-koine-id="spacer"></div></div><div class="koine-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));" data-koine-id="grid"><p class="koine-text" data-koine-id="g-text">in a grid</p></div><section class="koine-section" data-koine-id="section" data-koine-collapsed="true" aria-label="A section"><h2 class="koine-section-title">Hidden</h2><div class="koine-section-body" hidden=true><p class="koine-text" data-koine-id="s-body">kept in the DOM</p></div></section><div class="koine-tabs" tabindex=0 data-koine-id="t-tabs"><div class="koine-tablist" role="tablist"><button class="koine-tab" role="tab" type="button" tabindex=-1 aria-selected="true">One</button><button class="koine-tab" role="tab" type="button" tabindex=-1 aria-selected="false">Two</button></div><div class="koine-tabpanel" role="tabpanel"><p class="koine-text" data-koine-id="tab-1">first</p></div><div class="koine-tabpanel" role="tabpanel" hidden=true><p class="koine-text" data-koine-id="tab-2">second</p></div></div><table class="koine-table" tabindex=0 data-koine-id="t-table"><thead><tr><th scope="col">title</th><th scope="col">year</th></tr></thead><tbody><tr tabindex=-1 data-koine-row="0"><td>A</td><td>2024</td></tr><tr tabindex=-1 data-koine-row="1"><td>B</td><td>2023</td></tr></tbody></table><ul class="koine-list" tabindex=0 data-koine-id="t-list"><li tabindex=-1 data-koine-row="0">alpha</li><li tabindex=-1 data-koine-row="1">beta</li></ul><div class="koine-plot" data-koine-id="plot" data-koine-spec="{&#34;x&#34;:[1,2],&#34;y&#34;:[3,4]}"></div><img class="koine-image" data-koine-id="img-url" src="https://example.test/a.png" alt=""/><div class="koine-placeholder" data-koine-id="img-blob">placeholder image: blob b-1</div><div class="koine-field"><label for="koine-f-text">Name</label><input id="koine-f-text" class="koine-field-control" type="text" tabindex=0 data-koine-id="f-text" data-koine-bind="state.name" value="Ada" aria-label="Name"/></div><div class="koine-field"><input id="koine-f-number" class="koine-field-control" type="number" tabindex=0 data-koine-id="f-number" data-koine-bind="state.n" value="3"/></div><div class="koine-field"><input id="koine-f-slider" class="koine-field-control" type="range" tabindex=0 data-koine-id="f-slider" data-koine-bind="state.s" min="0" max="8" step="0.5" value="2"/></div><div class="koine-field"><select id="koine-f-select" class="koine-field-control" tabindex=0 data-koine-id="f-select" data-koine-bind="state.o"><option value="0">a</option><option value="1" selected=true>b</option></select></div><div class="koine-field"><input id="koine-f-toggle" class="koine-field-control" type="checkbox" tabindex=0 data-koine-id="f-toggle" data-koine-bind="state.t" checked=true/></div><div class="koine-field"><input id="koine-f-date" class="koine-field-control" type="date" tabindex=0 data-koine-id="f-date" data-koine-bind="state.d" value="2026-01-02"/></div><div class="koine-field"><input id="koine-f-color" class="koine-field-control" type="text" tabindex=0 data-koine-id="f-color" data-koine-bind="state.c" data-koine-field-kind="color" value="red"/></div><div class="koine-status koine-status-error" role="alert" data-koine-id="st-error" data-koine-level="error">bad</div><div class="koine-status koine-status-warning" role="status" data-koine-id="st-warning" data-koine-level="warning">hmm</div><div class="koine-status koine-status-info" role="status" data-koine-id="st-info" data-koine-level="info">fyi</div><pre class="koine-log" data-koine-id="log">one
+<div class="koine" style="--koine-column: 8px; --koine-row: 8px; --koine-list: 0px; --koine-table: 0px; --koine-status-error: var(--koine-color-error); --koine-status-warning: var(--koine-color-warning); --koine-status-info: var(--koine-color-info);"><div class="koine-column" data-koine-id="root"><div class="koine-row" data-koine-id="row"><button class="koine-button koine-focused" type="button" tabindex=0 data-koine-id="b-go" data-koine-focused="true">Go</button><div class="koine-spacer" data-koine-id="spacer"></div></div><div class="koine-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));" data-koine-id="grid"><p class="koine-text" data-koine-id="g-text">in a grid</p></div><section class="koine-section" data-koine-id="section" data-koine-collapsed="true" aria-label="A section"><h2 class="koine-section-title">Hidden</h2><div class="koine-section-body" hidden=true><p class="koine-text" data-koine-id="s-body">kept in the DOM</p></div></section><div class="koine-tabs" tabindex=0 data-koine-id="t-tabs"><div class="koine-tablist" role="tablist"><button class="koine-tab" role="tab" type="button" tabindex=-1 aria-selected="true">One</button><button class="koine-tab" role="tab" type="button" tabindex=-1 aria-selected="false">Two</button></div><div class="koine-tabpanel" role="tabpanel"><p class="koine-text" data-koine-id="tab-1">first</p></div><div class="koine-tabpanel" role="tabpanel" hidden=true><p class="koine-text" data-koine-id="tab-2">second</p></div></div><table class="koine-table" tabindex=0 data-koine-id="t-table"><thead><tr><th scope="col">title</th><th scope="col">year</th></tr></thead><tbody><tr tabindex=-1 data-koine-row="0"><td>A</td><td>2024</td></tr><tr tabindex=-1 data-koine-row="1"><td>B</td><td>2023</td></tr></tbody></table><ul class="koine-list" tabindex=0 data-koine-id="t-list"><li tabindex=-1 data-koine-row="0">alpha</li><li tabindex=-1 data-koine-row="1">beta</li></ul><div class="koine-plot" data-koine-id="plot" data-koine-spec="{&#34;x&#34;:[1,2],&#34;y&#34;:[3,4]}"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400" font-family="system-ui, -apple-system, sans-serif">
+<rect x="0.00" y="0.00" width="640.00" height="400.00" fill="#ffffff"/>
+<rect x="55.00" y="20.00" width="565.00" height="335.00" fill="#fafafa" stroke="#cccccc" stroke-width="0.5"/>
+<line x1="80.68" y1="20.00" x2="80.68" y2="355.00" stroke="#e0e0e0" stroke-width="0.5"/>
+<line x1="183.41" y1="20.00" x2="183.41" y2="355.00" stroke="#e0e0e0" stroke-width="0.5"/>
+<line x1="286.14" y1="20.00" x2="286.14" y2="355.00" stroke="#e0e0e0" stroke-width="0.5"/>
+<line x1="388.86" y1="20.00" x2="388.86" y2="355.00" stroke="#e0e0e0" stroke-width="0.5"/>
+<line x1="491.59" y1="20.00" x2="491.59" y2="355.00" stroke="#e0e0e0" stroke-width="0.5"/>
+<line x1="594.32" y1="20.00" x2="594.32" y2="355.00" stroke="#e0e0e0" stroke-width="0.5"/>
+<line x1="55.00" y1="339.77" x2="620.00" y2="339.77" stroke="#e0e0e0" stroke-width="0.5"/>
+<line x1="55.00" y1="278.86" x2="620.00" y2="278.86" stroke="#e0e0e0" stroke-width="0.5"/>
+<line x1="55.00" y1="217.95" x2="620.00" y2="217.95" stroke="#e0e0e0" stroke-width="0.5"/>
+<line x1="55.00" y1="157.05" x2="620.00" y2="157.05" stroke="#e0e0e0" stroke-width="0.5"/>
+<line x1="55.00" y1="96.14" x2="620.00" y2="96.14" stroke="#e0e0e0" stroke-width="0.5"/>
+<line x1="55.00" y1="35.23" x2="620.00" y2="35.23" stroke="#e0e0e0" stroke-width="0.5"/>
+<defs><clipPath id="plot-area"><rect x="55" y="20" width="565" height="335"/></clipPath></defs>
+<g clip-path="url(#plot-area)">
+</g>
+<line x1="55.00" y1="355.00" x2="620.00" y2="355.00" stroke="#333333" stroke-width="1"/>
+<line x1="80.68" y1="355.00" x2="80.68" y2="360.00" stroke="#333333" stroke-width="1"/>
+<text x="80.68" y="371.00" text-anchor="middle" font-size="10px" fill="#555555" dominant-baseline="auto">0</text>
+<line x1="101.23" y1="355.00" x2="101.23" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="121.77" y1="355.00" x2="121.77" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="142.32" y1="355.00" x2="142.32" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="162.86" y1="355.00" x2="162.86" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="183.41" y1="355.00" x2="183.41" y2="360.00" stroke="#333333" stroke-width="1"/>
+<text x="183.41" y="371.00" text-anchor="middle" font-size="10px" fill="#555555" dominant-baseline="auto">0.20</text>
+<line x1="203.95" y1="355.00" x2="203.95" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="224.50" y1="355.00" x2="224.50" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="245.05" y1="355.00" x2="245.05" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="265.59" y1="355.00" x2="265.59" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="286.14" y1="355.00" x2="286.14" y2="360.00" stroke="#333333" stroke-width="1"/>
+<text x="286.14" y="371.00" text-anchor="middle" font-size="10px" fill="#555555" dominant-baseline="auto">0.40</text>
+<line x1="306.68" y1="355.00" x2="306.68" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="327.23" y1="355.00" x2="327.23" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="347.77" y1="355.00" x2="347.77" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="368.32" y1="355.00" x2="368.32" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="388.86" y1="355.00" x2="388.86" y2="360.00" stroke="#333333" stroke-width="1"/>
+<text x="388.86" y="371.00" text-anchor="middle" font-size="10px" fill="#555555" dominant-baseline="auto">0.60</text>
+<line x1="409.41" y1="355.00" x2="409.41" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="429.95" y1="355.00" x2="429.95" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="450.50" y1="355.00" x2="450.50" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="471.05" y1="355.00" x2="471.05" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="491.59" y1="355.00" x2="491.59" y2="360.00" stroke="#333333" stroke-width="1"/>
+<text x="491.59" y="371.00" text-anchor="middle" font-size="10px" fill="#555555" dominant-baseline="auto">0.80</text>
+<line x1="512.14" y1="355.00" x2="512.14" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="532.68" y1="355.00" x2="532.68" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="553.23" y1="355.00" x2="553.23" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="573.77" y1="355.00" x2="573.77" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="594.32" y1="355.00" x2="594.32" y2="360.00" stroke="#333333" stroke-width="1"/>
+<text x="594.32" y="371.00" text-anchor="middle" font-size="10px" fill="#555555" dominant-baseline="auto">1</text>
+<line x1="614.86" y1="355.00" x2="614.86" y2="358.00" stroke="#333333" stroke-width="1"/>
+<line x1="55.00" y1="20.00" x2="55.00" y2="355.00" stroke="#333333" stroke-width="1"/>
+<line x1="50.00" y1="339.77" x2="55.00" y2="339.77" stroke="#333333" stroke-width="1"/>
+<text x="47.00" y="342.77" text-anchor="end" font-size="10px" fill="#555555" dominant-baseline="auto">0</text>
+<line x1="52.00" y1="327.59" x2="55.00" y2="327.59" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="315.41" x2="55.00" y2="315.41" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="303.23" x2="55.00" y2="303.23" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="291.05" x2="55.00" y2="291.05" stroke="#333333" stroke-width="1"/>
+<line x1="50.00" y1="278.86" x2="55.00" y2="278.86" stroke="#333333" stroke-width="1"/>
+<text x="47.00" y="281.86" text-anchor="end" font-size="10px" fill="#555555" dominant-baseline="auto">0.20</text>
+<line x1="52.00" y1="266.68" x2="55.00" y2="266.68" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="254.50" x2="55.00" y2="254.50" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="242.32" x2="55.00" y2="242.32" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="230.14" x2="55.00" y2="230.14" stroke="#333333" stroke-width="1"/>
+<line x1="50.00" y1="217.95" x2="55.00" y2="217.95" stroke="#333333" stroke-width="1"/>
+<text x="47.00" y="220.95" text-anchor="end" font-size="10px" fill="#555555" dominant-baseline="auto">0.40</text>
+<line x1="52.00" y1="205.77" x2="55.00" y2="205.77" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="193.59" x2="55.00" y2="193.59" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="181.41" x2="55.00" y2="181.41" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="169.23" x2="55.00" y2="169.23" stroke="#333333" stroke-width="1"/>
+<line x1="50.00" y1="157.05" x2="55.00" y2="157.05" stroke="#333333" stroke-width="1"/>
+<text x="47.00" y="160.05" text-anchor="end" font-size="10px" fill="#555555" dominant-baseline="auto">0.60</text>
+<line x1="52.00" y1="144.86" x2="55.00" y2="144.86" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="132.68" x2="55.00" y2="132.68" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="120.50" x2="55.00" y2="120.50" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="108.32" x2="55.00" y2="108.32" stroke="#333333" stroke-width="1"/>
+<line x1="50.00" y1="96.14" x2="55.00" y2="96.14" stroke="#333333" stroke-width="1"/>
+<text x="47.00" y="99.14" text-anchor="end" font-size="10px" fill="#555555" dominant-baseline="auto">0.80</text>
+<line x1="52.00" y1="83.95" x2="55.00" y2="83.95" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="71.77" x2="55.00" y2="71.77" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="59.59" x2="55.00" y2="59.59" stroke="#333333" stroke-width="1"/>
+<line x1="52.00" y1="47.41" x2="55.00" y2="47.41" stroke="#333333" stroke-width="1"/>
+<line x1="50.00" y1="35.23" x2="55.00" y2="35.23" stroke="#333333" stroke-width="1"/>
+<text x="47.00" y="38.23" text-anchor="end" font-size="10px" fill="#555555" dominant-baseline="auto">1</text>
+<line x1="52.00" y1="23.05" x2="55.00" y2="23.05" stroke="#333333" stroke-width="1"/>
+</svg></div><img class="koine-image" data-koine-id="img-url" src="https://example.test/a.png" alt=""/><div class="koine-placeholder" data-koine-id="img-blob">placeholder image: blob b-1</div><div class="koine-field"><label for="koine-f-text">Name</label><input id="koine-f-text" class="koine-field-control" type="text" tabindex=0 data-koine-id="f-text" data-koine-bind="state.name" value="Ada" aria-label="Name"/></div><div class="koine-field"><input id="koine-f-number" class="koine-field-control" type="number" tabindex=0 data-koine-id="f-number" data-koine-bind="state.n" value="3"/></div><div class="koine-field"><input id="koine-f-slider" class="koine-field-control" type="range" tabindex=0 data-koine-id="f-slider" data-koine-bind="state.s" min="0" max="8" step="0.5" value="2"/></div><div class="koine-field"><select id="koine-f-select" class="koine-field-control" tabindex=0 data-koine-id="f-select" data-koine-bind="state.o"><option value="0">a</option><option value="1" selected=true>b</option></select></div><div class="koine-field"><input id="koine-f-toggle" class="koine-field-control" type="checkbox" tabindex=0 data-koine-id="f-toggle" data-koine-bind="state.t" checked=true/></div><div class="koine-field"><input id="koine-f-date" class="koine-field-control" type="date" tabindex=0 data-koine-id="f-date" data-koine-bind="state.d" value="2026-01-02"/></div><div class="koine-field"><input id="koine-f-color" class="koine-field-control" type="text" tabindex=0 data-koine-id="f-color" data-koine-bind="state.c" data-koine-field-kind="color" value="red"/></div><div class="koine-status koine-status-error" role="alert" data-koine-id="st-error" data-koine-level="error">bad</div><div class="koine-status koine-status-warning" role="status" data-koine-id="st-warning" data-koine-level="warning">hmm</div><div class="koine-status koine-status-info" role="status" data-koine-id="st-info" data-koine-level="info">fyi</div><pre class="koine-log" data-koine-id="log">one
 two</pre><dl class="koine-kv" data-koine-id="kv"><dt>a</dt><dd>1</dd><dt>b</dt><dd>two</dd></dl><hr class="koine-divider" data-koine-id="divider"/><div class="koine-placeholder" data-koine-id="ph" data-koine-unknown-kind="hologram">placeholder hologram: this build has no &#39;hologram&#39; widget</div></div></div>

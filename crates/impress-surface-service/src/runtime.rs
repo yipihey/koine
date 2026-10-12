@@ -2189,6 +2189,8 @@ mod call_verb_tests {
             budget_ms: None,
             replay_full: false,
             returns_kind: None,
+            rows: None,
+            secrets: &[],
             source: impress_service_core::Source::Linked,
             handler: always_fails,
         };

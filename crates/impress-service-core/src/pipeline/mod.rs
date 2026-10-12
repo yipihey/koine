@@ -20,7 +20,9 @@
 //!    declaring `strict_args`; refused `invalid-argument` naming the field
 //!    (moved here from the generated invoker, which now parses nothing but
 //!    its own args struct).
-//! 3. **reachability** — one rule and one probe ([`reachability`]).
+//! 3. **reachability** — one rule and one probe ([`reachability`]); then
+//!    the verb's declared **secrets** ([`crate::secrets`]), refused
+//!    `missing-secret` while one is absent.
 //! 4. **policy** — `(caller, class, verb) → run | review | deny`
 //!    ([`policy`]).
 //! 5. **span** — a `tracing` span per call: name, caller, ids, sizes,
@@ -343,6 +345,22 @@ fn tentative_static(
     answer
 }
 
+/// `verb <name> needs secret <n> (not set): <how_to_set>` for every missing
+/// name, code `missing-secret`.
+pub fn missing_secret_refusal(verb: &str, missing: &[&str]) -> Refusal {
+    let needs = missing
+        .iter()
+        .map(|name| {
+            format!(
+                "secret {name} (not set): {}",
+                crate::secrets::how_to_set(name)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    Refusal::new(codes::MISSING_SECRET, format!("verb {verb} needs {needs}"))
+}
+
 fn is_ok(value: &Value) -> bool {
     value.get("ok").and_then(Value::as_bool).unwrap_or(true)
 }
@@ -450,6 +468,20 @@ fn prepare_inner(
 
         if let Err(refusal) = crate::registry_runtime::check_available(verb, &args) {
             return Ok(Err(crate::strict::refusal_value(&refusal)));
+        }
+
+        // 3b. secrets — a linked verb that declares a secret does not run
+        // while it is absent, so its handler never sees `None` for a name
+        // it declared (plan-koine-followups F-D1). Refused before policy:
+        // nothing is asked of a reviewer for a call that cannot run.
+        if let Some(linked) = verb.linked() {
+            let missing = crate::secrets::missing_for(linked);
+            if !missing.is_empty() {
+                return Ok(Err(crate::strict::refusal_value(&missing_secret_refusal(
+                    linked.name,
+                    &missing,
+                ))));
+            }
         }
 
         // 4. policy. A call that will not run for the policy's sake
@@ -1016,6 +1048,8 @@ pub(crate) mod tests {
         supports: &[],
         adjective: None,
         returns_kind: None,
+        rows: None,
+        secrets: &[],
         source: Source::Linked,
         handler: echo,
     };
@@ -1061,6 +1095,56 @@ pub(crate) mod tests {
             sink
         })
         .clone()
+    }
+
+    static NEEDS_TOKEN: VerbDescriptor = VerbDescriptor {
+        name: "t-service_needs-token",
+        method: "needs-token",
+        strict: false,
+        secrets: &["t-x"],
+        ..ECHO
+    };
+
+    /// F-D1: a declared secret that no source holds refuses the call before
+    /// the handler (and before policy); once a source holds it, the call
+    /// runs. A test double stands in for the source, so the process
+    /// environment is untouched.
+    #[test]
+    fn a_verb_whose_declared_secret_is_absent_is_refused_missing_secret() {
+        use crate::secrets::tests::{MapSource, INSTALL_LOCK};
+        let _guard = INSTALL_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        crate::secrets::install(MapSource::with(&[]));
+        let answer = invoke_blocking(&NEEDS_TOKEN, Call::person(json!({}))).unwrap();
+        assert_eq!(answer["ok"], false);
+        assert_eq!(answer["code"], "missing-secret");
+        assert_eq!(
+            answer["message"],
+            "verb t-service_needs-token needs secret t-x (not set): set KOINE_SECRET_T_X in the \
+             environment, or PUT /api/secret/t-x on the host"
+        );
+        assert_eq!(
+            crate::refusal::http_status(answer["code"].as_str().unwrap()),
+            412
+        );
+
+        crate::secrets::install(MapSource::with(&[("t-x", "token")]));
+        let answer = invoke_blocking(&NEEDS_TOKEN, Call::person(json!({}))).unwrap();
+        assert_eq!(answer["ok"], true, "{answer}");
+
+        // A verb that declares nothing is never gated.
+        crate::secrets::install(MapSource::with(&[]));
+        let answer = invoke_blocking(&ECHO, Call::person(json!({}))).unwrap();
+        assert_eq!(answer["ok"], true);
+    }
+
+    #[test]
+    fn every_missing_secret_is_named_in_one_refusal() {
+        let r = missing_secret_refusal("v", &["a-b", "c"]);
+        assert_eq!(r.code, "missing-secret");
+        assert!(r.message.contains("secret a-b (not set)"), "{}", r.message);
+        assert!(r.message.contains("secret c (not set)"), "{}", r.message);
+        assert!(r.message.contains("KOINE_SECRET_A_B"), "{}", r.message);
     }
 
     #[test]

@@ -128,6 +128,9 @@ fn build_subcommand(name: String, sub: VerbHandle) -> Command {
     let schema = sub.input_schema();
 
     let mut cmd = Command::new(name).about(sub.description().to_string());
+    if let Some(notes) = listing_notes(&sub) {
+        cmd = cmd.after_help(notes);
+    }
 
     let required: HashSet<String> = schema
         .get("required")
@@ -152,6 +155,39 @@ fn build_subcommand(name: String, sub: VerbHandle) -> Command {
     }
 
     cmd
+}
+
+/// What the verb declares beyond its arguments, printed under its `--help`:
+/// the kind and row schema of its result (`returns_kind`, `rows`) and the
+/// secrets it needs (`secrets`) — the CLI's spelling of the `_meta` the MCP
+/// `tools/list` entry carries. `None` for a verb that declares none.
+pub fn listing_notes(verb: &VerbHandle) -> Option<String> {
+    let mut lines = Vec::new();
+    if let Some(kind) = verb.returns_kind() {
+        let mut line = format!("Returns: {kind}");
+        if let (Some(rows), Some(columns)) = (verb.rows(), verb.row_columns()) {
+            line.push_str(&format!(
+                " (rows: id {}, title {}, columns {})",
+                rows.id,
+                rows.title.unwrap_or(rows.id),
+                columns.join(", ")
+            ));
+        }
+        lines.push(line);
+    }
+    let secrets = verb.secrets();
+    if !secrets.is_empty() {
+        lines.push(format!(
+            "Secrets: {} ({})",
+            secrets.join(", "),
+            secrets
+                .iter()
+                .map(|name| crate::secrets::env_var_name(name))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
 /// Id prefix of the adverb flags, so an adverb's clap id can never collide
@@ -878,6 +914,8 @@ mod collision_tests {
             supports: &[],
             adjective: None,
             returns_kind: None,
+            rows: None,
+            secrets: &[],
             source: crate::Source::Linked,
             handler: apply,
         }
@@ -937,5 +975,38 @@ mod collision_tests {
             );
         }
         app.debug_assert();
+    }
+
+    fn rows_schema() -> serde_json::Value {
+        serde_json::json!({"type": "array", "items": {"type": "object",
+            "properties": {"bibcode": {"type": "string"}, "title": {"type": "string"}}}})
+    }
+    static DECLARING: crate::VerbDescriptor = crate::VerbDescriptor {
+        output_schema: rows_schema,
+        returns_kind: Some("paper"),
+        rows: Some(crate::RowSchema {
+            id: "bibcode",
+            title: None,
+            columns: &[],
+        }),
+        secrets: &["scix-api-token"],
+        ..probe(
+            "alpha-service",
+            "probe-declaring",
+            "alpha-service_probe-declaring",
+        )
+    };
+
+    /// The listing prints the kind, the row schema (defaults filled in) and
+    /// the secrets; a verb that declares none prints nothing.
+    #[test]
+    fn the_listing_notes_print_kind_rows_and_secrets() {
+        let notes = listing_notes(&VerbHandle::Linked(&DECLARING)).unwrap();
+        assert_eq!(
+            notes,
+            "Returns: paper (rows: id bibcode, title bibcode, columns bibcode, title)\n\
+             Secrets: scix-api-token (KOINE_SECRET_SCIX_API_TOKEN)"
+        );
+        assert_eq!(listing_notes(&VerbHandle::Linked(&ALPHA_UNIQUE)), None);
     }
 }

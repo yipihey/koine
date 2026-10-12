@@ -1,0 +1,5 @@
+error: `rows(…)` needs `id = "…"`: the field of each row that identifies it (for example `rows(id = "bibcode")`)
+  --> tests/ui/rows_missing_id.rs:18:46
+   |
+18 |     #[impress_method(returns_kind = "reply", rows(title = "reply"))]
+   |                                              ^^^^

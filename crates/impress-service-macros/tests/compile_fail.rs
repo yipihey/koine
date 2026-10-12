@@ -131,6 +131,9 @@ const REFUSALS: &[&str] = &[
     "tests/ui/missing_doc.rs",
     "tests/ui/misspelt_schema_ref.rs",
     "tests/ui/returns_kind_not_a_kind.rs",
+    "tests/ui/secret_not_a_name.rs",
+    "tests/ui/rows_without_returns_kind.rs",
+    "tests/ui/rows_missing_id.rs",
 ];
 
 #[test]

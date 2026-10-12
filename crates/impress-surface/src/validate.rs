@@ -30,7 +30,8 @@
 //!    `^[a-z0-9-]+_[a-z0-9-]+$`.
 //! 5. Node ids (given or auto-derived) are unique; an interactive widget
 //!    (`field`, `button`, `table`, `list`) with no `id` is a warning.
-//! 6. Per kind: a `select` field has options, `grid.columns >= 1`, a node
+//! 6. Per kind: a `select` field has options, `grid.columns >= 1`, a
+//!    `table.id_field` is a non-empty literal field name, a node
 //!    that could not be read is an error with the reader's own message, an
 //!    unknown kind a warning.
 //! 7. `each` is a literal path with a data root; `open` names a view kind and
@@ -590,7 +591,21 @@ fn check_node(node: &Node, at: &str, scope: &Scope, problems: &mut Vec<Problem>)
             }
         }
         NodeKind::Text(s) => refs(&Value::String(s.clone()), "text"),
-        NodeKind::Table(t) => refs(&t.rows, "table/rows"),
+        NodeKind::Table(t) => {
+            refs(&t.rows, "table/rows");
+            // `id_field` is a literal property name (plan-koine-followups
+            // F-D2): the renderer reads it off each row, so a template here
+            // would be a field called `{{…}}`.
+            if let Some(field) = &t.id_field {
+                if field.is_empty() || field.contains("{{") {
+                    problems.push(Problem::error(
+                        format!("{at}/table/id_field"),
+                        "table.id_field must be a non-empty literal field name of the rows, \
+                         not a template (for example \"bibcode\")",
+                    ));
+                }
+            }
+        }
         NodeKind::List(l) => refs(&l.rows, "list/rows"),
         NodeKind::Plot(p) => refs(&p.spec, "plot/spec"),
         NodeKind::Image(img) => {
@@ -1168,5 +1183,35 @@ mod tests {
                 .any(|p| p.path == "/root/button/on_click/0/emit/payload"),
             "{problems:?}"
         );
+    }
+
+    fn table_with_id_field(id_field: Option<&str>) -> SurfaceSpec {
+        minimal(
+            Node::leaf(NodeKind::Table(crate::spec::Table {
+                rows: serde_json::json!([]),
+                columns: vec!["bibcode".to_string()],
+                id_field: id_field.map(str::to_string),
+                on_select: Vec::new(),
+            }))
+            .with_id("t"),
+        )
+    }
+
+    /// `id_field` is a literal property name: a template or an empty string
+    /// is an error at its own path; a name, or none, is clean.
+    #[test]
+    fn a_table_id_field_must_be_a_literal_field_name() {
+        assert_eq!(errors(validate(&table_with_id_field(None))), Vec::new());
+        assert_eq!(
+            errors(validate(&table_with_id_field(Some("bibcode")))),
+            Vec::new()
+        );
+        for bad in ["", "{{state.f}}", "a{{b"] {
+            let problems = errors(validate(&table_with_id_field(Some(bad))));
+            assert!(
+                problems.iter().any(|p| p.path == "/root/table/id_field"),
+                "{bad:?}: {problems:?}"
+            );
+        }
     }
 }

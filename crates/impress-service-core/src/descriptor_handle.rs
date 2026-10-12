@@ -145,6 +145,38 @@ impl VerbHandle {
         }
     }
 
+    /// Which fields of the verb's rows are the id, the title and the columns
+    /// (`#[impress_method(rows(…))]`, plan-koine-followups F-D2); a
+    /// provider's verbs declare none.
+    pub fn rows(&self) -> Option<crate::descriptor::RowSchema> {
+        match self {
+            Self::Linked(verb) => verb.rows,
+            Self::Provider(_) => None,
+        }
+    }
+
+    /// The row columns a table of this verb shows: the declared list, else
+    /// the row object's properties in schema order. `None` without `rows(…)`.
+    pub fn row_columns(&self) -> Option<Vec<String>> {
+        let view = self.linked()?.rows_view()?;
+        Some(
+            view["columns"]
+                .as_array()?
+                .iter()
+                .filter_map(|c| c.as_str().map(str::to_string))
+                .collect(),
+        )
+    }
+
+    /// The secrets the verb declares (`#[impress_method(secrets = […])]`,
+    /// plan-koine-followups F-D1); a provider's verbs declare none.
+    pub fn secrets(&self) -> &'static [&'static str] {
+        match self {
+            Self::Linked(verb) => verb.secrets,
+            Self::Provider(_) => &[],
+        }
+    }
+
     /// The additive MCP `_meta` object for a `tools/list` entry; see
     /// [`VerbDescriptor::mcp_meta`].
     pub fn mcp_meta(&self) -> Option<Value> {

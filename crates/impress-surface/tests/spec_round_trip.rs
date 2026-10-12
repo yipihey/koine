@@ -81,6 +81,26 @@ fn table_round_trips() {
     }));
 }
 
+/// `id_field` (plan-koine-followups F-D2) round-trips, and is absent from the
+/// wire when a table does not set it.
+#[test]
+fn table_id_field_round_trips_and_is_absent_when_unset() {
+    round_trip_node(json!({
+        "table": {
+            "rows": "{{state.result}}",
+            "columns": ["bibcode", "title"],
+            "id_field": "bibcode",
+            "on_select": [ { "set": { "path": "state.selected", "value": "{{event.value}}" } } ]
+        }
+    }));
+    let node: Node = serde_json::from_value(json!({
+        "table": { "rows": [], "columns": ["a"] }
+    }))
+    .unwrap();
+    let wire = serde_json::to_string(&node).unwrap();
+    assert!(!wire.contains("id_field"), "{wire}");
+}
+
 #[test]
 fn list_round_trips() {
     round_trip_node(json!({
@@ -249,4 +269,25 @@ fn the_whole_worked_example_round_trips_as_json() {
     let spec: SurfaceSpec = serde_json::from_value(raw.clone()).unwrap();
     let back = serde_json::to_value(&spec).unwrap();
     assert_eq!(back, raw);
+}
+
+/// The renderer sees `id_field` (resolve passes it through) and the wire
+/// omits it for a table that sets none.
+#[test]
+fn resolve_carries_a_tables_id_field_to_the_render_tree() {
+    use impress_surface::{resolve, RenderKind};
+    let spec: SurfaceSpec = serde_json::from_value(json!({
+        "surface": "1.0", "name": "t", "state": {"rows": [{"bibcode": "b1"}]},
+        "root": { "id": "t", "table": {
+            "rows": "{{state.rows}}", "columns": ["bibcode"], "id_field": "bibcode"
+        } }
+    }))
+    .unwrap();
+    let tree = resolve(&spec, &spec.state, &Value::Null, &Value::Null);
+    match &tree.root.node {
+        RenderKind::Table { id_field, .. } => assert_eq!(id_field.as_deref(), Some("bibcode")),
+        other => panic!("expected a table, got {other:?}"),
+    }
+    let wire = serde_json::to_string(&tree).unwrap();
+    assert!(wire.contains(r#""id_field":"bibcode""#), "{wire}");
 }
