@@ -52,7 +52,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod concierge;
 mod plot;
+pub mod tour;
 
 /// Amplitude of the pseudo-noise `series` adds to its sine wave. Small enough
 /// that the signal is still visibly a sine wave, large enough that a
