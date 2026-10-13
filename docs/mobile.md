@@ -257,7 +257,7 @@ profile exist and installs them), `dx build --platform ios --device
 `scripts/release/sign-ipa.sh` (stamps `CFBundleShortVersionString` from the
 tag and `CFBundleVersion` from the run number, which TestFlight needs
 unique, adds the Xcode keys validation reads and the icon catalog, re-seals
-the bundle, packs the `.ipa`), `fastlane ios testflight`
+the bundle, packs the `.ipa`), `fastlane ios upload`
 (uploads), and the `.ipa` lands on the tag's GitHub Release. TestFlight
 notifies the phone a few minutes after Apple processes the build; tap
 Install.

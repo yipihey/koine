@@ -17,7 +17,8 @@
 #       ITSAppUsesNonExemptEncryption=false (so the build does not wait on the
 #       export-compliance question), adds the keys Xcode writes and App Store
 #       validation requires (DTPlatformName, DTSDKName, DTXcode, MinimumOSVersion
-#       from the binary, ...), compiles --icon into an asset catalog with actool
+#       from the binary, UILaunchScreen in place of the storyboard dx names
+#       but does not ship), compiles --icon into an asset catalog with actool
 #       (CFBundleIconName; validation refuses an iOS bundle without one),
 #       re-signs the bundle with the profile's entitlements, verifies the
 #       signature, and zips Payload/ into the .ipa. Prints the .ipa path.
@@ -109,6 +110,12 @@ ipa)
     set_or_add DTXcodeBuild string "$xcode_build"
     set_or_add DTCompiler string com.apple.compilers.llvm.clang.1_0
     set_or_add BuildMachineOSBuild string "$(sw_vers -buildVersion)"
+    # dx names a LaunchScreen storyboard it does not ship; with a floor of
+    # 14 or later an empty UILaunchScreen dictionary is the launch screen
+    # (validation refuses an iPad-multitasking bundle without one of the two).
+    /usr/libexec/PlistBuddy -c 'Delete :UILaunchStoryboardName' "$PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c 'Delete :UILaunchScreen' "$PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c 'Add :UILaunchScreen dict' "$PLIST"
     # dx lists "iPadOS", which is not a value Apple knows; Xcode writes iPhoneOS only.
     /usr/libexec/PlistBuddy -c 'Delete :CFBundleSupportedPlatforms' "$PLIST" 2>/dev/null || true
     /usr/libexec/PlistBuddy -c 'Add :CFBundleSupportedPlatforms array' "$PLIST"

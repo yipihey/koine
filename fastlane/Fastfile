@@ -17,7 +17,7 @@
 # throwaway keychain on the runner and writes `signing.env` with the identity
 # name and the profile path, for `dx build` and scripts/release/sign-ipa.sh.
 #
-# `testflight` uploads the .ipa named by IPA_PATH to TestFlight; the app's
+# `upload` sends the .ipa named by IPA_PATH to TestFlight; the app's
 # internal group with automatic distribution then pushes it to the phone.
 
 default_platform(:ios)
@@ -57,7 +57,7 @@ platform :ios do
   end
 
   desc "Upload IPA_PATH to TestFlight"
-  lane :testflight do
+  lane :upload do
     upload_to_testflight(
       api_key: api_key,
       ipa: ENV.fetch("IPA_PATH"),

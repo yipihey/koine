@@ -8,7 +8,7 @@
 # encrypted on this repository's `signing` branch), `dx build --device`
 # (signed with that identity and profile), scripts/release/sign-ipa.sh (the
 # version and build number stamped, the Xcode keys and the app icon from
-# crates/<crate>/icon.png added, re-sealed, packed), fastlane `testflight`
+# crates/<crate>/icon.png added, re-sealed, packed), fastlane `upload`
 # (uploaded), and the .ipa attached to the GitHub Release when a tag started
 # the run.
 #
@@ -104,6 +104,17 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "crate=$CRATE bundle=$IOS_BUNDLE_ID version=$VERSION build=$BUILD_NUMBER"
 
+      # App Store Connect accepts only builds made with the iOS 26 SDK or
+      # later (its rule since 2026-04), so the job builds with the newest
+      # Xcode 26 the runner image carries, not the image's default.
+      - name: Xcode 26
+        run: |
+          XC="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1)"
+          [ -n "$XC" ] || { echo "::error::no Xcode 26 on this runner image; App Store Connect refuses older SDKs"; ls -d /Applications/Xcode*.app; exit 1; }
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.98.1
@@ -161,7 +172,7 @@ jobs:
       - name: Upload to TestFlight (fastlane pilot)
         env:
           IPA_PATH: ${{ steps.ipa.outputs.path }}
-        run: fastlane ios testflight
+        run: fastlane ios upload
 
       - name: Keep the .ipa as a run artifact
         uses: actions/upload-artifact@v4
