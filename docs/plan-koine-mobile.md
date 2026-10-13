@@ -272,5 +272,7 @@ in `scripts/release/sign-ipa.sh` and the workflow:
 
 `match` created the certificate and profile on the first run with the
 API key alone and reused them on every later run (the `signing` branch
-exists); no Mac touched a keychain. Not yet seen from here: the phone
-side (processing time, the TestFlight notification, launch on a device).
+exists); no Mac touched a keychain. Apple processed build 5 within
+minutes of the upload, the internal group received it, and the demo
+installed from TestFlight and ran on an iPhone the same morning: the
+whole path, tag to phone, with no Mac in it.
