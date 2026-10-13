@@ -238,8 +238,11 @@ loop is phone-only after a one-time setup (docs/plan-koine-mobile.md M-D8):
 2. In the app's TestFlight tab, an internal group with you in it and
    automatic distribution on.
 3. A caller workflow like `.github/workflows/release-demo-ios.yml` naming
-   the crate, the bundle id and a tag pattern (`scripts/new-app.sh --mobile`
-   writes one).
+   the crate, the bundle id and a tag pattern (copy the demo's and edit the
+   three).
+4. `crates/<crate>/icon.png`, a 1024x1024 opaque PNG: App Store validation
+   refuses an iOS bundle without an icon catalog, and `sign-ipa.sh` compiles
+   this one into it with `actool`.
 
 **Every release**
 
@@ -253,7 +256,8 @@ profile exist and installs them), `dx build --platform ios --device
 --release --features mobile` signed with that identity,
 `scripts/release/sign-ipa.sh` (stamps `CFBundleShortVersionString` from the
 tag and `CFBundleVersion` from the run number, which TestFlight needs
-unique, re-seals the bundle, packs the `.ipa`), `fastlane ios testflight`
+unique, adds the Xcode keys validation reads and the icon catalog, re-seals
+the bundle, packs the `.ipa`), `fastlane ios testflight`
 (uploads), and the `.ipa` lands on the tag's GitHub Release. TestFlight
 notifies the phone a few minutes after Apple processes the build; tap
 Install.

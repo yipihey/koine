@@ -11,15 +11,19 @@
 #       `dx build --apple-entitlements`.
 #
 #   ipa --app <X.app> --profile <.mobileprovision> --identity "<Apple Distribution: …>"
-#       --bundle-id <id> --version <x.y.z> --build <n> --out <X.ipa>
+#       --bundle-id <id> --version <x.y.z> --build <n> --out <X.ipa> [--icon <1024.png>]
 #       Embeds the profile, stamps CFBundleShortVersionString / CFBundleVersion
 #       (TestFlight refuses a build number it has seen) and
 #       ITSAppUsesNonExemptEncryption=false (so the build does not wait on the
-#       export-compliance question), re-signs the bundle with the profile's
-#       entitlements, verifies the signature, and zips Payload/ into the .ipa.
-#       Prints the .ipa path.
+#       export-compliance question), adds the keys Xcode writes and App Store
+#       validation requires (DTPlatformName, DTSDKName, DTXcode, MinimumOSVersion
+#       from the binary, ...), compiles --icon into an asset catalog with actool
+#       (CFBundleIconName; validation refuses an iOS bundle without one),
+#       re-signs the bundle with the profile's entitlements, verifies the
+#       signature, and zips Payload/ into the .ipa. Prints the .ipa path.
 #
-# Needs bash, PlistBuddy, security, codesign, zip (all on a Mac with Xcode).
+# Needs bash, PlistBuddy, security, codesign, zip, xcrun, vtool, actool (all on
+# a Mac with Xcode).
 set -euo pipefail
 
 die() { echo "sign-ipa: $*" >&2; exit 1; }
@@ -50,10 +54,11 @@ entitlements)
     echo "$OUT"
     ;;
 ipa)
-    APP=""; PROFILE=""; IDENTITY=""; BUNDLE_ID=""; VERSION=""; BUILD=""; OUT=""
+    APP=""; PROFILE=""; IDENTITY=""; BUNDLE_ID=""; VERSION=""; BUILD=""; OUT=""; ICON=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --app) APP="$2"; shift 2 ;;
+            --icon) ICON="$2"; shift 2 ;;
             --profile) PROFILE="$2"; shift 2 ;;
             --identity) IDENTITY="$2"; shift 2 ;;
             --bundle-id) BUNDLE_ID="$2"; shift 2 ;;
@@ -80,6 +85,54 @@ ipa)
     set_or_add CFBundleShortVersionString string "$VERSION"
     set_or_add CFBundleVersion string "$BUILD"
     set_or_add ITSAppUsesNonExemptEncryption bool false
+    set_or_add CFBundlePackageType string APPL
+
+    # What Xcode writes and App Store validation reads: the SDK and Xcode the
+    # bundle was built with, and the deployment floor, which is the binary's.
+    exe="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")"
+    [[ -f "$APP/$exe" ]] || die "$APP has no executable $exe"
+    minos="$(xcrun vtool -show-build "$APP/$exe" | awk '/^ *minos /{print $2; exit}')"
+    [[ -n "$minos" ]] || die "could not read minos from $APP/$exe"
+    sdk_version="$(xcrun --sdk iphoneos --show-sdk-version)"
+    sdk_build="$(xcrun --sdk iphoneos --show-sdk-build-version)"
+    xcode_version="$(xcodebuild -version | awk '/^Xcode /{print $2}')"
+    xcode_build="$(xcodebuild -version | awk '/^Build version /{print $3}')"
+    IFS=. read -r xc_major xc_minor xc_patch <<<"$xcode_version"
+    dt_xcode="$(printf '%02d%d%d' "$xc_major" "${xc_minor:-0}" "${xc_patch:-0}")"
+    set_or_add MinimumOSVersion string "$minos"
+    set_or_add DTPlatformName string iphoneos
+    set_or_add DTPlatformVersion string "$sdk_version"
+    set_or_add DTPlatformBuild string "$sdk_build"
+    set_or_add DTSDKName string "iphoneos$sdk_version"
+    set_or_add DTSDKBuild string "$sdk_build"
+    set_or_add DTXcode string "$dt_xcode"
+    set_or_add DTXcodeBuild string "$xcode_build"
+    set_or_add DTCompiler string com.apple.compilers.llvm.clang.1_0
+    set_or_add BuildMachineOSBuild string "$(sw_vers -buildVersion)"
+    # dx lists "iPadOS", which is not a value Apple knows; Xcode writes iPhoneOS only.
+    /usr/libexec/PlistBuddy -c 'Delete :CFBundleSupportedPlatforms' "$PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c 'Add :CFBundleSupportedPlatforms array' "$PLIST"
+    /usr/libexec/PlistBuddy -c 'Add :CFBundleSupportedPlatforms:0 string iPhoneOS' "$PLIST"
+
+    if [[ -n "$ICON" ]]; then
+        [[ -f "$ICON" ]] || die "--icon $ICON is not a file"
+        catalog="$(mktemp -d)/Assets.xcassets"
+        mkdir -p "$catalog/AppIcon.appiconset"
+        cp "$ICON" "$catalog/AppIcon.appiconset/icon.png"
+        cat >"$catalog/AppIcon.appiconset/Contents.json" <<'JSON'
+{"images":[{"filename":"icon.png","idiom":"universal","platform":"ios","size":"1024x1024"}],
+ "info":{"author":"xcode","version":1}}
+JSON
+        partial="$(mktemp -t icon-plist).plist"
+        xcrun actool --compile "$APP" --platform iphoneos --target-device iphone --target-device ipad \
+            --minimum-deployment-target "$minos" --app-icon AppIcon \
+            --output-partial-info-plist "$partial" --output-format human-readable-text \
+            "$catalog" >&2 || die "actool could not compile the icon"
+        /usr/libexec/PlistBuddy -c "Merge $partial" "$PLIST" || die "could not merge the icon keys"
+        rm -rf "$partial" "$(dirname "$catalog")"
+    else
+        echo "sign-ipa: no --icon; App Store validation refuses a bundle without CFBundleIconName" >&2
+    fi
 
     cp "$PROFILE" "$APP/embedded.mobileprovision"
     ENT="$(mktemp -t entitlements).plist"

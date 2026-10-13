@@ -61,6 +61,8 @@ platform :ios do
     upload_to_testflight(
       api_key: api_key,
       ipa: ENV.fetch("IPA_PATH"),
+      app_identifier: ENV.fetch("IOS_BUNDLE_ID"),
+      app_platform: "ios",
       skip_waiting_for_build_processing: true,
       skip_submission: true,
       distribute_external: false
