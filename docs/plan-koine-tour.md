@@ -70,7 +70,9 @@ second as a new "Your plot" surface and a running job whose ticks the Live
 job surface showed. Tier A covers the specs, the seeding, the notes verbs,
 the inventory, the concierge's two rounds and the wake fix; the simulator
 lane's section 7 asserts the seeded list, each render, and one concierge
-round. Not yet seen: the phone (release `demo-v0.2.0`). Units: T1 page fit (koine-web, koine-dioxus), T2 tour content
+round: on main, the lane passed 58 of 58 on the simulator (the concierge
+answered over HTTP in under a second) and release run 6 uploaded 0.2.0 to
+TestFlight the same afternoon. Units: T1 page fit (koine-web, koine-dioxus), T2 tour content
 (surface-demo-service: plot fix, notes, inventory, specs, seed), T3 the
 concierge and the wake fix (surface-demo-service, impress-surface-service),
 T4 wiring, lane, docs, release.
