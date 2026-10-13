@@ -97,11 +97,12 @@ ipa)
     codesign --verify --deep --strict --verbose=2 "$APP" >&2 \
         || die "the signed bundle does not verify"
 
+    case "$OUT" in /*) ;; *) OUT="$PWD/$OUT" ;; esac
     work="$(mktemp -d)"
     mkdir -p "$work/Payload"
     cp -R "$APP" "$work/Payload/"
     rm -f "$OUT"
-    ( cd "$work" && zip -qr "$OLDPWD/$OUT" Payload ) || die "zip failed"
+    ( cd "$work" && zip -qr "$OUT" Payload ) || die "zip failed"
     rm -rf "$work" "$ENT"
     echo "$OUT"
     ;;
