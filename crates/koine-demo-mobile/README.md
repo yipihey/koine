@@ -25,9 +25,9 @@ dx build --platform ios --device --release   # a phone (aarch64-apple-ios)
 
 `dx` turns on this crate's `mobile` feature for the iOS platform. The `.app` is
 `target/dx/koine-demo-mobile/release/ios/KoineDemoMobile.app`. Putting it on a
-phone needs your signing identity and provisioning profile (`dx build --help`:
-`--codesign`, `--apple-team-id`, `--apple-entitlements`); nothing here
-automates that.
+phone needs signing: `.github/workflows/release-demo-ios.yml` does it on a tag
+(`demo-v0.1.0`) through TestFlight, with the certificate and profile made from
+an App Store Connect API key (docs/mobile.md "Onto a phone").
 
 ## Without `mobile`
 
@@ -51,11 +51,11 @@ koine-demo-mobile: host http://127.0.0.1:49152
 koine-demo-mobile: loopback token <Documents>/koine-demo/automation/loopback-49152.token
 ```
 
-On the simulator, `xcrun simctl launch --console-pty <udid> com.koine.demo`
+On the simulator, `xcrun simctl launch --console-pty <udid> com.yipihey.koine`
 prints them, and the token file is under the app's data container:
 
 ```bash
-DATA=$(xcrun simctl get_app_container <udid> com.koine.demo data)
+DATA=$(xcrun simctl get_app_container <udid> com.yipihey.koine data)
 cat "$DATA"/Documents/koine-demo/automation/loopback-*.token
 ```
 

@@ -69,4 +69,4 @@ jobs:
         run: |
           APP="$(ls -d target/dx/koine-demo-mobile/release/ios/*.app | head -n 1)"
           echo "built: $APP"
-          scripts/tests/ios/run.sh --app "$APP" --bundle-id com.koine.demo
+          scripts/tests/ios/run.sh --app "$APP" --bundle-id com.yipihey.koine

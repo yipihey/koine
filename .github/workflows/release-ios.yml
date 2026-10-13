@@ -1,0 +1,179 @@
+# A koine app onto an iPhone through TestFlight (docs/plan-koine-mobile.md M-D8,
+# docs/mobile.md "Onto a phone"). Reusable: an app's own workflow calls it with
+# the crate, the bundle id and the version; the demo's caller is
+# release-demo-ios.yml.
+#
+# Steps: fastlane `signing` (a distribution certificate and an App Store
+# profile for the bundle id, made with the App Store Connect API key and kept
+# encrypted on this repository's `signing` branch), `dx build --device`
+# (signed with that identity and profile), scripts/release/sign-ipa.sh (the
+# version and build number stamped, re-sealed, packed), fastlane `testflight`
+# (uploaded), and the .ipa attached to the GitHub Release when a tag started
+# the run.
+#
+# Secrets (repository secrets, set once): APP_STORE_CONNECT_KEY_ID,
+# APP_STORE_CONNECT_ISSUER_ID, APP_STORE_CONNECT_API_KEY, APPLE_TEAM_ID,
+# MATCH_PASSWORD. The signing branch is written with GITHUB_TOKEN.
+name: release-ios
+
+on:
+  workflow_call:
+    inputs:
+      crate:
+        description: "The crate under crates/ that is the app (its Dioxus.toml names the bundle)"
+        type: string
+        required: true
+      bundle_id:
+        description: "The app's CFBundleIdentifier (registered in the developer portal; an App record exists in App Store Connect)"
+        type: string
+        required: true
+      version:
+        description: "CFBundleShortVersionString, x.y.z"
+        type: string
+        required: true
+      release_tag:
+        description: "When set, the .ipa is attached to the GitHub Release of this tag"
+        type: string
+        required: false
+        default: ""
+  workflow_dispatch:
+    inputs:
+      crate:
+        description: "The crate under crates/ that is the app"
+        type: string
+        default: koine-demo-mobile
+      bundle_id:
+        description: "The app's CFBundleIdentifier"
+        type: string
+        default: com.yipihey.koine
+      version:
+        description: "CFBundleShortVersionString, x.y.z"
+        type: string
+        default: "0.1.0"
+      release_tag:
+        description: "Attach the .ipa to this tag's GitHub Release (empty: no release)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  DIOXUS_CLI_VERSION: 0.7.10
+
+jobs:
+  testflight:
+    name: TestFlight (${{ inputs.crate }})
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      CRATE: ${{ inputs.crate }}
+      IOS_BUNDLE_ID: ${{ inputs.bundle_id }}
+      # `x.y.z`, or a tag like `demo-v0.1.0` (a caller passes the tag name;
+      # expressions cannot strip it, the "Version" step does).
+      VERSION_INPUT: ${{ inputs.version }}
+      BUILD_NUMBER: ${{ github.run_number }}
+      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_HIDE_CHANGELOG: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The secrets exist
+        run: |
+          for v in APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_API_KEY APPLE_TEAM_ID MATCH_PASSWORD; do
+            if [ -z "${!v}" ]; then echo "::error::repository secret $v is not set (docs/mobile.md, Onto a phone)"; exit 1; fi
+          done
+
+      - name: Version
+        id: version
+        run: |
+          VERSION="${VERSION_INPUT##*-v}"
+          case "$VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::version '$VERSION_INPUT' is not x.y.z or <name>-vx.y.z"; exit 1 ;;
+          esac
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "crate=$CRATE bundle=$IOS_BUNDLE_ID version=$VERSION build=$BUILD_NUMBER"
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - name: iOS device target
+        run: rustup target add aarch64-apple-ios
+
+      - name: Cache dx
+        id: dx-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/dx
+          key: dx-${{ runner.os }}-${{ runner.arch }}-${{ env.DIOXUS_CLI_VERSION }}
+      - name: Install dioxus-cli
+        if: steps.dx-cache.outputs.cache-hit != 'true'
+        run: cargo install dioxus-cli --version "$DIOXUS_CLI_VERSION" --locked
+
+      - name: Certificate and profile (fastlane match)
+        run: fastlane ios signing
+
+      - name: Entitlements from the profile
+        id: ent
+        run: |
+          set -a; . ./signing.env; set +a
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+          echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
+          scripts/release/sign-ipa.sh entitlements --profile "$PROFILE" --out "$RUNNER_TEMP/entitlements.plist"
+
+      - name: Build for the device (dx)
+        working-directory: crates/${{ inputs.crate }}
+        run: |
+          dx build --platform ios --device --release --features mobile \
+            --apple-team-id "${{ steps.ent.outputs.identity }}" \
+            --apple-entitlements "$RUNNER_TEMP/entitlements.plist"
+
+      - name: Stamp, re-seal and pack the .ipa
+        id: ipa
+        run: |
+          APP="$(ls -d "target/dx/$CRATE/release/ios/"*.app | head -n 1)"
+          [ -d "$APP" ] || { echo "::error::no .app under target/dx/$CRATE/release/ios"; exit 1; }
+          NAME="$(basename "$APP" .app)"
+          OUT="$RUNNER_TEMP/$NAME-$VERSION-$BUILD_NUMBER.ipa"
+          scripts/release/sign-ipa.sh ipa \
+            --app "$APP" \
+            --profile "${{ steps.ent.outputs.profile }}" \
+            --identity "${{ steps.ent.outputs.identity }}" \
+            --bundle-id "$IOS_BUNDLE_ID" \
+            --version "$VERSION" \
+            --build "$BUILD_NUMBER" \
+            --out "$OUT"
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+          ls -la "$OUT"
+
+      - name: Upload to TestFlight (fastlane pilot)
+        env:
+          IPA_PATH: ${{ steps.ipa.outputs.path }}
+        run: fastlane ios testflight
+
+      - name: Keep the .ipa as a run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.crate }}-${{ steps.version.outputs.version }}-${{ github.run_number }}.ipa
+          path: ${{ steps.ipa.outputs.path }}
+          retention-days: 30
+
+      - name: Attach the .ipa to the GitHub Release
+        if: inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: ${{ inputs.crate }} ${{ steps.version.outputs.version }}
+          body: |
+            ${{ inputs.crate }} ${{ steps.version.outputs.version }} (build ${{ github.run_number }}), bundle `${{ inputs.bundle_id }}`.
+            Uploaded to TestFlight by this run; the `.ipa` here is the same signed build.
+          files: ${{ steps.ipa.outputs.path }}

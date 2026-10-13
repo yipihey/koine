@@ -7,7 +7,7 @@ name = "koine-demo-mobile"
 [bundle]
 # The id `xcrun simctl launch` and `get_app_container` take
 # (scripts/tests/ios/run.sh).
-identifier = "com.koine.demo"
+identifier = "com.yipihey.koine"
 publisher = "koine"
 
 # Info.plist keys merged into the generated one ([ios.plist]; dx writes a
@@ -17,3 +17,6 @@ publisher = "koine"
 [ios.plist]
 UIFileSharingEnabled = true
 LSSupportsOpeningDocumentsInPlace = true
+# No encryption of our own (TLS is the OS's): TestFlight then needs no
+# export-compliance answer before a build reaches the phone.
+ITSAppUsesNonExemptEncryption = false

@@ -44,7 +44,7 @@ dx build --platform ios --device --release   # a phone (aarch64-apple-ios)
 
 The bundle is `target/dx/koine-demo-mobile/release/ios/KoineDemoMobile.app` (dx
 names it by pascal-casing the binary). The bundle identifier is the `Dioxus.toml`
-`[bundle] identifier` (`com.koine.demo`). Putting a build on a phone needs your
+`[bundle] identifier` (`com.yipihey.koine`). Putting a build on a phone needs your
 signing identity and provisioning profile; `dx build --help` lists `--codesign`,
 `--apple-team-id` and `--apple-entitlements`. Nothing here automates signing or
 the App Store (M-D7).
@@ -79,7 +79,7 @@ On the simulator, the Mac reads the file from the app's data container:
 
 ```bash
 UDID=$(xcrun simctl list devices booted -j | jq -r '[.devices[][]][0].udid')
-DATA=$(xcrun simctl get_app_container "$UDID" com.koine.demo data)
+DATA=$(xcrun simctl get_app_container "$UDID" com.yipihey.koine data)
 TOKEN_FILE=$(ls -t "$DATA"/Documents/koine-demo/automation/loopback-*.token | head -n 1)
 TOKEN=$(cat "$TOKEN_FILE")
 PORT=$(basename "$TOKEN_FILE" .token); PORT=${PORT#loopback-}
@@ -177,7 +177,7 @@ scripts/tests/ios/run.sh --udid <udid> --app path/to/KoineDemoMobile.app
 ```
 
 It boots a simulator (and shuts it down again if it booted it), installs the
-bundle, launches `com.koine.demo`, finds the token in the data container,
+bundle, launches `com.yipihey.koine`, finds the token in the data container,
 and from the Mac asserts `/api/status`, a 401 without the token, the histogram
 verb, the surface loop above (create, render, dispatch, state, wait), `/mcp`
 `tools/list` and the Info.plist keys. PASS/FAIL per line, non-zero on any FAIL.
@@ -210,3 +210,53 @@ writes the crate, that the workspace resolves it, and that `cargo check -p
   draws the web page; impress-apps' own iOS apps draw surfaces natively already.
 - Not in this tree either: a page switch for the network door, and the door as an
   audited verb.
+
+## Onto a phone: TestFlight from a tag
+
+A simulator runs an unsigned bundle; an iPhone runs only a signed one, and
+the signing needs an Apple Developer Program membership. With that, the
+loop is phone-only after a one-time setup (docs/plan-koine-mobile.md M-D8):
+
+**Once, for the team**
+
+1. In App Store Connect (Users and Access, Integrations, App Store Connect
+   API, Team Keys) generate a key with the **Admin** role; note its Key ID,
+   the page's Issuer ID, and download the `.p8` (once only).
+2. Repository secrets on this repository: `APP_STORE_CONNECT_KEY_ID`,
+   `APP_STORE_CONNECT_ISSUER_ID`, `APP_STORE_CONNECT_API_KEY` (the `.p8`
+   text, BEGIN and END lines included), `APPLE_TEAM_ID` (Membership details
+   on developer.apple.com), and `MATCH_PASSWORD` (any long random
+   passphrase: it encrypts the certificate and profile `fastlane match`
+   keeps on this repository's `signing` branch, so the second run reuses
+   what the first run minted and no Mac ever holds the key).
+3. TestFlight installed on the phone.
+
+**Once per app**
+
+1. Register the bundle id (developer.apple.com, Identifiers, App IDs) and
+   create the App record (App Store Connect, My Apps, New App) with that id.
+2. In the app's TestFlight tab, an internal group with you in it and
+   automatic distribution on.
+3. A caller workflow like `.github/workflows/release-demo-ios.yml` naming
+   the crate, the bundle id and a tag pattern (`scripts/new-app.sh --mobile`
+   writes one).
+
+**Every release**
+
+```bash
+git tag demo-v0.1.1 && git push origin demo-v0.1.1   # or Actions, Run workflow
+```
+
+`release-ios.yml` then runs on a macOS runner: `fastlane ios signing`
+(`fastlane/Fastfile`: `match` makes the certificate and the App Store
+profile exist and installs them), `dx build --platform ios --device
+--release --features mobile` signed with that identity,
+`scripts/release/sign-ipa.sh` (stamps `CFBundleShortVersionString` from the
+tag and `CFBundleVersion` from the run number, which TestFlight needs
+unique, re-seals the bundle, packs the `.ipa`), `fastlane ios testflight`
+(uploads), and the `.ipa` lands on the tag's GitHub Release. TestFlight
+notifies the phone a few minutes after Apple processes the build; tap
+Install.
+
+What this does not do: App Store review or external testers (internal
+testing needs neither), Android, a build on a machine without Xcode.

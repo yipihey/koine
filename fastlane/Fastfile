@@ -1,0 +1,68 @@
+# fastlane/Fastfile - the two Apple-facing steps of the iOS release
+# (docs/plan-koine-mobile.md M-D8; the workflow is .github/workflows/release-ios.yml).
+#
+# Everything Apple needs is the App Store Connect API key (the four secrets
+# the workflow passes as environment) and a passphrase for the signing store:
+#
+#   APP_STORE_CONNECT_KEY_ID, APP_STORE_CONNECT_ISSUER_ID,
+#   APP_STORE_CONNECT_API_KEY (the .p8 text), APPLE_TEAM_ID,
+#   MATCH_PASSWORD (encrypts the certificate and profile at rest),
+#   MATCH_GIT_URL (this repository, with a token), IOS_BUNDLE_ID.
+#
+# `signing` makes a distribution certificate and an App Store provisioning
+# profile exist for IOS_BUNDLE_ID, through `match`: they are created with the
+# API key the first time, stored encrypted on this repository's `signing`
+# branch, and reused on every later run (no Mac, no Keychain Access, and the
+# team's certificate count does not grow). It then installs them into a
+# throwaway keychain on the runner and writes `signing.env` with the identity
+# name and the profile path, for `dx build` and scripts/release/sign-ipa.sh.
+#
+# `testflight` uploads the .ipa named by IPA_PATH to TestFlight; the app's
+# internal group with automatic distribution then pushes it to the phone.
+
+default_platform(:ios)
+
+platform :ios do
+  def api_key
+    app_store_connect_api_key(
+      key_id: ENV.fetch("APP_STORE_CONNECT_KEY_ID"),
+      issuer_id: ENV.fetch("APP_STORE_CONNECT_ISSUER_ID"),
+      key_content: ENV.fetch("APP_STORE_CONNECT_API_KEY"),
+      is_key_content_base64: false,
+      in_house: false
+    )
+  end
+
+  desc "Certificate + App Store profile for IOS_BUNDLE_ID, installed on this runner"
+  lane :signing do
+    bundle_id = ENV.fetch("IOS_BUNDLE_ID")
+    setup_ci
+    match(
+      type: "appstore",
+      platform: "ios",
+      app_identifier: bundle_id,
+      team_id: ENV.fetch("APPLE_TEAM_ID"),
+      api_key: api_key,
+      git_url: ENV.fetch("MATCH_GIT_URL"),
+      git_branch: "signing",
+      readonly: false,
+      generate_apple_certs: true,
+      skip_docs: true
+    )
+    identity = ENV.fetch("sigh_#{bundle_id}_appstore_certificate-name")
+    profile = ENV.fetch("sigh_#{bundle_id}_appstore_profile-path")
+    File.write("../signing.env", "IDENTITY=#{identity}\nPROFILE=#{profile}\n")
+    UI.success("signing: #{identity}; profile #{profile}")
+  end
+
+  desc "Upload IPA_PATH to TestFlight"
+  lane :testflight do
+    upload_to_testflight(
+      api_key: api_key,
+      ipa: ENV.fetch("IPA_PATH"),
+      skip_waiting_for_build_processing: true,
+      skip_submission: true,
+      distribute_external: false
+    )
+  end
+end

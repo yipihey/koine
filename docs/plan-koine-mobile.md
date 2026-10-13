@@ -16,6 +16,7 @@ inside too.
 | who the agent is | M-D4 loopback for anything on the phone; a network bearer for a Mac |
 | how it is built and proven | M-D5 `dx build --platform ios`, a macOS lane that drives the simulator |
 | the scaffold | M-D6 `new-app.sh --mobile` |
+| onto a real phone | M-D8 TestFlight from a tag |
 | not now | M-D7 |
 
 ## Decisions
@@ -111,6 +112,25 @@ two Files-app keys, and a README section "On an iPhone": `dx serve
 drives it. The e2e proof checks the scaffold writes the crate and that the
 workspace resolves it; compiling it is the macOS lane's.
 
+### M-D8. Onto a real phone: TestFlight from a tag
+
+A phone runs only a signed app, and the only phone-only loop (no Mac
+beside the phone) is a signed build delivered by TestFlight. One
+reusable workflow, `release-ios.yml`, takes a crate, a bundle id and a
+version: `fastlane match` makes a distribution certificate and an App
+Store profile exist for the bundle id through the App Store Connect API
+key, keeping them encrypted on the repository's `signing` branch so every
+later run reuses them (the team's certificate count stays at one, no Mac
+holds the key); `dx build --device` signs with that identity;
+`scripts/release/sign-ipa.sh` stamps the version and the run number as the
+build number, re-seals and packs; `fastlane pilot` uploads; the tag's
+GitHub Release gets the `.ipa`. The App Store Connect API cannot create an
+App record, so that one form, and the bundle id's registration, stay with
+the person, once per app. Five repository secrets, set once for the team:
+the key's id, issuer and `.p8`, the team id, and the passphrase for the
+signing store. External testers, review and the App Store are out of
+scope: internal TestFlight needs neither.
+
 ### M-D7. Not in this plan
 
 - **Android.** `dx build --platform android` takes the same crate; nothing
@@ -119,8 +139,8 @@ workspace resolves it; compiling it is the macOS lane's.
   MCP to loopback; koine ships no model client (ADR-0029's providers are
   impress-apps').
 - **A relay** that lets an agent off the network reach the phone.
-- **Signing and the App Store.** `dx build --device` with a developer
-  profile is the person's; nothing here automates it.
+- **App Store review and external testers.** M-D8 stops at internal
+  TestFlight; the store is the person's.
 - **A native (SwiftUI) renderer for a standalone app.** The suite's
   `ImpressSurface` draws surfaces natively inside impress-apps' own iOS
   apps already; a standalone koine app draws the web page.
@@ -134,6 +154,7 @@ workspace resolves it; compiling it is the macOS lane's.
 | I3 | `crates/koine-demo-mobile`; `new-app.sh --mobile`; the e2e scaffold check | koine-demo-mobile, scripts |
 | I4 | the macOS lane; `docs/mobile.md`; README and plan status | .github, docs |
 | I5 | gate, main | orchestrator |
+| R1 | `release-ios.yml` (M-D8), `fastlane/Fastfile`, `scripts/release/sign-ipa.sh`, the demo caller, docs | .github, fastlane, scripts, docs |
 
 ## Status
 

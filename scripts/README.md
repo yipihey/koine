@@ -41,3 +41,5 @@ iOS simulator, installs the app `dx build --platform ios` made from
 data container and drives the host inside it from the Mac (status, a verb, the
 surface loop, MCP). PASS/FAIL per assertion. Needs macOS with Xcode, curl and jq;
 the `ios` job of `.github/workflows/ci.yml` runs it, and so can a person.
+
+- `release/sign-ipa.sh`: from a `dx`-built iOS `.app` to a TestFlight-ready `.ipa` (entitlements from the profile, version and build stamped, re-sealed, packed); run by `.github/workflows/release-ios.yml`.

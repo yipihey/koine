@@ -28,7 +28,7 @@
 #   --app        the built bundle (default: the first *.app under
 #                <target>/dx/koine-demo-mobile/release/ios/, <target> being
 #                $CARGO_TARGET_DIR or <koine>/target)
-#   --bundle-id  the app's CFBundleIdentifier (default com.koine.demo, the
+#   --bundle-id  the app's CFBundleIdentifier (default com.yipihey.koine, the
 #                Dioxus.toml [bundle] identifier of crates/koine-demo-mobile)
 #   --app-id     the folder under Documents the host's workspace lives in
 #                (default koine-demo, `sandbox_config("koine-demo")`)
@@ -44,7 +44,7 @@ KOINE_PATH="${KOINE_PATH:-$(cd "$HERE/../../.." && pwd)}"
 
 UDID="${UDID:-}"
 APP_PATH="${APP_PATH:-}"
-BUNDLE_ID="${BUNDLE_ID:-com.koine.demo}"
+BUNDLE_ID="${BUNDLE_ID:-com.yipihey.koine}"
 APP_ID="${APP_ID:-koine-demo}"
 KEEP_BOOTED="${KEEP_BOOTED:-}"
 

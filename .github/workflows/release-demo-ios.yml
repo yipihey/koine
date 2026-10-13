@@ -1,0 +1,28 @@
+# The demo app onto an iPhone: tag `demo-v<x.y.z>` (or run it by hand) and
+# release-ios.yml builds, signs, uploads to TestFlight and attaches the .ipa
+# to the tag's GitHub Release. The template for a bespoke app's caller
+# (docs/mobile.md "Onto a phone").
+name: release-demo-ios
+
+on:
+  push:
+    tags: ["demo-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "CFBundleShortVersionString, x.y.z"
+        type: string
+        default: "0.1.0"
+
+permissions:
+  contents: write
+
+jobs:
+  testflight:
+    uses: ./.github/workflows/release-ios.yml
+    with:
+      crate: koine-demo-mobile
+      bundle_id: com.yipihey.koine
+      version: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
+      release_tag: ${{ github.event_name == 'push' && github.ref_name || '' }}
+    secrets: inherit
