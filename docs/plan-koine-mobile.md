@@ -247,3 +247,30 @@ confirms:
    serves them, and that `document::eval` (the DOM reads) works on iOS;
 8. macos-15 is arm64, so `dx` picks `aarch64-apple-ios-sim`; the job's runtime
    (60 minutes) is enough for a cold build.
+
+**M-D8 proven 2026-10-13.** The fifth `release-demo-ios` run on main
+(build 5 of 0.1.0) uploaded to TestFlight; the four before it each
+stopped one step later than the last, and every stop was a fact about
+the gap between a dx bundle and what Apple's validator reads, now closed
+in `scripts/release/sign-ipa.sh` and the workflow:
+
+1. the identity `match` returns is `Apple Distribution: NAME (TEAM)`, which
+   needs quoting in a shell env file;
+2. a dx-built `Info.plist` has none of the `DT*` keys, so `pilot` cannot
+   infer the platform (`app_platform: "ios"`) and validation refuses the
+   bundle; the script writes them from the runner's Xcode and
+   `MinimumOSVersion` from the binary's `LC_BUILD_VERSION`;
+3. validation refuses an iOS bundle without an icon catalog
+   (`CFBundleIconName`): the script compiles `crates/<crate>/icon.png`
+   with `actool`;
+4. dx names a `LaunchScreen` storyboard it does not ship, and an
+   iPad-multitasking app must have a launch screen: an empty
+   `UILaunchScreen` dict is the storyboard-free form for a floor of 14+;
+5. App Store Connect takes only builds made with the iOS 26 SDK, and the
+   `macos-15` image defaults to Xcode 16.4: the job selects the newest
+   `Xcode_26*` on the image first.
+
+`match` created the certificate and profile on the first run with the
+API key alone and reused them on every later run (the `signing` branch
+exists); no Mac touched a keychain. Not yet seen from here: the phone
+side (processing time, the TestFlight notification, launch on a device).
