@@ -127,6 +127,28 @@ pub struct HostLink {
 
 static LINK: RwLock<Option<HostLink>> = RwLock::new(None);
 
+/// Lines a native app adds before [`launch`], shown on `/host` under
+/// "startup checks": what its own probes of the host found (the demo's
+/// plain-socket GET of `/api/status`), so a phone with no console still
+/// says what happened.
+static NOTES: RwLock<Vec<String>> = RwLock::new(Vec::new());
+
+/// Add a startup note (see [`notes`]).
+pub fn add_note(note: impl Into<String>) {
+    NOTES
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(note.into());
+}
+
+/// The startup notes, in the order added.
+pub fn notes() -> Vec<String> {
+    NOTES
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+}
+
 /// Install the link once, before [`launch`]. A second call replaces the first
 /// (tests); the page reads it on every request.
 pub fn install_link(link: HostLink) {

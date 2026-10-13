@@ -51,6 +51,14 @@ fn main() {
         surface_demo_service::concierge::ConciergeConfig::new(APP_ID),
     );
 
+    // Probe the host from this thread with plain sockets, before the page
+    // does with its own transport: the two answers, side by side on the
+    // page's Host tab, say which layer a phone fails at.
+    for note in probe(&url) {
+        eprintln!("koine-demo-mobile: {note}");
+        koine_web::add_note(note);
+    }
+
     koine_web::install_link(koine_web::HostLink {
         origin: url,
         token: Some(host.token().to_string()),
@@ -62,4 +70,52 @@ fn main() {
 
     concierge.shutdown();
     host.shutdown();
+}
+
+/// `GET /api/status` over `std::net` with a 3 s limit: a TCP connect line and
+/// the first line of the answer, or the error, as notes for the Host tab.
+fn probe(url: &str) -> Vec<String> {
+    use std::io::{Read, Write};
+    use std::net::{SocketAddr, TcpStream};
+    use std::time::Duration;
+
+    let mut notes = Vec::new();
+    let authority = url.trim_start_matches("http://").trim_end_matches('/');
+    let addr: SocketAddr = match authority.parse() {
+        Ok(addr) => addr,
+        Err(error) => {
+            notes.push(format!("probe: {authority} is not an address: {error}"));
+            return notes;
+        }
+    };
+    let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_secs(3)) {
+        Ok(stream) => {
+            notes.push(format!("tcp connect {addr}: ok"));
+            stream
+        }
+        Err(error) => {
+            notes.push(format!("tcp connect {addr}: {error}"));
+            return notes;
+        }
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(3)));
+    let request =
+        format!("GET /api/status HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n");
+    if let Err(error) = stream.write_all(request.as_bytes()) {
+        notes.push(format!("GET /api/status: write: {error}"));
+        return notes;
+    }
+    let mut answer = Vec::new();
+    match stream.read_to_end(&mut answer) {
+        Ok(_) => {
+            let text = String::from_utf8_lossy(&answer);
+            let first = text.lines().next().unwrap_or("").to_string();
+            let body = text.split("\r\n\r\n").nth(1).unwrap_or("").trim();
+            let body: String = body.chars().take(160).collect();
+            notes.push(format!("GET /api/status: {first} {body}"));
+        }
+        Err(error) => notes.push(format!("GET /api/status: read: {error}")),
+    }
+    notes
 }

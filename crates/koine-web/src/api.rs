@@ -476,7 +476,24 @@ async fn answer(response: reqwest::Response) -> Result<Value, ApiError> {
 }
 
 fn transport(error: reqwest::Error) -> ApiError {
-    ApiError::new("transport", error.to_string())
+    // The whole chain: reqwest's top line is "error sending request for url
+    // (…)", and the reason (connection refused, a timeout, a resolver) is
+    // two sources down. A phone shows this line and nothing else.
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(&error);
+    while let Some(inner) = source {
+        message.push_str(": ");
+        message.push_str(&inner.to_string());
+        source = inner.source();
+    }
+    ApiError::new("transport", message)
+}
+
+/// `GET /api/status` on the page's origin: what the host says it is, or the
+/// transport's whole error chain. The Host page runs it so a phone can say
+/// which layer fails.
+pub async fn ping() -> Result<Value, ApiError> {
+    get(&format!("{}/api/status", origin())).await
 }
 
 /// The app's surfaces. A refusal is the `Err`.

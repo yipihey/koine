@@ -89,6 +89,49 @@ fn LinkedHost(link: HostLink) -> Element {
                 code { "Authorization: Bearer <bearer>" }
                 "; a request that only reads needs no bearer."
             }
+            HostChecks {}
+        }
+    }
+}
+
+/// The app's startup notes and a live `GET /api/status` from this page's
+/// own transport, each with its whole error chain: on a phone, this is the
+/// only place that says which layer fails.
+#[component]
+fn HostChecks() -> Element {
+    let notes = crate::notes();
+    let mut result = use_signal(|| None::<Result<String, String>>);
+    let mut runs = use_signal(|| 0u32);
+    use_effect(move || {
+        let _ = runs();
+        spawn(async move {
+            let answer = match api::ping().await {
+                Ok(value) => Ok(value.to_string()),
+                Err(error) => Err(format!("{}: {}", error.code, error.message)),
+            };
+            result.set(Some(answer));
+        });
+    });
+    rsx! {
+        h2 { "Startup checks" }
+        if notes.is_empty() {
+            p { class: "kw-note", "none recorded" }
+        } else {
+            ul { class: "kw-checks",
+                for note in notes.iter() {
+                    li { "{note}" }
+                }
+            }
+        }
+        h2 { "This page's transport" }
+        p {
+            button { onclick: move |_| runs.set(runs() + 1), "Check now" }
+            " "
+            match result() {
+                None => rsx! { span { class: "kw-note", "checking…" } },
+                Some(Ok(status)) => rsx! { code { "{status}" } },
+                Some(Err(error)) => rsx! { code { class: "kw-refusal", "{error}" } },
+            }
         }
     }
 }
