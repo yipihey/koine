@@ -51,7 +51,8 @@ platform :ios do
     )
     identity = ENV.fetch("sigh_#{bundle_id}_appstore_certificate-name")
     profile = ENV.fetch("sigh_#{bundle_id}_appstore_profile-path")
-    File.write("../signing.env", "IDENTITY=#{identity}\nPROFILE=#{profile}\n")
+    # Single-quoted: the identity is "Apple Distribution: NAME (TEAM)".
+    File.write("../signing.env", "IDENTITY='#{identity}'\nPROFILE='#{profile}'\n")
     UI.success("signing: #{identity}; profile #{profile}")
   end
 
