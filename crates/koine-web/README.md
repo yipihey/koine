@@ -9,7 +9,7 @@ keys, the router and the pages. The plan is
 
 | Route | Page |
 |---|---|
-| `/` | the app's surfaces (`GET /api/surface`), as links |
+| `/` | the app's surfaces (`GET /api/surface`), as links, listed again every three seconds while the tab is visible |
 | `/surface/:id` | one surface, live: render, then a long-poll on `…/wait` that re-renders on any change; events are posted to `…/dispatch` |
 | `/layout` | the window tree with pane frames (below) |
 | `/style` | the style editor, drawn by the web frontend and applied to the same sheet the surface page reads |
@@ -145,7 +145,12 @@ itself is not what `dx` builds for a phone. Those features need the platform's
 WebView (Xcode on a Mac); the Linux lane keeps the browser build and the native
 tests. On a native target the key shortcuts are off (the editable-element
 guard cannot read the DOM synchronously, so it answers "editable"): touch and
-pointer input, Tab and Enter work.
+pointer input, Tab and Enter work. The native build adds a viewport meta
+(`width=device-width, initial-scale=1, viewport-fit=cover`) to the index the
+WebView serves (`Config::with_custom_head`), and the page is laid out for a
+phone at or below 700px wide: the nav wraps, controls are full width and
+finger-sized, a row's menu has a visible "…" button, tables scroll inside
+their box, and `/layout` stacks its panes (plan-koine-tour T-D4).
 
 ## Keys
 

@@ -18,6 +18,13 @@
 //! with `impress_service_core::job::emit` and reports `progress`; run inline
 //! (a form's Run, Tier A) both are no-ops and it just sleeps and answers.
 //!
+//! The tour (plan-koine-tour T-D2) adds the rest: [`notes`](SurfaceDemoService::notes)
+//! and `note_add`/`note_rename`/`note_move`/`note_delete` over `note` records
+//! in the process store (`crate::notes`, which also says why the schema ref
+//! is spelled `note`), and [`inventory`](SurfaceDemoService::inventory), the
+//! map of this app for a `graph` node (`crate::inventory`). The tour's five
+//! surfaces and their seeding are `crate::tour`.
+//!
 //! `examples/surface-demo.surface.json` drives both from two sliders (a copy
 //! of `crates/impress-surface/examples/signal-explorer.surface.json`, whose
 //! verb and argument names already matched these — see that file and this
@@ -53,8 +60,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod concierge;
+pub mod inventory;
+pub mod notes;
 mod plot;
 pub mod tour;
+
+pub use inventory::{InventoryEdge, InventoryNode};
 
 /// Amplitude of the pseudo-noise `series` adds to its sine wave. Small enough
 /// that the signal is still visibly a sine wave, large enough that a
@@ -143,6 +154,76 @@ impl HistogramResult {
     }
 }
 
+/// One note, as `notes` lists it and the `note_*` verbs answer it. `id` is
+/// the note's key (what the record's payload `id` holds); `record` is the
+/// record uuid the Notes tree's events carry. Either is accepted wherever a
+/// verb takes a note `id` — see `crate::notes`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NoteRow {
+    /// The note's key.
+    pub id: String,
+    pub title: String,
+    /// The parent note's key; null for a root.
+    pub parent: Option<String>,
+    /// The record uuid (what a `tree` over the `note` kind shows as `id`).
+    pub record: String,
+}
+
+impl From<notes::Note> for NoteRow {
+    fn from(note: notes::Note) -> Self {
+        NoteRow {
+            id: note.key,
+            title: note.title,
+            parent: note.parent,
+            record: note.record.to_string(),
+        }
+    }
+}
+
+/// Result of `note_add`, `note_rename` and `note_move`: the note as it now is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NoteResult {
+    /// The note, after the change. `None` when `error` is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<NoteRow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<ServiceError>,
+}
+
+impl NoteResult {
+    fn of(outcome: Result<notes::Note, notes::NoteError>) -> Self {
+        match outcome {
+            Ok(note) => NoteResult {
+                note: Some(note.into()),
+                error: None,
+            },
+            Err(e) => NoteResult {
+                note: None,
+                error: Some(ServiceError::new(e.code, e.message)),
+            },
+        }
+    }
+}
+
+/// Result of `note_delete`: the keys of the notes deleted, the named one
+/// first and its descendants after it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NoteDeleteResult {
+    pub deleted: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<ServiceError>,
+}
+
+/// Result of `inventory`: the map of this app, in the shape a `graph` node
+/// reads (`nodes[].id`/`label`, `edges[].source`/`target`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct InventoryResult {
+    pub nodes: Vec<InventoryNode>,
+    pub edges: Vec<InventoryEdge>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<ServiceError>,
+}
+
 /// A seeded linear congruential generator step, keyed by index `i` — no
 /// `rand` dependency (ADR-0033 S9). Deterministic: the same `i` always yields
 /// the same value, so `series` is deterministic for a given `(freq, n)`.
@@ -194,6 +275,67 @@ pub trait SurfaceDemoService: Send + Sync + 'static {
     #[impress_method(supports(in_background))]
     #[impress_example(name = "default", args = r#"{"n": 2, "every_ms": 1}"#)]
     async fn tick(&self, n: u32, every_ms: u64) -> TickResult;
+
+    /// Every note in the store, oldest first: rows of the kind `note`
+    /// (`crate::notes`), each `{id, title, parent, record}` where `id` and
+    /// `parent` are keys and `record` the record uuid. The result is the
+    /// array itself (what `rows(…)` asks of a verb's shape); with no store,
+    /// or a store that cannot be read (logged as a warning), it is empty.
+    #[impress_method(
+        returns_kind = "note",
+        rows(id = "id", title = "title", columns = ["id", "title", "parent"]),
+        effects(reads = [any("the demo's `note` records (crate::notes), not a canonical ref")])
+    )]
+    #[impress_example(name = "default", args = r#"{}"#)]
+    async fn notes(&self) -> Vec<NoteRow>;
+
+    /// Add a note titled `title` under `parent` (a note's key or record
+    /// uuid; absent or null for a root). Refuses an empty title
+    /// (`invalid-argument`), an unknown parent (`not-found`), and a process
+    /// with no real store (`store-unavailable`).
+    #[impress_method(
+        safety = mutating,
+        effects(writes = [any("the demo's `note` records (crate::notes), not a canonical ref")])
+    )]
+    #[impress_example(name = "default", args = r#"{"title": "A note"}"#)]
+    async fn note_add(&self, title: String, parent: Option<String>) -> NoteResult;
+
+    /// Retitle note `id` (a key or a record uuid). Refuses an empty title
+    /// and an unknown note.
+    #[impress_method(
+        safety = mutating,
+        effects(writes = [any("the demo's `note` records (crate::notes), not a canonical ref")])
+    )]
+    #[impress_example(name = "default", args = r#"{"id": "research", "title": "Research"}"#)]
+    async fn note_rename(&self, id: String, title: String) -> NoteResult;
+
+    /// Move note `id` under `parent` (absent or null: to the root). Refuses
+    /// an unknown note or parent (`not-found`) and a move under itself or
+    /// one of its descendants (`cycle`).
+    #[impress_method(
+        safety = mutating,
+        effects(writes = [any("the demo's `note` records (crate::notes), not a canonical ref")])
+    )]
+    #[impress_example(name = "default", args = r#"{"id": "research"}"#)]
+    async fn note_move(&self, id: String, parent: Option<String>) -> NoteResult;
+
+    /// Delete note `id` and every note under it; answers the keys deleted.
+    /// Refuses an unknown note.
+    #[impress_method(
+        safety = destructive,
+        effects(writes = [any("the demo's `note` records (crate::notes), not a canonical ref")])
+    )]
+    #[impress_example(name = "default", args = r#"{"id": "research"}"#)]
+    async fn note_delete(&self, id: String) -> NoteDeleteResult;
+
+    /// The map of this app for a `graph` node (`crate::inventory`): one node
+    /// per linked verb, per record kind the verbs read, write or return, and
+    /// per surface in the store; edges verb → kind (`reads`, `writes`,
+    /// `returns`) and surface → verb (`calls`, the verbs its sources and
+    /// actions name). Never refuses: with no store the surfaces are absent.
+    #[impress_method(effects(reads = ["impress/ui/surface@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{}"#)]
+    async fn inventory(&self) -> InventoryResult;
 }
 
 /// The default (and only) implementation: pure computation, no state.
@@ -258,6 +400,50 @@ impl SurfaceDemoService for DefaultSurfaceDemoService {
         TickResult {
             ok: true,
             emitted: n,
+        }
+    }
+
+    async fn notes(&self) -> Vec<NoteRow> {
+        match notes::list() {
+            Ok(list) => list.into_iter().map(NoteRow::from).collect(),
+            Err(e) => {
+                tracing::warn!(code = e.code, message = %e.message, "notes: not read");
+                Vec::new()
+            }
+        }
+    }
+
+    async fn note_add(&self, title: String, parent: Option<String>) -> NoteResult {
+        NoteResult::of(notes::add(parent.as_deref(), &title, None))
+    }
+
+    async fn note_rename(&self, id: String, title: String) -> NoteResult {
+        NoteResult::of(notes::rename(&id, &title))
+    }
+
+    async fn note_move(&self, id: String, parent: Option<String>) -> NoteResult {
+        NoteResult::of(notes::reparent(&id, parent.as_deref()))
+    }
+
+    async fn note_delete(&self, id: String) -> NoteDeleteResult {
+        match notes::delete(&id) {
+            Ok(deleted) => NoteDeleteResult {
+                deleted,
+                error: None,
+            },
+            Err(e) => NoteDeleteResult {
+                deleted: Vec::new(),
+                error: Some(ServiceError::new(e.code, e.message)),
+            },
+        }
+    }
+
+    async fn inventory(&self) -> InventoryResult {
+        let (nodes, edges) = inventory::build();
+        InventoryResult {
+            nodes,
+            edges,
+            error: None,
         }
     }
 
@@ -354,6 +540,38 @@ impress_service_impl! {
             /// Milliseconds to wait between values.
             every_ms: u64
         ) -> TickResult,
+        /// Every note in the store, oldest first: rows of the kind `note`,
+        /// each `{id, title, parent, record}` (keys, and the record uuid).
+        notes() -> Vec<NoteRow>,
+        /// Add a note under `parent` (a key or record uuid; null for a root).
+        note_add(
+            /// The note's title; must not be empty.
+            title: String,
+            /// The parent note's key or record uuid; absent or null for a root.
+            parent: Option<String>
+        ) -> NoteResult,
+        /// Retitle a note.
+        note_rename(
+            /// The note's key or record uuid.
+            id: String,
+            /// The new title; must not be empty.
+            title: String
+        ) -> NoteResult,
+        /// Move a note under another, or to the root.
+        note_move(
+            /// The note's key or record uuid.
+            id: String,
+            /// The new parent's key or record uuid; absent or null for the root.
+            parent: Option<String>
+        ) -> NoteResult,
+        /// Delete a note and every note under it; answers the keys deleted.
+        note_delete(
+            /// The note's key or record uuid.
+            id: String
+        ) -> NoteDeleteResult,
+        /// The map of this app: linked verbs, the kinds they read, write and
+        /// return, the stored surfaces, and the edges between them.
+        inventory() -> InventoryResult,
     ],
 }
 
@@ -557,17 +775,17 @@ mod tests {
     }
 
     #[test]
-    fn histogram_plot_is_a_plot_spec_shape() {
+    fn histogram_plot_is_koine_plots_spec_shape() {
         let service = DefaultSurfaceDemoService::new();
         let result = runtime::block_on(service.histogram(vec![1.0, 2.0, 3.0, 4.0], 2));
-        let plot = result.plot;
-        assert_eq!(plot["title"], json!("Histogram"));
-        assert_eq!(plot["colormap"], json!("viridis"));
-        assert_eq!(plot["strategy"], json!("auto"));
-        let series = plot["series"].as_array().expect("series array");
-        assert_eq!(series.len(), 1);
-        assert_eq!(series[0]["kind"], json!("line"));
-        assert_eq!(series[0]["xs"].as_array().unwrap().len(), 2);
-        assert_eq!(series[0]["ys"].as_array().unwrap().len(), 2);
+        let plot: koine_plot::PlotSpec = serde_json::from_value(result.plot.clone())
+            .unwrap_or_else(|e| panic!("`plot` is not a koine-plot PlotSpec: {e}"));
+        assert_eq!(plot.title.as_deref(), Some("Histogram"));
+        assert_eq!(plot.series.len(), 1);
+        assert_eq!(plot.series[0].x.len(), 2);
+        assert_eq!(plot.series[0].y, vec![2.0, 2.0]);
+        assert_eq!(plot.series[0].style, koine_plot::SeriesStyle::Bar);
+        // What the web page's `plot` node and the TUI call on the payload.
+        koine_plot::parse_spec(&result.plot).expect("parse_spec accepts it");
     }
 }

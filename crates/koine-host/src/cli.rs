@@ -217,6 +217,18 @@ pub fn parse_with_env(
 /// Call the app's `ensure_linked()` and [`crate::ensure_linked`] first: the
 /// linker drops a crate nothing refers to, and its verbs with it.
 pub fn main(app_id: &str) -> ExitCode {
+    main_with(app_id, |_, _, _| {})
+}
+
+/// [`main`] with a hook that runs once the host is bound and printed, before
+/// it waits: an app seeds its own records or surfaces here, or starts an
+/// in-process agent (the demo's tour and concierge, docs/plan-koine-tour.md
+/// T-D1). The hook gets the served host and the runtime's handle, so it may
+/// `block_on` a verb call or spawn a task; it is skipped under `--check`.
+pub fn main_with(
+    app_id: &str,
+    on_bound: impl FnOnce(&Cli, &crate::Served, &tokio::runtime::Handle),
+) -> ExitCode {
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -262,6 +274,7 @@ pub fn main(app_id: &str) -> ExitCode {
         runtime.block_on(served.shutdown());
         return ExitCode::SUCCESS;
     }
+    on_bound(&cli, &served, runtime.handle());
     // `--window` (L-D9): the native WebView's event loop must own the main
     // thread, which is this one, outside `block_on`; the server keeps
     // answering on the runtime's worker threads meanwhile. The browser

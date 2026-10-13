@@ -244,6 +244,21 @@
   background: color-mix(in srgb, var(--koine-color-accent) 18%, transparent);
 }
 
+/* The row's "…" button: the same menu a right-click opens, for a finger.
+   Hidden where there is a pointer that can right-click; shown on a narrow or
+   a touch screen (the media query at the end of this file). */
+.koine-more {
+  display: none;
+  font: inherit;
+  margin-left: 0.5em;
+  padding: 0 0.5em;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--koine-color-secondary);
+  cursor: pointer;
+}
+
 .koine-rename-form {
   margin: 0;
 }
@@ -411,4 +426,153 @@
 .koine-focused {
   outline: 2px solid var(--koine-focus, currentColor);
   outline-offset: 2px;
+}
+
+/* A phone (plan-koine-tour T-D4): at or below 700px every control is full
+   width and a finger tall, a table scrolls sideways inside its own box
+   instead of pushing the page wider, and a plot or a graph fills the width.
+   Above it nothing here applies: the desktop performance is the rules above. */
+
+@media (max-width: 700px) {
+  .koine-field > input[type="text"],
+  .koine-field > input[type="number"],
+  .koine-field > input[type="date"],
+  .koine-field > input[type="file"],
+  .koine-field > input[type="color"],
+  .koine-field > input[type="range"],
+  .koine-field > select,
+  .koine-field > textarea {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .koine-field {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .koine-button {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .koine-row > .koine-button {
+    width: auto;
+    flex: 1 1 auto;
+  }
+
+  .koine-table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .koine-table th,
+  .koine-table td {
+    white-space: nowrap;
+  }
+
+  .koine-plot svg,
+  .koine-graph svg,
+  .koine-image {
+    width: 100%;
+  }
+
+  .koine-log,
+  .koine-code {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .koine-menu {
+    left: 0;
+    max-width: calc(100vw - 32px);
+  }
+}
+
+/* A finger, whatever the width: a control's text is never under 16px (iOS
+   zooms into a smaller focused input), a tap target is 44px, a row's menu has
+   a visible button, and a tap does not wait for a possible double-tap zoom. */
+
+@media (max-width: 700px), (pointer: coarse) {
+  /* The same selectors as the `font: inherit` rules above, so these win by
+     order, not by luck of specificity. */
+  .koine-field > input[type="text"],
+  .koine-field > input[type="number"],
+  .koine-field > input[type="date"],
+  .koine-field > input[type="file"],
+  .koine-field > select,
+  .koine-rename,
+  .koine-button,
+  .koine-tab {
+    font-size: max(1em, 16px);
+  }
+
+  .koine-field > input[type="text"],
+  .koine-field > input[type="number"],
+  .koine-field > input[type="date"],
+  .koine-field > select,
+  .koine-button,
+  .koine-tab,
+  .koine-menu-item {
+    min-height: 44px;
+    box-sizing: border-box;
+  }
+
+  .koine-menu-item {
+    display: flex;
+    align-items: center;
+  }
+
+  .koine-list > li,
+  .koine-tree-node,
+  .koine-table tbody tr {
+    min-height: 44px;
+  }
+
+  .koine-tree-node {
+    align-items: center;
+  }
+
+  .koine-list > li {
+    display: flex;
+    align-items: center;
+  }
+
+  .koine-table tbody td {
+    height: 44px;
+    vertical-align: middle;
+  }
+
+  .koine-tree-disclosure {
+    width: 2em;
+    min-height: 44px;
+  }
+
+  .koine-tree-node > .koine-tree-label:first-child {
+    margin-left: 2.25em;
+  }
+
+  .koine-more {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .koine-list > li,
+  .koine-tree-node,
+  .koine-tree-label,
+  .koine-table tbody tr,
+  .koine-button,
+  .koine-tab,
+  .koine-more,
+  .koine-graph-node,
+  .koine-plot,
+  .koine-image {
+    touch-action: manipulation;
+  }
 }

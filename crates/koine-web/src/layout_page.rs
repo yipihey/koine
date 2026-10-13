@@ -92,6 +92,21 @@ const LAYOUT_CSS: &str = r#"
   justify-content: center; text-align: center; height: 100%; color: var(--koine-color-secondary, #6b7280); }
 .koine-unavailable strong { color: var(--koine-color-primary, inherit); }
 .koine-unavailable small { font-size: 0.8rem; }
+@media (max-width: 700px) {
+  /* A phone: the panes stack, each at its content's height (a surface pane
+     at least a few rows), instead of side by side in a 70vh window. The
+     shares still set flex-grow, which has nothing to grow into here; a
+     divider is drawn but a resize is a mouse gesture (README). */
+  .koine-layout { min-height: 0; }
+  .koine-window-body { height: auto; min-height: 0; flex-direction: column; }
+  .koine-window-body > *, .koine-cell, .koine-cell > * { flex-basis: auto; }
+  .koine-horizontal { flex-direction: column; }
+  .koine-horizontal > .koine-divider { width: auto; height: 6px; cursor: row-resize; }
+  .koine-pane { min-height: 160px; }
+  .koine-body { max-height: 70vh; }
+  .koine-tabs button { min-height: 44px; padding: 0 12px; }
+  .koine-grip { padding: 8px; }
+}
 "#;
 
 /// The four edges of a frame, with the word the DOM carries for each.

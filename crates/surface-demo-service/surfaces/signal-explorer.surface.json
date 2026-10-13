@@ -1,0 +1,36 @@
+{
+  "surface": "1.0",
+  "name": "Signal explorer",
+  "state": { "freq": 1.0, "bins": 20 },
+  "sources": {
+    "series": {
+      "verb": "surface-demo-service_series",
+      "args": { "freq": "{{state.freq}}", "n": 512 }
+    },
+    "hist": {
+      "verb": "surface-demo-service_histogram",
+      "args": { "values": "{{source.series.values}}", "bins": "{{state.bins}}" }
+    }
+  },
+  "root": {
+    "column": [
+      { "text": "# Signal explorer" },
+      { "text": "Two sliders feed `series` (a noisy sine wave), its values feed `histogram`, and the histogram's `plot` payload is drawn. Every value on this page is a verb's answer; the page itself computes nothing." },
+      { "row": [
+        { "id": "freq-slider",
+          "field": { "slider": { "min": 0.5, "max": 8, "step": 0.5 } },
+          "label": "Frequency", "bind": "state.freq" },
+        { "id": "bins-slider",
+          "field": { "slider": { "min": 4, "max": 64, "step": 1 } },
+          "label": "Bins", "bind": "state.bins" }
+      ] },
+      { "id": "histogram", "plot": { "spec": "{{source.hist.plot}}" } },
+      { "id": "summary",
+        "kv": { "frequency": "{{state.freq}}", "bins": "{{state.bins}}", "samples": 512 } },
+      { "id": "use-bins-btn",
+        "button": { "label": "Use these bins",
+                    "on_click": [ { "emit": { "name": "bins-chosen",
+                                              "payload": { "bins": "{{state.bins}}" } } } ] } }
+    ]
+  }
+}

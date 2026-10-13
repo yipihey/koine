@@ -16,7 +16,7 @@ There is no second list.
 <!-- verb-coverage:begin -->
 | Service | Crate | Verbs |
 |---|---|---:|
-| `surface-demo-service` | surface-demo-service | 2 |
+| `surface-demo-service` | surface-demo-service | 9 |
 | `layout-service` | impress-layout-service | 42 |
 | `layout-selftest-service` | impress-layout-service | 1 |
 | `impress-surface-service` | impress-surface-service | 15 |

@@ -824,10 +824,11 @@ pub struct SurfaceWaitResult {
     #[serde(default)]
     pub gap: bool,
     /// `true` when the wait ended early because the store feed marked this
-    /// surface (a record kind one of its query sources reads was written):
-    /// `events` is empty, `next_seq` is the cursor passed in, and the
-    /// caller should render again. Absent (false) on every other answer, so
-    /// the wire is unchanged for a caller that never sees one.
+    /// surface (a record kind one of its query sources reads was written)
+    /// or `surface_state_set` wrote its state: `events` is empty,
+    /// `next_seq` is the cursor passed in, and the caller should render
+    /// again. Absent (false) on every other answer, so the wire is
+    /// unchanged for a caller that never sees one.
     #[serde(default, skip_serializing_if = "is_false")]
     pub invalidated: bool,
     /// The wire version (1): see this module's docs.

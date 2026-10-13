@@ -210,6 +210,9 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// Overwrite the working state of one `(surface, host)` instance
     /// directly (bypassing `reduce` — for seeding a surface's state, not
     /// for an ordinary field edit, which goes through `surface_dispatch`).
+    /// A `surface_wait` blocked on the surface returns at once with
+    /// `invalidated: true`, so a page showing it renders the new state
+    /// without waiting out its timeout.
     #[impress_method(replay = full, safety = mutating, effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-state@1.0.0"], writes = ["impress/ui/surface-state@1.0.0"]))]
     #[impress_example(
         name = "g3-state-set",
@@ -262,7 +265,8 @@ pub trait ImpressSurfaceService: Send + Sync + 'static {
     /// calls "wait" (ADR-0033 D5/D6). It also returns early, with no events,
     /// `next_seq` unchanged and `invalidated: true`, when the host's store
     /// feed marks the surface (a record kind its query sources read was
-    /// written): render again. A host with no feed never sees that answer.
+    /// written) or `surface_state_set` writes the surface's state: render
+    /// again. A host with no feed sees that answer only for a state write.
     #[impress_method(replay = full, effects(reads = ["impress/ui/surface@1.0.0", "impress/ui/surface-event@1.0.0"]))]
     #[impress_example(
         name = "g3-wait",
@@ -1078,20 +1082,27 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
         // Through the registry, so a dispatch already running on this
         // instance finishes first and this write is not overwritten by its
         // stale copy of the state.
-        let outcome = self
-            .registry()
+        let registry = self.registry();
+        let outcome = registry
             .with(&surfaces, surface_id, &host, move |runtime| {
                 Box::pin(async move { runtime.set_state(&writer, written, ActorKind::Agent) })
             })
             .await;
         match outcome {
-            Ok(()) => SurfaceStateResult {
-                ok: true,
-                code: None,
-                message: "state set".to_string(),
-                state: Some(state),
-                wire_version: WIRE_VERSION,
-            },
+            Ok(()) => {
+                // What the page shows changed, but no record kind a source
+                // reads moved, so the feed never marks this surface: wake
+                // its waiters here, after the write, so the page that wakes
+                // reads the new state (T-D4).
+                registry.wake(surface_id);
+                SurfaceStateResult {
+                    ok: true,
+                    code: None,
+                    message: "state set".to_string(),
+                    state: Some(state),
+                    wire_version: WIRE_VERSION,
+                }
+            }
             Err(e) => SurfaceStateResult::refused(e),
         }
     }
@@ -1221,7 +1232,8 @@ impl ImpressSurfaceService for DefaultImpressSurfaceService {
                 return SurfaceWaitResult {
                     ok: true,
                     code: None,
-                    message: "invalidated; a record this surface reads changed".to_string(),
+                    message: "invalidated; a record this surface reads or its state changed"
+                        .to_string(),
                     events: Vec::new(),
                     next_seq: after_seq,
                     timed_out: false,

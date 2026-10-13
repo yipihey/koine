@@ -1794,9 +1794,10 @@ type SessionMap = HashMap<(ItemId, String), Arc<Slot>>;
 /// in parallel.
 pub struct SessionRegistry {
     sessions: Mutex<SessionMap>,
-    /// Per surface, how many times [`Self::invalidate_refs`] marked it. A
-    /// `surface_wait` reads it on entry and at every poll and answers early
-    /// when it moved ([`Self::wake_generation`]).
+    /// Per surface, how many times [`Self::invalidate_refs`] marked it or
+    /// [`Self::wake`] woke it. A `surface_wait` reads it on entry and at
+    /// every poll and answers early when it moved
+    /// ([`Self::wake_generation`]).
     wakes: Mutex<HashMap<ItemId, u64>>,
     /// The record kinds every runtime in this registry reads in — handed to
     /// each [`SurfaceRuntime`] as it loads.
@@ -1930,11 +1931,27 @@ impl SessionRegistry {
         marked
     }
 
-    /// How many times a store write has marked `surface_id` (via
-    /// [`Self::invalidate_refs`]) in this registry's life; `0` for a surface
-    /// never marked. Only "is it the value I saw" is meaningful: a
-    /// `surface_wait` records it on entry and returns early, `invalidated`,
-    /// when it changes.
+    /// Wake every `surface_wait` blocked on `surface_id` without marking any
+    /// source dirty: the wait answers `invalidated: true` and the page
+    /// renders again. `surface_state_set` calls this after its write
+    /// (docs/plan-koine-tour.md T-D4): a state write by an agent changes
+    /// what a page shows exactly as a store write to a queried kind does,
+    /// but no record kind a source reads moved, so [`Self::invalidate_refs`]
+    /// — which only marks surfaces by the refs they read — never fired, and
+    /// a page saw the new state at its next 25 s timeout.
+    pub fn wake(&self, surface_id: ItemId) {
+        let mut wakes = self
+            .wakes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *wakes.entry(surface_id).or_insert(0) += 1;
+    }
+
+    /// How many times `surface_id` has been woken in this registry's life —
+    /// by a store write that marked it ([`Self::invalidate_refs`]) or by a
+    /// state write ([`Self::wake`]); `0` for a surface never woken. Only "is
+    /// it the value I saw" is meaningful: a `surface_wait` records it on
+    /// entry and returns early, `invalidated`, when it changes.
     pub fn wake_generation(&self, surface_id: ItemId) -> u64 {
         self.wakes
             .lock()

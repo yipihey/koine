@@ -838,11 +838,15 @@ many of the requested ones are lost (0 otherwise). An unknown job is
 `not-found`; `cancel` ends the stream.
 
 The live view is a surface over the row, with nothing new in the vocabulary:
-a `query` source over the `task` kind for the job, and
-`log{lines: "{{source.job.lines}}"}`. Every flush is a store event, so the
-feed (plan-koine-live L-D2) re-renders the surface as lines arrive. The
-host's kind manifest must name the task kind (`task` over `task@1.0.0`) for
-that query to compile; `manifest::minimal()` does not yet.
+a `query` source over the `task` kind for the job, and a `log` node whose
+value is the template, `{"log": "{{source.job.0.lines}}"}` (the node kind
+is `Log(Value)`; there is no `lines` key). Every flush is a store event, so
+the feed (plan-koine-live L-D2) re-renders the surface as lines arrive. The
+host's kind manifest names the task kind (`task` over `task@1.0.0`), so the
+query compiles. The latest job without knowing its id: a `query` sorted by
+`created` descending with `limit: 1`, read at index `0`, with a `when` on
+each node that reads it so nothing shows before a job exists. The demo's
+`crates/surface-demo-service/surfaces/live-job.surface.json` is that surface.
 
 A sidebar of things that nest (renamed, deleted, dragged, with a menu and counts) is one `tree` node: [outline.md](outline.md).
 

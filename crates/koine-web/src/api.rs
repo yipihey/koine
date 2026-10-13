@@ -147,6 +147,30 @@ pub struct SurfaceSummary {
     pub name: String,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// A line about the surface, when the list carries one. The spec has no
+    /// such field today; a list that grows one is shown under the title.
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+impl SurfaceSummary {
+    /// What the home list calls the surface: its name (the spec's `name`),
+    /// or its id when the name is blank.
+    pub fn title(&self) -> &str {
+        if self.name.trim().is_empty() {
+            &self.id
+        } else {
+            &self.name
+        }
+    }
+
+    /// The description, when there is one that says something.
+    pub fn description(&self) -> Option<&str> {
+        self.description
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+    }
 }
 
 /// `GET /api/surface`.
@@ -693,6 +717,26 @@ mod tests {
         assert_eq!(result.surfaces.len(), 2);
         assert_eq!(result.surfaces[0].tags, vec!["imbib".to_string()]);
         assert_eq!(result.surfaces[1].name, "Style");
+        assert_eq!(result.surfaces[1].description, None);
+    }
+
+    #[test]
+    fn a_surface_is_titled_by_its_name_or_else_its_id() {
+        let body = json!({
+            "ok": true,
+            "surfaces": [
+                {"id": "a1", "name": "Triage", "description": " a line "},
+                {"id": "b2", "name": "   "},
+                {"id": "c3", "description": ""}
+            ]
+        });
+        let result = parse_list(&body).unwrap();
+        let rows = &result.surfaces;
+        assert_eq!(rows[0].title(), "Triage");
+        assert_eq!(rows[0].description(), Some("a line"));
+        assert_eq!(rows[1].title(), "b2");
+        assert_eq!(rows[2].title(), "c3");
+        assert_eq!(rows[2].description(), None);
     }
 
     #[test]

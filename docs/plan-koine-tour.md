@@ -62,7 +62,15 @@ phone.
 
 ## Status
 
-Planned. Units: T1 page fit (koine-web, koine-dioxus), T2 tour content
+Landed on branch `tour` 2026-10-13 and proven on Linux: `koine-host
+--store memory:` seeds the five surfaces and six notes, every surface
+renders with no placeholder, and two questions put to the concierge over
+HTTP ("a sine wave at 5 Hz", "start a live job") came back in under a
+second as a new "Your plot" surface and a running job whose ticks the Live
+job surface showed. Tier A covers the specs, the seeding, the notes verbs,
+the inventory, the concierge's two rounds and the wake fix; the simulator
+lane's section 7 asserts the seeded list, each render, and one concierge
+round. Not yet seen: the phone (release `demo-v0.2.0`). Units: T1 page fit (koine-web, koine-dioxus), T2 tour content
 (surface-demo-service: plot fix, notes, inventory, specs, seed), T3 the
 concierge and the wake fix (surface-demo-service, impress-surface-service),
 T4 wiring, lane, docs, release.

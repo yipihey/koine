@@ -17,5 +17,26 @@ fn main() -> ExitCode {
     // The runtimes' registrations, and the demo's, must survive the link.
     koine_host::ensure_linked();
     std::hint::black_box(surface_demo_service::DefaultSurfaceDemoService::new as *const ());
-    koine_host::cli::main("koine-demo")
+    // The demo host is the tour (docs/plan-koine-tour.md): once bound, seed
+    // the tour's surfaces and notes if the store lacks them, and run the
+    // concierge on the host's runtime until the host stops.
+    let mut concierge = None;
+    koine_host::cli::main_with("koine-demo", |cli, served, handle| {
+        let report = handle.block_on(surface_demo_service::tour::seed());
+        println!(
+            "  tour: {} surfaces created, {} existing, {} notes seeded",
+            report.created.len(),
+            report.existing.len(),
+            report.notes_seeded
+        );
+        for error in &report.errors {
+            eprintln!("  tour: {error}");
+        }
+        let _ = served;
+        concierge = Some(surface_demo_service::concierge::spawn_on(
+            handle,
+            surface_demo_service::concierge::ConciergeConfig::new(cli.config.app_id.clone())
+                .with_host(cli.config.device.clone()),
+        ));
+    })
 }

@@ -1,0 +1,25 @@
+{
+  "surface": "1.0",
+  "name": "Map of this app",
+  "state": { "selected": null },
+  "sources": {
+    "inventory": {
+      "verb": "surface-demo-service_inventory",
+      "args": {}
+    }
+  },
+  "root": {
+    "column": [
+      { "text": "# Map of this app" },
+      { "text": "Every verb linked into this app, the record kinds they read, write and return, and the surfaces in the store — one `graph` over what `inventory` answers from the verb descriptors. Tap a node to name it." },
+      { "id": "map",
+        "graph": {
+          "nodes": "{{source.inventory.nodes}}",
+          "edges": "{{source.inventory.edges}}",
+          "on_select": [ { "set": { "path": "state.selected", "value": "{{event.value.0}}" } } ]
+        } },
+      { "id": "selected", "text": "Selected: `{{state.selected}}`",
+        "when": { "path": "state.selected" } }
+    ]
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "surface": "1.0",
+  "name": "Live job",
+  "state": { "started": false, "job": null },
+  "sources": {
+    "job": {
+      "query": {
+        "kinds": ["task"],
+        "scope": { "scope": "all" },
+        "filters": [],
+        "text": null,
+        "relation": null,
+        "sort": [ { "field": "created", "descending": true } ],
+        "limit": 1
+      }
+    },
+    "jobs": {
+      "query": {
+        "kinds": ["task"],
+        "scope": { "scope": "all" },
+        "filters": [],
+        "text": null,
+        "relation": null,
+        "sort": [ { "field": "created", "descending": true } ],
+        "limit": 8
+      }
+    }
+  },
+  "root": {
+    "column": [
+      { "text": "# Live job" },
+      { "text": "Run `tick` in the background: it emits a line every half second onto its job row, and this page, whose `job` source is a query over the `task` kind, re-renders as each flush lands. No new vocabulary: a query, a `log`, a `status`." },
+      { "id": "run-btn",
+        "button": {
+          "label": "Run tick (30 × 500 ms) in the background",
+          "on_click": [
+            { "call": { "verb": "surface-demo-service_tick",
+                        "args": { "n": 30, "every_ms": 500 },
+                        "adverbs": { "in_background": true },
+                        "into": "state.job" } },
+            { "set": { "path": "state.started", "value": true } },
+            { "refresh": { "source": "job" } },
+            { "refresh": { "source": "jobs" } }
+          ]
+        } },
+      { "id": "nothing-yet", "text": "No job has run yet. Press the button.",
+        "when": { "path": "state.started", "equals": false } },
+      { "id": "started", "text": "Started job `{{state.job.job.id}}`.",
+        "when": { "path": "state.job.job.id" } },
+      { "id": "job-state",
+        "status": { "level": "info", "message": "Latest job: {{source.job.0.state}}" },
+        "when": { "path": "source.job.0.state" } },
+      { "id": "job-progress", "text": "{{source.job.0.progress_message}}",
+        "when": { "path": "source.job.0.progress_message" } },
+      { "id": "job-lines", "label": "Emitted lines", "log": "{{source.job.0.lines}}",
+        "when": { "path": "source.job.0.lines" } },
+      { "id": "jobs-table", "label": "Recent jobs",
+        "table": { "rows": "{{source.jobs}}",
+                   "columns": ["kind", "state", "progress_message", "line_count"] } }
+    ]
+  }
+}

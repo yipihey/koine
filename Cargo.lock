@@ -6086,14 +6086,23 @@ name = "surface-demo-service"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-pane-query",
  "impress-service-core",
  "impress-service-macros",
  "impress-surface",
+ "impress-surface-service",
+ "koine-plot",
+ "koine-store",
+ "koine-store-memory",
  "koine-workspace-hack",
  "schemars",
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

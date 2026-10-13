@@ -1,0 +1,27 @@
+{
+  "surface": "1.0",
+  "name": "Concierge",
+  "state": { "question": "", "transcript": [], "status": "ready" },
+  "root": {
+    "column": [
+      { "id": "intro",
+        "text": "Ask for something. An agent on this phone answers by making a surface." },
+      { "id": "question",
+        "field": { "text": {} },
+        "label": "Question",
+        "bind": "state.question",
+        "on_submit": [
+          { "emit": { "name": "ask", "payload": { "question": "{{state.question}}" } } }
+        ] },
+      { "id": "ask",
+        "button": {
+          "label": "Ask",
+          "on_click": [
+            { "emit": { "name": "ask", "payload": { "question": "{{state.question}}" } } }
+          ]
+        } },
+      { "id": "transcript", "label": "Transcript", "log": "{{state.transcript}}" },
+      { "id": "status", "status": { "level": "info", "message": "{{state.status}}" } }
+    ]
+  }
+}

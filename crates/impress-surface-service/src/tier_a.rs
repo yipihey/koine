@@ -146,6 +146,7 @@ pub async fn run() -> Vec<CapabilityResult> {
         cap_events_after_cursor().await,
         cap_wait_returns_an_existing_event_immediately().await,
         cap_wait_times_out_with_nothing_new().await,
+        cap_state_set_wakes_a_wait().await,
         cap_examples().await,
         cap_event_ring_is_pruned().await,
     ]
@@ -687,6 +688,78 @@ async fn cap_wait_times_out_with_nothing_new() -> CapabilityResult {
                 ),
             )?;
             Ok("wait times out with nothing new".to_string())
+        },
+    )
+    .await
+}
+
+/// docs/plan-koine-tour.md T-D4: before this, a state write by an agent was
+/// seen by a waiting page only at its next timeout, because only an event in
+/// the ring or a feed invalidation ended a wait early.
+async fn cap_state_set_wakes_a_wait() -> CapabilityResult {
+    check(
+        "wait-wakes-on-state-set",
+        "surface_state_set ends a surface_wait early (invalidated: true, no events) and the \
+         next render shows the new state",
+        Tier::A,
+        || async {
+            const WAIT_MS: u64 = 5_000;
+            let world = World::open();
+            let created = world
+                .service
+                .surface_create(fixture_spec().into(), None, None)
+                .await;
+            let id = created.id.ok_or("create returned no id")?;
+
+            // The wait first, on its own task, so the write below lands
+            // while it is blocked — not before it reads the counter.
+            let waiter = {
+                let service = world.service.clone();
+                let id = id.clone();
+                tokio::spawn(async move {
+                    let started = std::time::Instant::now();
+                    let waited = service.surface_wait(id, Some(0), WAIT_MS, None).await;
+                    (waited, started.elapsed())
+                })
+            };
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+            let set = world
+                .service
+                .surface_state_set(id.clone(), json!({"greeting": "woken", "bins": 1}), None)
+                .await;
+            want(set.ok, format!("state_set failed: {}", set.message))?;
+
+            let (waited, elapsed) = waiter
+                .await
+                .map_err(|e| format!("the waiting task failed: {e}"))?;
+            want(waited.ok, format!("wait failed: {}", waited.message))?;
+            want(
+                waited.invalidated && !waited.timed_out && waited.events.is_empty(),
+                format!(
+                    "expected invalidated=true, got invalidated={} timed_out={} events={}",
+                    waited.invalidated,
+                    waited.timed_out,
+                    waited.events.len()
+                ),
+            )?;
+            want(
+                waited.next_seq == 0,
+                format!("the cursor moved to {} with no event", waited.next_seq),
+            )?;
+            want(
+                elapsed < std::time::Duration::from_millis(WAIT_MS),
+                format!("the wait ran to its {WAIT_MS} ms timeout ({elapsed:?})"),
+            )?;
+
+            let rendered = world.service.surface_render(id, None, None).await;
+            want(rendered.ok, format!("render failed: {}", rendered.message))?;
+            let tree = serde_json::to_string(&rendered.tree).unwrap_or_default();
+            want(
+                tree.contains("woken"),
+                format!("the render after the wake does not show the new state: {tree}"),
+            )?;
+            Ok(format!("state_set woke the wait after {elapsed:?}"))
         },
     )
     .await

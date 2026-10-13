@@ -487,6 +487,31 @@ fn menu_list(ctx: &Ctx<'_>, widget: &str, row: &Value, actions: &[String]) -> El
     }
 }
 
+/// The row's `button.koine-more`: a "…" that opens the same menu a
+/// right-click does, for a screen with no right-click (a phone). The sheet
+/// hides it where there is a pointer; nothing when the widget has no
+/// `actions`. Not a tab stop: `m` on the row is the key.
+fn more_button(ctx: &Ctx<'_>, widget: &str, row: &Value, actions: &[String]) -> Element {
+    if actions.is_empty() {
+        return rsx! {};
+    }
+    let mut menu = ctx.menu;
+    let target = (widget.to_string(), row.clone());
+    rsx! {
+        button {
+            class: "koine-more",
+            r#type: "button",
+            tabindex: -1,
+            aria_label: "row actions",
+            onclick: move |e| {
+                e.stop_propagation();
+                menu.set(Some(target.clone()));
+            },
+            "\u{2026}"
+        }
+    }
+}
+
 /// `span.koine-count` for a row that has a count.
 fn count_span(count: Option<String>) -> Element {
     match count {
@@ -540,6 +565,7 @@ fn table_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                         let menu = ctx.menu;
                         let count = outline::count_text(row, count_field.as_deref());
                         let menu_el = menu_list(ctx, id, &key, actions);
+                        let more_el = more_button(ctx, id, &key, actions);
                         rsx! {
                             tr {
                                 key: "{index}",
@@ -564,6 +590,7 @@ fn table_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                                         "{cell(row, column)}"
                                         if position == 0 {
                                             {count_span(count.clone())}
+                                            {more_el.clone()}
                                             {menu_el.clone()}
                                         }
                                     }
@@ -610,6 +637,7 @@ fn list_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                     let menu = ctx.menu;
                     let count = outline::count_text(row, count_field.as_deref());
                     let menu_el = menu_list(ctx, id, &key, actions);
+                    let more_el = more_button(ctx, id, &key, actions);
                     rsx! {
                         li {
                             key: "{index}",
@@ -631,6 +659,7 @@ fn list_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                             },
                             "{row_text(row)}"
                             {count_span(count)}
+                            {more_el}
                             {menu_el}
                         }
                     }
@@ -710,6 +739,7 @@ fn tree_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                     let active = is_active(ctx, id, &node.id);
                     let has_menu = !actions.is_empty();
                     let menu_el = menu_list(ctx, id, &node.id, actions);
+                    let more_el = more_button(ctx, id, &node.id, actions);
                     let count = node.count.as_ref().map(display);
                     let menu_target = (widget.clone(), node.id.clone());
                     let menu = ctx.menu;
@@ -770,6 +800,7 @@ fn tree_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                                     }
                                 }
                                 {count_span(count)}
+                                {more_el}
                                 {menu_el}
                             }
                         }

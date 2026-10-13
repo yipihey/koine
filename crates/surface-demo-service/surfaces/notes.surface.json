@@ -1,0 +1,72 @@
+{
+  "surface": "1.0",
+  "name": "Notes",
+  "state": { "open": [], "new_title": "" },
+  "sources": {
+    "notes": {
+      "query": {
+        "kinds": ["note"],
+        "scope": { "scope": "all" },
+        "filters": [],
+        "text": null,
+        "relation": null,
+        "sort": [ { "field": "created", "descending": false } ],
+        "limit": null
+      }
+    }
+  },
+  "root": {
+    "column": [
+      { "text": "# Notes" },
+      { "text": "An outline over `note` records: rename a row, drag it under another, delete it, add one — each is a `note-*` verb, and the tree only reports what you did." },
+      { "id": "outline",
+        "tree": {
+          "rows": "{{source.notes}}",
+          "parent_field": "parent",
+          "label_field": "title",
+          "bind": "state.open",
+          "on_rename": [
+            { "call": { "verb": "surface-demo-service_note-rename",
+                        "args": { "id": "{{event.value.id}}", "title": "{{event.value.label}}" } } },
+            { "refresh": { "source": "notes" } }
+          ],
+          "on_delete": [
+            { "call": { "verb": "surface-demo-service_note-delete",
+                        "args": { "id": "{{item}}" }, "each": "event.value" } },
+            { "refresh": { "source": "notes" } }
+          ],
+          "on_move": [
+            { "call": { "verb": "surface-demo-service_note-move",
+                        "args": { "id": "{{item}}", "parent": "{{event.value.to}}" },
+                        "each": "event.value.ids" } },
+            { "refresh": { "source": "notes" } }
+          ],
+          "actions": [
+            { "label": "Add child",
+              "on_click": [
+                { "call": { "verb": "surface-demo-service_note-add",
+                            "args": { "title": "New note", "parent": "{{event.value.id}}" } } },
+                { "refresh": { "source": "notes" } }
+              ] },
+            { "label": "Delete",
+              "on_click": [
+                { "call": { "verb": "surface-demo-service_note-delete",
+                            "args": { "id": "{{event.value.id}}" } } },
+                { "refresh": { "source": "notes" } }
+              ] }
+          ]
+        } },
+      { "row": [
+        { "id": "new-title", "field": { "text": {} }, "label": "New note", "bind": "state.new_title" },
+        { "id": "add-btn",
+          "button": { "label": "Add note",
+                      "on_click": [
+                        { "call": { "verb": "surface-demo-service_note-add",
+                                    "args": { "title": "{{state.new_title}}", "parent": null } } },
+                        { "set": { "path": "state.new_title", "value": "" } },
+                        { "refresh": { "source": "notes" } }
+                      ] } }
+      ] }
+    ]
+  }
+}

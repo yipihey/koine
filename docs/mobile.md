@@ -28,6 +28,29 @@ and `cargo clippy --workspace` therefore compile all of `main` with no window
 (`koine_web::launch` prints a hint and returns), which type-checks every name it
 uses from `koine-host` and `koine-web` on Linux. `dx` turns the feature on.
 
+## What the demo shows: the tour
+
+The demo app seeds five surfaces at its first launch and runs one small
+agent in-process (docs/plan-koine-tour.md), so the Home list is never
+empty and every part of the grammar is one tap away:
+
+| Surface | What to do on the phone |
+|---|---|
+| Signal explorer | drag the sliders: a verb-driven plot and histogram redraw |
+| Live job | tap Start: a background job's lines arrive while you watch |
+| Notes | an outline: tap a row's "…" to add a child, rename, delete; drag to move; "Add note" at the bottom |
+| Map of this app | a graph of the linked verbs, the kinds they read and write, and the surfaces; tap a node |
+| Concierge | type "a sine wave at 5 Hz", "show the notes", "the map", "start a live job" or "help", tap Ask: the agent answers by making or showing a surface (Home lists it; Layout shows the pane) |
+
+The concierge is `surface_demo_service::concierge`: it waits on its surface
+(`surface_wait`), reads the question, and answers through the same public
+verbs an agent off the phone would call (`surface_create`, `surface_show`,
+`surface_state_set`, the demo's `series` and `tick`). The seeding is
+`surface_demo_service::tour::seed`, idempotent, from the spec files under
+`crates/surface-demo-service/surfaces/`; `koine-host` does the same through
+`koine_host::cli::main_with`, so `cargo run -p koine-host` is the same demo
+on a laptop.
+
 ## Build and run
 
 A Mac with Xcode, and:

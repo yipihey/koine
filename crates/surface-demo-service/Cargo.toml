@@ -15,7 +15,20 @@ serde_json = { workspace = true }
 schemars = { workspace = true }
 async-trait = { workspace = true }
 # `tick` sleeps between the values it emits (plan-koine-tree-stream T-D2).
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["time", "rt"] }
+# `histogram`'s `plot` payload is koine-plot's `PlotSpec`, built as that
+# struct and serialized, so the shape cannot drift from what the renderers
+# parse (plan-koine-tour T-D2).
+koine-plot = { workspace = true }
+# The notes (plan-koine-tour T-D2): `note` records read and written through
+# the process store, and the tour's seeding (`tour`).
+koine-store = { workspace = true }
+impress-item = { workspace = true }
+# `v5`: a note's record id is the materialiser's, `uuid5(koine-rows,
+# "note:<key>")` (see `notes.rs`), so `notes`' rows land on the same records.
+uuid = { workspace = true, features = ["v5"] }
+chrono = { workspace = true }
+tracing = { workspace = true }
 koine-workspace-hack.workspace = true
 
 [dev-dependencies]
@@ -24,6 +37,11 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # `impress_surface::validate` finds nothing wrong with it. Pure/no I/O crate
 # — see its own module docs — so this stays a light dev-dependency.
 impress-surface = { workspace = true }
+# `tests/tour.rs` seeds and renders the tour in-process: the surface verbs,
+# a memory store as the process store, and the kind manifest a host installs.
+impress-surface-service = { workspace = true }
+koine-store-memory = { workspace = true }
+impress-pane-query = { workspace = true }
 
 # One integration-test binary, tests/main.rs, with a `mod` per file in tests/
 # (plan-verb-pipeline-and-transport § Build cost, B1); autodiscovery would

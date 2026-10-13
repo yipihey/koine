@@ -34,6 +34,23 @@ fn main() {
         host.token_path().display()
     );
 
+    // The tour (docs/plan-koine-tour.md): the five surfaces and the notes,
+    // seeded once, then the concierge on its own thread, speaking the same
+    // verbs an agent off the phone would.
+    let report = surface_demo_service::tour::seed_blocking();
+    eprintln!(
+        "koine-demo-mobile: tour {} created, {} existing, {} notes seeded",
+        report.created.len(),
+        report.existing.len(),
+        report.notes_seeded
+    );
+    for error in &report.errors {
+        eprintln!("koine-demo-mobile: tour: {error}");
+    }
+    let concierge = surface_demo_service::concierge::spawn_thread(
+        surface_demo_service::concierge::ConciergeConfig::new(APP_ID),
+    );
+
     koine_web::install_link(koine_web::HostLink {
         origin: url,
         token: Some(host.token().to_string()),
@@ -43,5 +60,6 @@ fn main() {
     // Returns when the window closes (or at once without a renderer).
     koine_web::launch();
 
+    concierge.shutdown();
     host.shutdown();
 }

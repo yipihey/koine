@@ -323,6 +323,37 @@ check "MCP lists surface-demo-service_histogram" jq -e '.result.tools | map(.nam
 ui="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/ui/")"
 check "GET /ui/ answers ($ui)" test "$ui" != "000"
 
+# ================================================================ 7. the tour
+# The demo seeds five surfaces at launch (docs/plan-koine-tour.md) and runs
+# the concierge in-process; one question over HTTP, as the page asks it,
+# must come back as a new surface within a few seconds.
+req GET /api/surface
+tour="$(jq -r '[.surfaces[] | select(.tags | index("tour"))] | length' <<<"$BODY")"
+expect_eq "the tour's five surfaces are seeded" "$tour" "5"
+for name in "Signal explorer" "Live job" "Notes" "Map of this app" "Concierge"; do
+    check "the tour has '$name'" jq -e --arg n "$name" '.surfaces | map(.name) | index($n) != null' <<<"$BODY"
+done
+CID="$(jq -r '.surfaces[] | select(.name == "Concierge") | .id' <<<"$BODY" | head -n 1)"
+for id in $(jq -r '.surfaces[] | select(.tags | index("tour")) | .id' <<<"$BODY"); do
+    req GET "/api/surface/$id/render"
+    check "tour surface $id renders without a placeholder" test "$STATUS" = 200 -a "$(jq -c '[.. | objects | select(.kind? == "placeholder")] | length' <<<"$BODY")" = 0
+done
+if [[ -n "$CID" && "$CID" != null ]]; then
+    req POST "/api/surface/$CID/dispatch" '{"widget":"question","kind":"change","value":"a sine wave at 4 Hz"}'
+    expect_eq "the question lands in state" "$STATUS" "200"
+    req POST "/api/surface/$CID/dispatch" '{"widget":"ask","kind":"click"}'
+    check "Ask emits the event the concierge waits on" jq -e '.effects[0].kind == "emit"' <<<"$BODY"
+    answered=""
+    for _ in $(seq 1 30); do
+        req GET /api/surface
+        if jq -e '.surfaces | map(.name) | index("Your plot") != null' <<<"$BODY" >/dev/null 2>&1; then answered=1; break; fi
+        sleep 1
+    done
+    check "the concierge answered with a 'Your plot' surface" test -n "$answered"
+    req GET "/api/surface/$CID/state"
+    check "the transcript holds the exchange" jq -e '(.state // .) | .transcript | length >= 2' <<<"$BODY"
+fi
+
 [[ $FAILS -eq 0 ]] || dump_console
 
 summary
