@@ -973,3 +973,22 @@ fn a_click_on_an_image_is_a_fraction_of_its_displayed_size() {
     assert_eq!(image_click_to_fraction(1.0, 1.0, 0.0, 100.0), None);
     assert_eq!(image_click_to_fraction(f64::NAN, 1.0, 10.0, 10.0), None);
 }
+
+#[test]
+fn a_text_node_is_markdown_in_a_div_and_raw_html_stays_text() {
+    let page = tree(
+        json!({ "id": "t", "node": { "kind": "text",
+            "text": "# Map of this app\n\nVerbs are `calls`. <b onclick=\"x()\">bold</b>" } }),
+        json!([]),
+    );
+    let html = render_html(&page, &web(), None);
+    let (tag, rest) = element(&html, "t");
+    assert!(tag.starts_with("<div"), "{tag}");
+    assert!(attr(tag, "class").unwrap().contains("koine-text"), "{tag}");
+    assert!(
+        rest.starts_with("<h1>Map of this app</h1>\n<p>Verbs are <code>calls</code>. &lt;b"),
+        "{rest}"
+    );
+    assert!(!html.contains("<b "), "{html}");
+    assert!(!html.contains("# Map"), "{html}");
+}

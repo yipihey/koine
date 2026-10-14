@@ -234,10 +234,80 @@
 
 /* Text */
 
+/* A text node is markdown (plan-koine-affordances A-D7): the blocks the
+   writer made, spaced like a note, in the theme's colours. */
 .koine-text {
   margin: 0;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.koine-text > :first-child { margin-top: 0; }
+.koine-text > :last-child { margin-bottom: 0; }
+
+.koine-text p,
+.koine-text ul,
+.koine-text ol,
+.koine-text table,
+.koine-text blockquote,
+.koine-text pre {
+  margin: 0 0 0.6em;
+}
+
+.koine-text h1,
+.koine-text h2,
+.koine-text h3 {
+  margin: 0.8em 0 0.35em;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--koine-color-primary);
+}
+
+.koine-text h1 { font-size: 1.5em; }
+.koine-text h2 { font-size: 1.25em; }
+.koine-text h3 { font-size: 1.05em; }
+
+.koine-text ul,
+.koine-text ol {
+  padding-left: 1.4em;
+}
+
+.koine-text li + li { margin-top: 0.2em; }
+
+.koine-text code {
+  font-family: var(--koine-font-mono);
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--koine-bg-fill);
+}
+
+.koine-text pre {
+  padding: 8px 12px;
+  overflow-x: auto;
+  border-radius: var(--koine-radius-field);
+  background: var(--koine-bg-fill);
+}
+
+.koine-text pre code {
+  padding: 0;
+  background: transparent;
+}
+
+.koine-text a { color: var(--koine-color-accent); }
+
+.koine-text blockquote {
+  padding-left: 0.8em;
+  border-left: 3px solid var(--koine-separator);
+  color: var(--koine-color-secondary);
+}
+
+.koine-text table { border-collapse: collapse; }
+
+.koine-text th,
+.koine-text td {
+  padding: 4px 10px;
+  border-bottom: var(--koine-hairline) solid var(--koine-separator);
+  text-align: left;
 }
 
 /* Lists and tables: row spacing is the `list` and `table` slots. A row is
@@ -784,6 +854,15 @@
   padding: 8px;
   box-sizing: border-box;
   overflow: hidden;
+}
+
+/* A dense map is read by zooming in (plan-koine-affordances A-D10): a
+   pinch on the graph zooms the page, and its card scrolls. Panning stays
+   allowed too (`pinch-zoom` alone would trap a finger that starts a scroll
+   on the map). */
+.koine-graph {
+  touch-action: pan-x pan-y pinch-zoom;
+  overflow: auto;
 }
 
 /* At its own size on a desktop, centred in the card; the phone block below

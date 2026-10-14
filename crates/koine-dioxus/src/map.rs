@@ -91,14 +91,16 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
             }
         }
         RenderKind::Tabs { tabs } => tabs_node(id, label, help, tabs, ctx),
+        // Markdown (plan-koine-affordances A-D7): raw HTML in the source is
+        // escaped text, so the inner HTML is only what the markdown made.
         RenderKind::Text { text } => rsx! {
-            p {
+            div {
                 class: class("koine-text", font_class(ctx.sheet, "text"), ctx, id),
                 "data-koine-id": "{id}",
                 "data-koine-focused": focused,
                 aria_label: label,
                 title: help,
-                "{text}"
+                dangerous_inner_html: crate::markdown::markdown_html(text),
             }
         },
         RenderKind::Table { .. } => table_node(node, ctx),

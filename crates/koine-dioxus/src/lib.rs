@@ -25,6 +25,7 @@
 //! desktop. The `ssr` feature adds [`render_html`].
 
 mod map;
+pub mod markdown;
 pub mod outline;
 #[cfg(target_arch = "wasm32")]
 mod pointer;
