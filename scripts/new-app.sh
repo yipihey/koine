@@ -655,8 +655,14 @@ fn main() {
     koine_host::ensure_linked();
     __SERVICE_SNAKE__::ensure_linked();
 
-    let host = koine_host::embed::start(koine_host::embed::sandbox_config(APP_ID))
-        .expect("the host starts");
+    // A crash writes its cause to the workspace; the next launch shows it on
+    // the Host tab (a phone has no terminal to read a panic from).
+    let config = koine_host::embed::sandbox_config(APP_ID);
+    if let Some(crash) = koine_host::embed::record_crashes(&config.workspace) {
+        eprintln!("__MOBILE_CRATE__: the last run crashed:\n{crash}");
+        koine_web::add_note(format!("the last run crashed: {crash}"));
+    }
+    let host = koine_host::embed::start(config).expect("the host starts");
 
     let url = host.url();
     eprintln!("__MOBILE_CRATE__: host {url}");

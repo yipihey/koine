@@ -22,8 +22,14 @@ fn main() {
     koine_host::ensure_linked();
     std::hint::black_box(surface_demo_service::DefaultSurfaceDemoService::new as *const ());
 
-    let host = koine_host::embed::start(koine_host::embed::sandbox_config(APP_ID))
-        .expect("the host starts");
+    // A crash writes its cause to the workspace; the next launch shows it on
+    // the Host tab (a phone has no terminal to read a panic from).
+    let config = koine_host::embed::sandbox_config(APP_ID);
+    if let Some(crash) = koine_host::embed::record_crashes(&config.workspace) {
+        eprintln!("koine-demo-mobile: the last run crashed:\n{crash}");
+        koine_web::add_note(format!("the last run crashed: {crash}"));
+    }
+    let host = koine_host::embed::start(config).expect("the host starts");
 
     // The lane (scripts/tests/ios/run.sh) and a person with `dx serve` read
     // these two lines: where the host is, and where its token is.
@@ -39,7 +45,16 @@ fn main() {
     // replaced, A-D8), three of them side by side in the layout once (A-D4),
     // then the concierge on its own thread, speaking the same verbs an agent
     // off the phone would.
-    let report = surface_demo_service::tour::seed_with_layout_blocking(APP_ID, None);
+    // A tour that fails to seed must not keep the app from opening: the
+    // panic is caught (and recorded by the hook above), the page opens
+    // without the tour, and the Host tab says why.
+    let report = std::panic::catch_unwind(|| {
+        surface_demo_service::tour::seed_with_layout_blocking(APP_ID, None)
+    })
+    .unwrap_or_else(|_| {
+        koine_web::add_note("the tour could not be seeded; the crash note above says why");
+        surface_demo_service::tour::SeedReport::default()
+    });
     eprintln!(
         "koine-demo-mobile: tour {} created, {} updated, {} existing, {} notes seeded, {} tiles laid out",
         report.created.len(),

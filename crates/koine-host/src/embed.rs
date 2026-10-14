@@ -171,8 +171,64 @@ pub fn sandbox_config_in(app_id: &str, home: &Path) -> Config {
     config
 }
 
+/// The file a crash is written to, under the app's workspace.
+pub const CRASH_FILE: &str = "last-crash.txt";
+
+/// Make a crash report itself on the next launch. Installs a panic hook that
+/// writes the panic's message, where it happened, the thread and a backtrace
+/// to `<workspace>/last-crash.txt` (then runs the default hook), and answers
+/// the report a previous run left there, removing it. A phone shows no
+/// terminal, and a crash before the first paint shows nothing at all; with
+/// this the next launch can put the cause on the page.
+pub fn record_crashes(workspace: &Path) -> Option<String> {
+    let path = workspace.join(CRASH_FILE);
+    let previous = std::fs::read_to_string(&path).ok();
+    if previous.is_some() {
+        let _ = std::fs::remove_file(&path);
+    }
+    let _ = std::fs::create_dir_all(workspace);
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        let report = format!(
+            "{}\nat {}\nthread {}\n\n{}",
+            info.payload()
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| info.payload().downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "(no message)".to_string()),
+            info.location()
+                .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+                .unwrap_or_else(|| "(unknown)".to_string()),
+            thread.name().unwrap_or("(unnamed)"),
+            std::backtrace::Backtrace::force_capture(),
+        );
+        let _ = std::fs::write(&path, report);
+        default(info);
+    }));
+    previous
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_crash_report_left_by_the_last_run_is_answered_once() {
+        let dir = std::env::temp_dir().join(format!("koine-crash-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(super::CRASH_FILE), "boom\nat x.rs:1:1").unwrap();
+        let hook = std::panic::take_hook();
+        assert_eq!(
+            super::record_crashes(&dir).as_deref(),
+            Some("boom\nat x.rs:1:1")
+        );
+        assert!(!dir.join(super::CRASH_FILE).exists());
+        let _ = std::panic::catch_unwind(|| panic!("second"));
+        let written = std::fs::read_to_string(dir.join(super::CRASH_FILE)).unwrap();
+        assert!(written.starts_with("second\nat "), "{written}");
+        std::panic::set_hook(hook);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
 
     fn memory(dir: &Path, app: &str) -> Config {
