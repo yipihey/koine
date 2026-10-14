@@ -205,18 +205,25 @@ await step("add a collection and a note into it", async () => {
 });
 
 await step("write a note's body", async () => {
+  const id = byLabel(await treeRows(notes), "Papers to read").id;
+  const saved = (await verb("surface-demo-service_note-get", { id }))?.note?.body ?? "";
   await press(row("Papers to read").locator(".koine-tree-label"));
   const body = page.locator('[data-koine-id="body"] textarea, [data-koine-id="body"] input, #koine-body').first();
   await body.waitFor({ timeout: 5000 });
+  // The editor may still show the previously selected note: wait, as a
+  // person does, until it shows this note's text before typing over it.
+  const loaded = await until(async () => (await body.inputValue()) === saved, 8000);
+  if (!loaded) return fail("write a note's body", `the editor never showed the note's text (shows ${JSON.stringify(await body.inputValue())})`);
   await body.fill(`Written by the ${label} gesture suite.`);
   await body.blur();
   await press(page.getByRole("button", { name: "Save" }));
-  const id = byLabel(await treeRows(notes), "Papers to read").id;
   const ok = await until(async () => {
     const r = await verb("surface-demo-service_note-get", { id });
     return r?.note?.body === `Written by the ${label} gesture suite.`;
   });
-  ok ? pass("write a note's body") : fail("write a note's body", "note-get did not return the text");
+  ok
+    ? pass("write a note's body")
+    : fail("write a note's body", `note-get answered ${JSON.stringify((await verb("surface-demo-service_note-get", { id }))?.note?.body)}`);
 });
 
 await step("a refused verb is shown, not swallowed", async () => {
