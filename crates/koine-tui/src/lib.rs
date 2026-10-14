@@ -27,6 +27,7 @@ pub use koine::cursor::Key;
 use std::collections::BTreeMap;
 
 use koine::cursor::{Cursor, Reply};
+use koine::outline::{MenuChoice, RowMenu};
 use koine::style::{editor_apply, editor_spec, StyleError, StyleHost};
 use koine::surface::tree::{paste_beside, paste_into};
 use koine::surface::{Event, EventKind, RenderKind, RenderNode, RenderTree, SurfaceSpec};
@@ -47,10 +48,13 @@ pub enum Prompt {
         text: String,
     },
     /// `m`: the numbered menu of a row; `text` accumulates the digits typed.
+    /// The entries are `menu.entries()` (`koine::outline::menu_entries`):
+    /// "Rename" first when the tree renames, then the spec's actions, then
+    /// "Delete" when the tree deletes and no action has that label.
     Menu {
         widget: String,
         id: Value,
-        actions: Vec<String>,
+        menu: RowMenu,
         text: String,
     },
 }
@@ -60,8 +64,9 @@ impl Prompt {
     pub fn line(&self) -> String {
         match self {
             Prompt::Rename { label, text, .. } => format!("rename \"{label}\": {text}"),
-            Prompt::Menu { actions, text, .. } => {
-                let entries: Vec<String> = actions
+            Prompt::Menu { menu, text, .. } => {
+                let entries: Vec<String> = menu
+                    .entries()
                     .iter()
                     .enumerate()
                     .map(|(i, action)| format!("{} {action}", i + 1))
@@ -201,7 +206,7 @@ impl TextFrontend {
     /// "y": null}`: there is no pointer, and a handler can tell.
     pub fn key(&mut self, tree: &RenderTree, key: Key) -> Option<Event> {
         if let Some(prompt) = self.pending.take() {
-            return self.answer(prompt, key);
+            return self.answer(tree, prompt, key);
         }
         let event = match self.cursor.reply_for(tree, key) {
             Reply::Event(event) => event,
@@ -245,32 +250,20 @@ impl TextFrontend {
     /// on the focused widget's active row: `r` and `m` open a prompt, `x`
     /// remembers the row, `p` and `P` move it under or beside the active row
     /// (a `move` event). Each does nothing without an active row, and `r` is
-    /// a tree's, `m` needs `actions`, and `x` `p` `P` need a tree with
-    /// `on_move`.
+    /// a tree's, `m` needs a menu with an entry (`actions`, or a tree that
+    /// renames or deletes), and `x` `p` `P` need a tree with `on_move`.
     fn row_key(&mut self, tree: &RenderTree, key: Key) -> Option<Event> {
         let widget = self.cursor.focused_id(tree)?.to_string();
         let row = self.cursor.active_row(tree, &widget)?.clone();
         let kind = &find(&tree.root, &widget)?.node;
         match (kind, key) {
-            (RenderKind::Tree { nodes, .. }, Key::Rename) => {
-                let label = nodes.iter().find(|n| n.id == row)?.label.clone();
-                self.pending = Some(Prompt::Rename {
-                    widget,
-                    id: row,
-                    label,
-                    text: String::new(),
-                });
-            }
-            (
-                RenderKind::Tree { actions, .. }
-                | RenderKind::Table { actions, .. }
-                | RenderKind::List { actions, .. },
-                Key::Secondary | Key::Menu,
-            ) if !actions.is_empty() => {
+            (RenderKind::Tree { .. }, Key::Rename) => self.start_rename(tree, widget, row)?,
+            (_, Key::Secondary | Key::Menu) => {
+                let menu = RowMenu::of(kind).filter(|m| !m.entries().is_empty())?;
                 self.pending = Some(Prompt::Menu {
                     widget,
                     id: row,
-                    actions: actions.clone(),
+                    menu,
                     text: String::new(),
                 });
             }
@@ -304,11 +297,30 @@ impl TextFrontend {
         None
     }
 
+    /// Open the rename prompt on a tree row, showing its current label.
+    fn start_rename(&mut self, tree: &RenderTree, widget: String, row: Value) -> Option<()> {
+        let Some(RenderKind::Tree { nodes, .. }) = find(&tree.root, &widget).map(|n| &n.node)
+        else {
+            return None;
+        };
+        let label = nodes.iter().find(|n| n.id == row)?.label.clone();
+        self.pending = Some(Prompt::Rename {
+            widget,
+            id: row,
+            label,
+            text: String::new(),
+        });
+        Some(())
+    }
+
     /// `Enter` answers a pending prompt: the typed text is the row's new
     /// label (`rename`, nothing for an empty text), the typed number picks the
-    /// entry (`menu`, nothing for a number out of range). Any other key
-    /// leaves the prompt as it was.
-    fn answer(&mut self, prompt: Prompt, key: Key) -> Option<Event> {
+    /// entry (nothing for a number out of range). The entry is
+    /// [`MenuChoice`]'s: "Rename" on a tree that renames opens the rename
+    /// prompt, the appended "Delete" sends `delete` with `[id]` (what `d`
+    /// sends), any other a `menu` event. Any other key leaves the prompt as
+    /// it was.
+    fn answer(&mut self, tree: &RenderTree, prompt: Prompt, key: Key) -> Option<Event> {
         if key != Key::Activate {
             self.pending = Some(prompt);
             return None;
@@ -327,26 +339,35 @@ impl TextFrontend {
             Prompt::Menu {
                 widget,
                 id,
-                actions,
+                menu,
                 text,
             } => {
                 let picked = text
                     .parse::<usize>()
                     .ok()
                     .and_then(|n| n.checked_sub(1))
-                    .and_then(|n| actions.get(n));
+                    .and_then(|n| menu.choice(n));
                 match picked {
-                    Some(action) => Some(Event {
+                    Some(MenuChoice::Action(action)) => Some(Event {
                         widget,
                         kind: EventKind::Menu,
                         value: serde_json::json!({"id": id, "action": action}),
                     }),
+                    Some(MenuChoice::Delete) => Some(Event {
+                        widget,
+                        kind: EventKind::Delete,
+                        value: Value::Array(vec![id]),
+                    }),
+                    Some(MenuChoice::Rename) => {
+                        self.start_rename(tree, widget, id);
+                        None
+                    }
                     None => {
                         // Not an entry: ask again.
                         self.pending = Some(Prompt::Menu {
                             widget,
                             id,
-                            actions,
+                            menu,
                             text: String::new(),
                         });
                         None
@@ -908,6 +929,8 @@ mod tests {
             expanded: vec![],
             actions: vec![],
             movable: false,
+            renameable: false,
+            deletable: false,
         });
         tree.root.id = "files".into();
         tree.focus_order = vec!["files".into()];
@@ -946,6 +969,8 @@ mod tests {
             expanded: vec![],
             actions: vec![],
             movable: false,
+            renameable: false,
+            deletable: false,
         };
         let event = TextFrontend::new().key(&empty, Key::Activate).unwrap();
         assert_eq!(event.kind, EventKind::Click);
@@ -1139,6 +1164,69 @@ mod tests {
         plain.key(&tree, Key::Down);
         plain.key(&tree, Key::Secondary);
         assert!(plain.prompt().is_none());
+    }
+
+    #[test]
+    fn the_menu_lists_rename_and_delete_of_a_tree_that_handles_them() {
+        let mut tree = outline();
+        if let RenderKind::Tree {
+            actions,
+            renameable,
+            deletable,
+            ..
+        } = &mut tree.root.node
+        {
+            *actions = vec!["Add child".into()];
+            *renameable = true;
+            *deletable = true;
+        }
+        let mut frontend = TextFrontend::new().with_blocks(true);
+        keys(&mut frontend, &tree, &[Key::Down, Key::Down, Key::Down]);
+        frontend.key(&tree, Key::Menu);
+        assert_eq!(
+            frontend.render(&tree).lines().last(),
+            Some("menu: 1 Rename  2 Add child  3 Delete > ")
+        );
+        // "Rename" is the frontend's: it opens the rename prompt, no event.
+        type_text(&mut frontend, "1");
+        assert!(frontend.key(&tree, Key::Activate).is_none());
+        assert!(matches!(
+            frontend.prompt(),
+            Some(Prompt::Rename { label, .. }) if label == "docs"
+        ));
+        assert!(frontend.cancel());
+        // The appended "Delete" sends what `d` sends.
+        frontend.key(&tree, Key::Menu);
+        type_text(&mut frontend, "3");
+        let event = frontend.key(&tree, Key::Activate).unwrap();
+        assert_eq!(
+            (event.kind, event.value),
+            (EventKind::Delete, serde_json::json!([7]))
+        );
+        // The spec's own action is a `menu` event.
+        frontend.key(&tree, Key::Menu);
+        type_text(&mut frontend, "2");
+        let event = frontend.key(&tree, Key::Activate).unwrap();
+        assert_eq!(
+            (event.kind, event.value),
+            (
+                EventKind::Menu,
+                serde_json::json!({"id": 7, "action": "Add child"})
+            )
+        );
+        // A tree that only renames has a menu of one, even with no actions.
+        if let RenderKind::Tree {
+            actions, deletable, ..
+        } = &mut tree.root.node
+        {
+            actions.clear();
+            *deletable = false;
+        }
+        frontend.key(&tree, Key::Menu);
+        assert_eq!(
+            frontend.render(&tree).lines().last(),
+            Some("menu: 1 Rename > ")
+        );
     }
 
     #[test]

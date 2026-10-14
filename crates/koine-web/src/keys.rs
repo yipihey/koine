@@ -28,6 +28,7 @@
 use impress_layout::Verb;
 use impress_surface::{Event, EventKind, RenderKind, RenderNode, RenderTree};
 use koine::cursor::{Cursor, Key, Reply};
+use koine::outline::RowMenu;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -109,7 +110,8 @@ pub fn decide(
 
 /// The action for one of the renderer's row keys: the focused widget's active
 /// row, if the widget can do what the key asks (rename and cut are a tree's;
-/// a menu needs `actions`; paste needs a movable tree).
+/// a menu needs an entry, `koine::outline::menu_entries`; paste needs a
+/// movable tree).
 fn row_action(tree: &RenderTree, cursor: &Cursor, key: Key) -> KeyAction {
     let Some(widget) = cursor.focused_id(tree) else {
         return KeyAction::Ignored;
@@ -123,12 +125,11 @@ fn row_action(tree: &RenderTree, cursor: &Cursor, key: Key) -> KeyAction {
     let widget = widget.to_string();
     match (&node.node, key) {
         (RenderKind::Tree { .. }, Key::Rename) => KeyAction::Rename(widget, row),
-        (
-            RenderKind::Tree { actions, .. }
-            | RenderKind::Table { actions, .. }
-            | RenderKind::List { actions, .. },
-            Key::Secondary | Key::Menu,
-        ) if !actions.is_empty() => KeyAction::Menu(widget, row),
+        (kind, Key::Secondary | Key::Menu)
+            if RowMenu::of(kind).is_some_and(|m| !m.entries().is_empty()) =>
+        {
+            KeyAction::Menu(widget, row)
+        }
         (RenderKind::Tree { movable: true, .. }, Key::Cut) => KeyAction::Cut(widget, row),
         (RenderKind::Tree { movable: true, .. }, Key::Paste) => KeyAction::Paste(widget, row),
         (RenderKind::Tree { movable: true, .. }, Key::PasteBeside) => {
@@ -138,17 +139,14 @@ fn row_action(tree: &RenderTree, cursor: &Cursor, key: Key) -> KeyAction {
     }
 }
 
-/// The menu labels of a `tree`, `table` or `list` widget; empty for any other
-/// widget or an unknown id.
-pub fn actions_of(tree: &RenderTree, widget: &str) -> Vec<String> {
-    match find(&tree.root, widget).map(|node| &node.node) {
-        Some(
-            RenderKind::Tree { actions, .. }
-            | RenderKind::Table { actions, .. }
-            | RenderKind::List { actions, .. },
-        ) => actions.clone(),
-        _ => Vec::new(),
-    }
+/// The row menu of a `tree`, `table` or `list` widget, whose `entries()`
+/// are the open menu's list (`koine::outline::menu_entries`: the digit keys
+/// index into it) and whose `choice(i)` is what picking one means; an empty
+/// menu for any other widget or an unknown id.
+pub fn menu_of(tree: &RenderTree, widget: &str) -> RowMenu {
+    find(&tree.root, widget)
+        .and_then(|node| RowMenu::of(&node.node))
+        .unwrap_or_default()
 }
 
 /// The active row of every row widget in the focus order, by widget id: what
@@ -839,13 +837,41 @@ mod tests {
     }
 
     #[test]
-    fn the_menu_labels_come_from_the_widget() {
+    fn the_menu_entries_come_from_the_widget() {
         let tree = outline();
-        assert_eq!(actions_of(&tree, "side"), vec!["Rename", "Delete"]);
-        assert_eq!(actions_of(&tree, "tbl"), vec!["Open"]);
-        assert!(actions_of(&tree, "lst").is_empty());
-        assert!(actions_of(&tree, "go").is_empty());
-        assert!(actions_of(&tree, "missing").is_empty());
+        assert_eq!(menu_of(&tree, "side").entries(), vec!["Rename", "Delete"]);
+        assert_eq!(menu_of(&tree, "tbl").entries(), vec!["Open"]);
+        assert!(menu_of(&tree, "lst").entries().is_empty());
+        assert!(menu_of(&tree, "go").entries().is_empty());
+        assert!(menu_of(&tree, "missing").entries().is_empty());
+    }
+
+    #[test]
+    fn a_tree_that_only_renames_and_deletes_has_a_menu_and_its_digits_index_the_entries() {
+        use koine::outline::MenuChoice;
+        let mut tree = outline();
+        if let RenderKind::Column { items } = &mut tree.root.node {
+            if let RenderKind::Tree {
+                renameable,
+                deletable,
+                ..
+            } = &mut items[1].node
+            {
+                *renameable = true;
+                *deletable = true;
+            }
+        }
+        let menu = menu_of(&tree, "ro");
+        assert_eq!(menu.entries(), vec!["Rename", "Delete"]);
+        assert_eq!(menu.choice(0), Some(MenuChoice::Rename));
+        assert_eq!(menu.choice(1), Some(MenuChoice::Delete));
+        let mut cursor = Cursor::new();
+        cursor.set_focus(&tree, "ro");
+        press(&tree, &mut cursor, &["j"]);
+        assert_eq!(
+            press(&tree, &mut cursor, &["m"]),
+            KeyAction::Menu("ro".into(), serde_json::json!("r1"))
+        );
     }
 
     #[test]

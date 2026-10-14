@@ -25,6 +25,7 @@
 //! desktop. The `ssr` feature adds [`render_html`].
 
 mod map;
+pub mod markdown;
 pub mod outline;
 #[cfg(target_arch = "wasm32")]
 mod pointer;
@@ -113,8 +114,11 @@ pub(crate) struct Ctx<'a> {
     /// The row being renamed, as `menu`: the page sets it for `r`; the input
     /// clears it on Enter (after sending `rename`) and on Escape.
     pub renaming: Signal<Option<RowRef>>,
-    /// The row being dragged. The mapping's own memory of a gesture.
+    /// The row being moved by its grip. The mapping's own memory of a gesture.
     pub dragging: Signal<Option<RowRef>>,
+    /// The row or gap under the pointer while a row is moved: it is drawn
+    /// `data-koine-drop="true"`, and releasing there sends `move`.
+    pub drop_target: Signal<Option<DropRef>>,
 }
 
 /// A file the person chose in a `file` field. The mapping reads the bytes
@@ -130,7 +134,7 @@ pub struct FileChosen {
     pub bytes: Vec<u8>,
 }
 
-pub use outline::RowRef;
+pub use outline::{DropAt, DropRef, RowRef};
 
 /// One performance of a [`RenderTree`].
 ///
@@ -149,8 +153,9 @@ pub use outline::RowRef;
 ///   mapping keeps its own.
 /// - `renaming`: a signal holding the row being renamed; the page sets it for
 ///   `r`, the mapping draws an input in place of the label and clears it.
-/// - `dragging`: the row being dragged; only a test or a host that wants to
-///   see a drag in progress passes it.
+/// - `dragging`: the row being moved by its grip, and `drop_target` the row
+///   or gap under the pointer; only a test or a host that wants to see a move
+///   in progress passes them.
 #[component]
 pub fn Surface(
     tree: ReadSignal<RenderTree>,
@@ -162,14 +167,17 @@ pub fn Surface(
     menu: Option<Signal<Option<RowRef>>>,
     renaming: Option<Signal<Option<RowRef>>>,
     dragging: Option<Signal<Option<RowRef>>>,
+    drop_target: Option<Signal<Option<DropRef>>>,
 ) -> Element {
     let active_tab = use_signal(BTreeMap::<String, usize>::new);
     let own_menu = use_signal(|| None);
     let own_renaming = use_signal(|| None);
     let own_dragging = use_signal(|| None);
+    let own_drop_target = use_signal(|| None);
     let mut menu = menu.unwrap_or(own_menu);
     let renaming = renaming.unwrap_or(own_renaming);
     let dragging = dragging.unwrap_or(own_dragging);
+    let drop_target = drop_target.unwrap_or(own_drop_target);
     let active = active.read();
     let tree = tree.read();
     let sheet = sheet.read();
@@ -194,6 +202,7 @@ pub fn Surface(
         menu,
         renaming,
         dragging,
+        drop_target,
     };
     rsx! {
         div {
@@ -220,6 +229,7 @@ pub struct RowView {
     pub menu: Option<RowRef>,
     pub renaming: Option<RowRef>,
     pub dragging: Option<RowRef>,
+    pub drop_target: Option<DropRef>,
 }
 
 /// [`Surface`] as a string: the conformance suite's performance, and the first
@@ -230,7 +240,7 @@ pub fn render_html(tree: &RenderTree, sheet: &StyleSheet, focused: Option<&str>)
 }
 
 /// [`render_html`] with the outline seams set: an active row per widget, an
-/// open menu, a rename in progress, a drag in progress.
+/// open menu, a rename in progress, a move in progress and its drop target.
 #[cfg(any(feature = "ssr", test))]
 pub fn render_html_with(
     tree: &RenderTree,
@@ -255,6 +265,7 @@ pub fn render_html_with(
         let menu = use_signal(|| props.view.menu.clone());
         let renaming = use_signal(|| props.view.renaming.clone());
         let dragging = use_signal(|| props.view.dragging.clone());
+        let drop_target = use_signal(|| props.view.drop_target.clone());
         rsx! {
             Surface {
                 tree,
@@ -265,6 +276,7 @@ pub fn render_html_with(
                 menu,
                 renaming,
                 dragging,
+                drop_target,
             }
         }
     }

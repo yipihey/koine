@@ -19,7 +19,7 @@ use impress_surface::tree::TreeNode;
 use impress_surface::{Event, EventKind, RenderKind, RenderNode};
 use serde_json::{json, Value};
 
-use crate::outline::{self, RowRef};
+use crate::outline::{self, DropAt, MenuChoice, RowMenu};
 use crate::{font_class, Ctx, FileChosen};
 
 /// One node, and everything under it.
@@ -91,14 +91,16 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
             }
         }
         RenderKind::Tabs { tabs } => tabs_node(id, label, help, tabs, ctx),
+        // Markdown (plan-koine-affordances A-D7): raw HTML in the source is
+        // escaped text, so the inner HTML is only what the markdown made.
         RenderKind::Text { text } => rsx! {
-            p {
+            div {
                 class: class("koine-text", font_class(ctx.sheet, "text"), ctx, id),
                 "data-koine-id": "{id}",
                 "data-koine-focused": focused,
                 aria_label: label,
                 title: help,
-                "{text}"
+                dangerous_inner_html: crate::markdown::markdown_html(text),
             }
         },
         RenderKind::Table { .. } => table_node(node, ctx),
@@ -440,12 +442,18 @@ fn menu_is_open(ctx: &Ctx<'_>, widget: &str, row: &Value) -> bool {
     matches!(&*ctx.menu.read(), Some((w, r)) if w == widget && r == row)
 }
 
-/// The row menu: a `ul.koine-menu` of the labels, drawn inside the row it
-/// belongs to (the row is `position: relative`, the menu is placed under it).
-/// Choosing an entry sends `menu` with `{"id", "action"}` and closes; the
-/// click does not reach the row, which would select it.
-fn menu_list(ctx: &Ctx<'_>, widget: &str, row: &Value, actions: &[String]) -> Element {
-    if actions.is_empty() || !menu_is_open(ctx, widget, row) {
+/// The row menu: a `ul.koine-menu` of [`outline::menu_entries`], drawn
+/// inside the row it belongs to (the row is `position: relative`, the menu
+/// is placed under it). Choosing an entry closes the menu and does what
+/// [`outline::MenuChoice`] says: "Rename" on a tree that renames opens the
+/// inline rename (the frontend's own, as `r` does, and it wins over a spec
+/// action of that label); the "Delete" appended for a tree that deletes
+/// sends `delete` with `[id]`, the value `d` sends; any other entry sends
+/// `menu` with `{"id", "action"}`. The click does not reach the row, which
+/// would select it.
+fn menu_list(ctx: &Ctx<'_>, widget: &str, row: &Value, menu: &RowMenu) -> Element {
+    let entries = menu.entries();
+    if entries.is_empty() || !menu_is_open(ctx, widget, row) {
         return rsx! {};
     }
     rsx! {
@@ -458,13 +466,14 @@ fn menu_list(ctx: &Ctx<'_>, widget: &str, row: &Value, actions: &[String]) -> El
                 e.prevent_default();
                 e.stop_propagation();
             },
-            for (index , action) in actions.iter().enumerate() {
+            for (index , entry) in entries.iter().enumerate() {
                 {
                     let on_event = ctx.on_event;
-                    let mut menu = ctx.menu;
+                    let mut open = ctx.menu;
+                    let mut renaming = ctx.renaming;
                     let widget = widget.to_string();
                     let row = row.clone();
-                    let action = action.clone();
+                    let choice = menu.choice(index);
                     rsx! {
                         li {
                             key: "{index}",
@@ -472,13 +481,27 @@ fn menu_list(ctx: &Ctx<'_>, widget: &str, row: &Value, actions: &[String]) -> El
                             role: "menuitem",
                             onclick: move |e| {
                                 e.stop_propagation();
-                                menu.set(None);
-                                on_event
-                                    .call(
-                                        event(&widget, EventKind::Menu, outline::menu_value(&row, &action)),
-                                    );
+                                open.set(None);
+                                match choice.clone() {
+                                    Some(MenuChoice::Rename) => {
+                                        renaming.set(Some((widget.clone(), row.clone())));
+                                    }
+                                    Some(MenuChoice::Delete) => {
+                                        on_event
+                                            .call(
+                                                event(&widget, EventKind::Delete, Value::Array(vec![row.clone()])),
+                                            );
+                                    }
+                                    Some(MenuChoice::Action(action)) => {
+                                        on_event
+                                            .call(
+                                                event(&widget, EventKind::Menu, outline::menu_value(&row, &action)),
+                                            );
+                                    }
+                                    None => {}
+                                }
                             },
-                            "{action}"
+                            "{entry}"
                         }
                     }
                 }
@@ -489,13 +512,13 @@ fn menu_list(ctx: &Ctx<'_>, widget: &str, row: &Value, actions: &[String]) -> El
 
 /// The row's `button.koine-more`: a "…" that opens the same menu a
 /// right-click does, for a screen with no right-click (a phone). The sheet
-/// hides it where there is a pointer; nothing when the widget has no
-/// `actions`. Not a tab stop: `m` on the row is the key.
-fn more_button(ctx: &Ctx<'_>, widget: &str, row: &Value, actions: &[String]) -> Element {
-    if actions.is_empty() {
+/// hides it where there is a pointer; nothing when the menu has no entries.
+/// Not a tab stop: `m` on the row is the key.
+fn more_button(ctx: &Ctx<'_>, widget: &str, row: &Value, menu: &RowMenu) -> Element {
+    if menu.entries().is_empty() {
         return rsx! {};
     }
-    let mut menu = ctx.menu;
+    let mut open = ctx.menu;
     let target = (widget.to_string(), row.clone());
     rsx! {
         button {
@@ -505,7 +528,7 @@ fn more_button(ctx: &Ctx<'_>, widget: &str, row: &Value, actions: &[String]) -> 
             aria_label: "row actions",
             onclick: move |e| {
                 e.stop_propagation();
-                menu.set(Some(target.clone()));
+                open.set(Some(target.clone()));
             },
             "\u{2026}"
         }
@@ -527,12 +550,13 @@ fn table_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
         rows,
         columns,
         id_field,
-        actions,
         count_field,
+        ..
     } = &node.node
     else {
         return rsx! {};
     };
+    let row_menu = RowMenu::of(&node.node).unwrap_or_default();
     let id = node.id.as_str();
     let focused = is_focused(ctx, id).then_some("true");
     let rows: &[Value] = rows.as_array().map_or(&[], Vec::as_slice);
@@ -560,12 +584,12 @@ fn table_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                         let active = is_active(ctx, id, &key);
                         let selected = selection_of(row, id_field.as_deref(), index);
                         let activated = Value::Array(vec![key.clone()]);
-                        let has_menu = !actions.is_empty();
+                        let has_menu = !row_menu.entries().is_empty();
                         let (menu_widget, menu_row) = (widget.clone(), key.clone());
                         let menu = ctx.menu;
                         let count = outline::count_text(row, count_field.as_deref());
-                        let menu_el = menu_list(ctx, id, &key, actions);
-                        let more_el = more_button(ctx, id, &key, actions);
+                        let menu_el = menu_list(ctx, id, &key, &row_menu);
+                        let more_el = more_button(ctx, id, &key, &row_menu);
                         rsx! {
                             tr {
                                 key: "{index}",
@@ -606,13 +630,12 @@ fn table_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
 
 fn list_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
     let RenderKind::List {
-        rows,
-        actions,
-        count_field,
+        rows, count_field, ..
     } = &node.node
     else {
         return rsx! {};
     };
+    let row_menu = RowMenu::of(&node.node).unwrap_or_default();
     let id = node.id.as_str();
     let focused = is_focused(ctx, id).then_some("true");
     let rows: &[Value] = rows.as_array().map_or(&[], Vec::as_slice);
@@ -632,12 +655,12 @@ fn list_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                     let active = is_active(ctx, id, &key);
                     let selected = selection_of(row, None, index);
                     let activated = Value::Array(vec![key.clone()]);
-                    let has_menu = !actions.is_empty();
+                    let has_menu = !row_menu.entries().is_empty();
                     let (menu_widget, menu_row) = (widget.clone(), key.clone());
                     let menu = ctx.menu;
                     let count = outline::count_text(row, count_field.as_deref());
-                    let menu_el = menu_list(ctx, id, &key, actions);
-                    let more_el = more_button(ctx, id, &key, actions);
+                    let menu_el = menu_list(ctx, id, &key, &row_menu);
+                    let more_el = more_button(ctx, id, &key, &row_menu);
                     rsx! {
                         li {
                             key: "{index}",
@@ -676,29 +699,36 @@ fn list_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
 ///   sends `select` with `[id]`; a double-click on the label sends `activate`.
 /// - The active row is `data-koine-active` / `koine-active`; a node's count
 ///   is a `span.koine-count` after its label.
-/// - Right-click on a row opens its menu when the tree declares `actions`.
+/// - The row menu ([`outline::menu_entries`]: "Rename" when the tree renames,
+///   the spec's actions, "Delete" when it deletes) opens on right-click, on
+///   the `…` button and on `m`.
 /// - A row being renamed shows an `input.koine-rename` in place of its label:
 ///   Enter sends `rename` `{"id", "label"}` and closes, Escape closes.
-/// - A `movable` tree's rows are `draggable`. Dropping on a row sends `move`
-///   with that row as the new parent (`index` 0); while a drag is in progress
-///   a `li.koine-drop-gap` between rows drops as a sibling at that position
-///   (see [`outline`]). One row at a time: no multi-select drag.
+/// - A `movable` tree's rows each end in a grip (`span.koine-grip`, `≡`), and
+///   the grip is the one way to move a row, for a mouse and a finger alike
+///   (plan-koine-affordances A-D1): Pointer Events, never HTML5 drag and
+///   drop. While a row is moved, a `li.koine-drop-gap` is drawn between rows;
+///   the row or gap under the pointer is `data-koine-drop`, and releasing
+///   over a row sends `move` with that row as the new parent (`index` 0),
+///   over a gap as a sibling at that position (see [`outline`]). One row at
+///   a time: no multi-select move.
 ///
 /// Rows are clicked, not tabbed, as a table's are.
 fn tree_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
     let RenderKind::Tree {
         nodes,
         expanded,
-        actions,
         movable,
         ..
     } = &node.node
     else {
         return rsx! {};
     };
+    let row_menu = RowMenu::of(&node.node).unwrap_or_default();
+    let has_menu = !row_menu.entries().is_empty();
     let id = node.id.as_str();
     let focused = is_focused(ctx, id).then_some("true");
-    // What a drop handler needs to decide with, shared by every row.
+    // What a drop needs to decide with, shared by every row.
     let all: Rc<Vec<TreeNode>> = Rc::new(nodes.clone());
     let dragged: Option<Value> = if *movable {
         ctx.dragging
@@ -709,6 +739,13 @@ fn tree_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
     } else {
         None
     };
+    let target: Option<DropAt> = dragged.as_ref().and_then(|_| {
+        ctx.drop_target
+            .read()
+            .as_ref()
+            .filter(|(w, _)| w == id)
+            .map(|(_, at)| *at)
+    });
     let renaming: Option<Value> = ctx
         .renaming
         .read()
@@ -717,13 +754,14 @@ fn tree_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
         .map(|(_, row)| row.clone());
     let end_gap = dragged
         .as_ref()
-        .map(|dragged| gap_row(ctx, id, &all, dragged, all.len()));
+        .map(|dragged| gap_row(id, &all, dragged, all.len(), target));
     rsx! {
         ul {
             class: class("koine-tree", None, ctx, id),
             tabindex: 0,
             "data-koine-id": "{id}",
             "data-koine-focused": focused,
+            "data-koine-moving": dragged.is_some().then_some("true"),
             aria_label: node.label.clone(),
             title: node.help.clone(),
             for (index , node) in nodes.iter().enumerate() {
@@ -737,20 +775,21 @@ fn tree_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                     let is_open = node.expanded;
                     let indent = format!("padding-left: calc({} * 1.25em)", node.depth);
                     let active = is_active(ctx, id, &node.id);
-                    let has_menu = !actions.is_empty();
-                    let menu_el = menu_list(ctx, id, &node.id, actions);
-                    let more_el = more_button(ctx, id, &node.id, actions);
+                    let menu_el = menu_list(ctx, id, &node.id, &row_menu);
+                    let more_el = more_button(ctx, id, &node.id, &row_menu);
                     let count = node.count.as_ref().map(display);
                     let menu_target = (widget.clone(), node.id.clone());
                     let menu = ctx.menu;
-                    let gap = dragged.as_ref().map(|dragged| gap_row(ctx, id, &all, dragged, index));
+                    let gap = dragged.as_ref().map(|dragged| gap_row(id, &all, dragged, index, target));
                     let editing = renaming.as_ref() == Some(&node.id);
                     let rename_el = if editing {
                         rename_input(ctx, id, node)
                     } else {
                         rsx! {}
                     };
-                    let drag = drag_handlers(ctx, id, &all, index, *movable);
+                    let grip_el = if *movable { grip(ctx, id, &all, index) } else { rsx! {} };
+                    let is_target = target == Some(DropAt::Row(index));
+                    let is_moving = dragged.as_ref() == Some(&node.id);
                     rsx! {
                         Fragment { key: "{index}",
                             {gap}
@@ -758,10 +797,11 @@ fn tree_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                                 class: row_class("koine-tree-node", active),
                                 style: indent,
                                 tabindex: -1,
-                                draggable: movable.then_some("true"),
                                 "data-koine-depth": "{node.depth}",
                                 "data-koine-row": "{index}",
                                 "data-koine-active": active.then_some("true"),
+                                "data-koine-drop": is_target.then_some("true"),
+                                "data-koine-moving": is_moving.then_some("true"),
                                 oncontextmenu: move |e| {
                                     if has_menu {
                                         e.prevent_default();
@@ -769,10 +809,6 @@ fn tree_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                                         menu.set(Some(menu_target.clone()));
                                     }
                                 },
-                                ondragstart: drag.start,
-                                ondragend: drag.end,
-                                ondragover: drag.over,
-                                ondrop: drag.drop,
                                 if node.has_children {
                                     button {
                                         class: "koine-tree-disclosure",
@@ -801,6 +837,7 @@ fn tree_node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                                 }
                                 {count_span(count)}
                                 {more_el}
+                                {grip_el}
                                 {menu_el}
                             }
                         }
@@ -855,101 +892,121 @@ fn rename_input(ctx: &Ctx<'_>, widget: &str, node: &TreeNode) -> Element {
     }
 }
 
-/// The four drag-and-drop handlers of one row; they do nothing for a tree
-/// that is not `movable` (and a row that is not `draggable` never starts one).
-struct DragHandlers {
-    start: EventHandler<DragEvent>,
-    end: EventHandler<DragEvent>,
-    over: EventHandler<DragEvent>,
-    drop: EventHandler<DragEvent>,
-}
-
-/// The `move` a drop on row `index` would send, when a drag of this widget is
-/// in progress and the row may take it.
-fn drop_value(
-    dragging: &Signal<Option<RowRef>>,
-    widget: &str,
-    all: &[TreeNode],
-    index: usize,
-) -> Option<Value> {
-    let (from, dragged) = dragging.peek().clone()?;
-    if from != widget {
-        return None;
-    }
-    outline::drop_on(all, &dragged, index)
-}
-
-/// The handlers for row `index`. `start` records the dragged id and gives the
-/// browser something to carry (Firefox starts no drag without data); `over`
-/// accepts a drop only on a row this drag may land on; `drop` sends `move`.
-fn drag_handlers(
-    ctx: &Ctx<'_>,
-    widget: &str,
-    all: &Rc<Vec<TreeNode>>,
-    index: usize,
-    movable: bool,
-) -> DragHandlers {
-    if !movable {
-        let inert = || EventHandler::new(|_: DragEvent| {});
-        return DragHandlers {
-            start: inert(),
-            end: inert(),
-            over: inert(),
-            drop: inert(),
-        };
-    }
+/// A movable row's grip: `span.koine-grip` (`≡`, `touch-action: none` in
+/// the sheet) at the row's trailing edge, the only way to move a row
+/// (plan-koine-affordances A-D1). Pointer Events, so a mouse and a finger
+/// run the same handlers:
+///
+/// - `pointerdown` arms the move (`dragging`) and captures the pointer on
+///   the grip, so the stream keeps coming here wherever the pointer goes;
+/// - `pointermove` finds the row or gap under the pointer
+///   (`elementFromPoint`, climbed to `[data-koine-row]`/`[data-koine-gap]`
+///   inside this tree) and keeps it as the drop target;
+/// - `pointerup` sends `move` with [`outline::drop_value`] of the target
+///   under the release point (else the last one seen) and clears both;
+///   `pointercancel` does the same with the last target seen.
+///
+/// Nothing is sent where the row may not land (on itself, into its own
+/// branch) or when the pointer is released outside the tree.
+fn grip(ctx: &Ctx<'_>, widget: &str, all: &Rc<Vec<TreeNode>>, index: usize) -> Element {
     let mut dragging = ctx.dragging;
+    let mut target = ctx.drop_target;
     let on_event = ctx.on_event;
     let row = all[index].id.clone();
-    let start_widget = widget.to_string();
-    let start = EventHandler::new(move |e: DragEvent| {
-        let transfer = e.data_transfer();
-        let _ = transfer.set_data("text/plain", &display(&row));
-        transfer.set_effect_allowed("move");
-        dragging.set(Some((start_widget.clone(), row.clone())));
-    });
-    let end = EventHandler::new(move |_: DragEvent| dragging.set(None));
-    let (over_all, over_widget) = (all.clone(), widget.to_string());
-    let over = EventHandler::new(move |e: DragEvent| {
-        if drop_value(&dragging, &over_widget, &over_all, index).is_some() {
-            e.prevent_default();
+    let widget = widget.to_string();
+    let all = all.clone();
+    // Whether this tree has a move in progress (another tree's grip may
+    // share the pointer stream only through capture, which is per grip).
+    let moving = move |widget: &str| matches!(&*dragging.peek(), Some((w, _)) if w == widget);
+    let finish = move |widget: String, at: Option<DropAt>| {
+        let (mut dragging, mut target) = (dragging, target);
+        let dragged = dragging.peek().clone();
+        dragging.set(None);
+        target.set(None);
+        let Some((from, dragged)) = dragged else {
+            return;
+        };
+        if from != widget {
+            return;
         }
-    });
-    let (drop_all, drop_widget) = (all.clone(), widget.to_string());
-    let drop = EventHandler::new(move |e: DragEvent| {
-        e.prevent_default();
-        e.stop_propagation();
-        if let Some(value) = drop_value(&dragging, &drop_widget, &drop_all, index) {
-            dragging.set(None);
-            on_event.call(event(&drop_widget, EventKind::Move, value));
+        if let Some(value) = at.and_then(|at| outline::drop_value(&all, &dragged, at)) {
+            on_event.call(event(&widget, EventKind::Move, value));
         }
-    });
-    DragHandlers {
-        start,
-        end,
-        over,
-        drop,
+    };
+    let (down_widget, move_widget, up_widget, cancel_widget) =
+        (widget.clone(), widget.clone(), widget.clone(), widget);
+    let finish_on_cancel = finish.clone();
+    rsx! {
+        span {
+            class: "koine-grip",
+            aria_hidden: "true",
+            onpointerdown: move |e: PointerEvent| {
+                e.prevent_default();
+                e.stop_propagation();
+                capture(&e);
+                target.set(None);
+                dragging.set(Some((down_widget.clone(), row.clone())));
+            },
+            onpointermove: move |e: PointerEvent| {
+                if !moving(&move_widget) {
+                    return;
+                }
+                e.prevent_default();
+                let at = e.client_coordinates();
+                let widget = move_widget.clone();
+                spawn(async move {
+                    let mut target = target;
+                    let hit = drop_target_at(&widget, at.x, at.y).await;
+                    let now = hit.map(|hit| (widget.clone(), hit));
+                    if *target.peek() != now && moving(&widget) {
+                        target.set(now);
+                    }
+                });
+            },
+            onpointerup: move |e: PointerEvent| {
+                if !moving(&up_widget) {
+                    return;
+                }
+                e.prevent_default();
+                e.stop_propagation();
+                let at = e.client_coordinates();
+                let widget = up_widget.clone();
+                let seen = target.peek().clone().filter(|(w, _)| *w == widget).map(|(_, at)| at);
+                let finish = finish.clone();
+                spawn(async move {
+                    let hit = drop_target_at(&widget, at.x, at.y).await.or(seen);
+                    finish(widget, hit);
+                });
+            },
+            onpointercancel: move |_| {
+                if !moving(&cancel_widget) {
+                    return;
+                }
+                let seen = target.peek().clone().filter(|(w, _)| *w == cancel_widget).map(|(_, at)| at);
+                finish_on_cancel(cancel_widget.clone(), seen);
+            },
+            "\u{2261}"
+        }
     }
 }
 
 /// A thin drop target before row `at` (`at == len` is after the last row),
-/// drawn only while a drag is in progress. Dropping sends `move` as a sibling
-/// at that position; a gap that would put the dragged branch under itself is
-/// not drawn.
+/// drawn only while a row of this tree is moved by its grip; releasing over
+/// it sends `move` as a sibling at that position (the grip's `pointerup`
+/// does, finding it under the pointer). A gap that would put the moved
+/// branch under itself is not drawn. `data-koine-drop` when it is the target.
 fn gap_row(
-    ctx: &Ctx<'_>,
     widget: &str,
     all: &Rc<Vec<TreeNode>>,
     dragged: &Value,
     at: usize,
+    target: Option<DropAt>,
 ) -> Element {
-    let Some(value) = outline::drop_gap(all, dragged, at) else {
+    if outline::drop_gap(all, dragged, at).is_none() {
         return rsx! {};
-    };
-    let mut dragging = ctx.dragging;
-    let on_event = ctx.on_event;
-    let widget = widget.to_string();
+    }
     let depth = all.get(at).map_or(0, |n| n.depth);
+    let is_target = target == Some(DropAt::Gap(at));
     rsx! {
         li {
             key: "gap-{at}",
@@ -957,14 +1014,62 @@ fn gap_row(
             role: "presentation",
             style: "margin-left: calc({depth} * 1.25em)",
             "data-koine-gap": "{at}",
-            ondragover: move |e| e.prevent_default(),
-            ondrop: move |e| {
-                e.prevent_default();
-                e.stop_propagation();
-                dragging.set(None);
-                on_event.call(event(&widget, EventKind::Move, value.clone()));
-            },
+            "data-koine-tree": "{widget}",
+            "data-koine-drop": is_target.then_some("true"),
         }
+    }
+}
+
+/// Keep the pointer on the grip it went down on. In a browser,
+/// `setPointerCapture` through `web-sys`; in a WebView (desktop, mobile) the
+/// same call through `document::eval`, on the grip of the row the pointer
+/// went down on. A finger's pointer is captured to its target by the
+/// browser already, so this matters for a mouse.
+fn capture(e: &PointerEvent) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::pointer::capture(e);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let at = e.client_coordinates();
+        let script = format!(
+            "const g = document.elementFromPoint({x}, {y}); \
+             const grip = g && g.closest('.koine-grip'); \
+             if (grip) {{ try {{ grip.setPointerCapture({id}); }} catch (_) {{}} }} \
+             return '';",
+            x = at.x,
+            y = at.y,
+            id = e.pointer_id(),
+        );
+        spawn(async move {
+            let _ = dioxus::document::eval(&script).await;
+        });
+    }
+}
+
+/// The row or gap of tree `widget` under the viewport point `(x, y)`. In a
+/// browser, `elementFromPoint` through `web-sys` ([`crate::pointer`]); in a
+/// WebView, the same walk through `document::eval`, answered as `row:<n>` or
+/// `gap:<n>`.
+async fn drop_target_at(widget: &str, x: f64, y: f64) -> Option<DropAt> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        crate::pointer::drop_at_point(widget, x, y)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let widget = serde_json::to_string(widget).ok()?;
+        let script = format!(
+            "const under = document.elementFromPoint({x}, {y}); \
+             const hit = under && under.closest('[data-koine-row], [data-koine-gap]'); \
+             const tree = hit && hit.closest('ul.koine-tree'); \
+             if (!tree || tree.getAttribute('data-koine-id') !== {widget}) return ''; \
+             const row = hit.getAttribute('data-koine-row'); \
+             return row !== null ? 'row:' + row : 'gap:' + hit.getAttribute('data-koine-gap');"
+        );
+        let answer = dioxus::document::eval(&script).await.ok()?;
+        outline::parse_drop_at(answer.as_str()?)
     }
 }
 

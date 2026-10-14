@@ -9,8 +9,17 @@
 //!
 //! [`render_graph_svg`] draws edges as `<line>`s, then one
 //! `<g class="koine-graph-node" data-id="…">` per node holding a `<circle>`
-//! and (up to [`LABEL_LIMIT`] nodes) a `<text>` label. The `data-id` is how a
-//! page learns which node a click landed on.
+//! and a `<text>` label where it fits. The `data-id` is how a page learns
+//! which node a click landed on.
+//!
+//! The drawing is legible before it is complete (plan-koine-affordances
+//! A-D10): the layout's repulsion counts each node's label as part of its
+//! size, so labelled nodes push each other apart by their words, not their
+//! dots; and labels are drawn greedily, highest degree first, each only where
+//! its box overlaps no label already drawn. A node whose label did not fit
+//! carries it as an SVG `<title>` (a hover shows it), and the `<svg>` has a
+//! `viewBox`, so a page can scale or pinch-zoom the map to read the rest.
+//! Past [`LABEL_LIMIT`] nodes no label is drawn and every node has a title.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -23,6 +32,50 @@ pub const LABEL_LIMIT: usize = 500;
 
 /// Fixed iteration count of the layout.
 const ITERATIONS: usize = 200;
+
+/// A label's font size, in the drawing's units.
+const LABEL_FONT: f64 = 10.0;
+/// The width one character of a label is taken to be: 0.6em, a generous
+/// average for a proportional sans-serif, so a label's box is not smaller
+/// than what the browser draws.
+const LABEL_CHAR: f64 = 0.6 * LABEL_FONT;
+/// The gap between a node's circle and its label's baseline.
+const LABEL_GAP: f64 = 4.0;
+
+/// The width a label is taken to be when it is drawn: [`LABEL_CHAR`] per
+/// character.
+pub fn label_width(label: &str) -> f64 {
+    label.chars().count() as f64 * LABEL_CHAR
+}
+
+/// A label's box: left, top, right, bottom.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LabelBox {
+    pub x0: f64,
+    pub y0: f64,
+    pub x1: f64,
+    pub y1: f64,
+}
+
+impl LabelBox {
+    /// The box of `label` drawn centred on `x` with its baseline at `y`
+    /// (`text-anchor="middle"`), at [`LABEL_FONT`]: from one em above the
+    /// baseline to a quarter em below it.
+    pub fn of(label: &str, x: f64, y: f64) -> Self {
+        let half = label_width(label) / 2.0;
+        Self {
+            x0: x - half,
+            y0: y - LABEL_FONT,
+            x1: x + half,
+            y1: y + LABEL_FONT * 0.25,
+        }
+    }
+
+    /// Whether the two boxes share any area (touching edges do not).
+    pub fn overlaps(&self, other: &Self) -> bool {
+        self.x0 < other.x1 && other.x0 < self.x1 && self.y0 < other.y1 && other.y0 < self.y1
+    }
+}
 
 const DEFAULT_WIDTH: f64 = 640.0;
 const DEFAULT_HEIGHT: f64 = 480.0;
@@ -107,8 +160,24 @@ fn mix(mut z: u64) -> u64 {
     z ^ (z >> 31)
 }
 
+/// The label a node is drawn with: its own, else its id (the first node of a
+/// duplicated id wins).
+fn label_of<'a>(spec: &'a GraphSpec, id: &'a str) -> &'a str {
+    spec.nodes
+        .iter()
+        .find(|n| n.id == id)
+        .and_then(|n| n.label.as_deref())
+        .unwrap_or(id)
+}
+
 /// Lay the graph out: one `(id, x, y)` per node (the first of any duplicated
 /// id), in node order, inside the `width` x `height` area with a margin.
+///
+/// Repulsion is label-aware: while labels are drawn (up to [`LABEL_LIMIT`]
+/// nodes) a node's radius is half its label's width ([`label_width`]), and
+/// two nodes repel as if the distance between them were the gap between
+/// those radii (never less than a tenth of the distance), so two labelled
+/// nodes are pushed apart until their words, not only their dots, clear.
 ///
 /// 0 nodes give an empty list, 1 node the centre. Deterministic.
 pub fn layout(spec: &GraphSpec) -> Vec<(String, f64, f64)> {
@@ -156,6 +225,19 @@ pub fn layout(spec: &GraphSpec) -> Vec<(String, f64, f64)> {
         })
         .collect();
 
+    // Each node's size: half its label's width while labels are drawn.
+    let labelled = n <= LABEL_LIMIT;
+    let size: Vec<f64> = ids
+        .iter()
+        .map(|id| {
+            if labelled {
+                label_width(label_of(spec, id)) / 2.0
+            } else {
+                0.0
+            }
+        })
+        .collect();
+
     let k = ((bw * bh) / n as f64).sqrt();
     let t0 = bw.min(bh) / 8.0;
     let mut disp = vec![(0.0_f64, 0.0_f64); n];
@@ -178,7 +260,9 @@ pub fn layout(spec: &GraphSpec) -> Vec<(String, f64, f64)> {
                     dy = 0.5 - u + 2e-3;
                     dist = (dx * dx + dy * dy).sqrt();
                 }
-                let f = k * k / dist;
+                // The gap between the two labels, not the centres.
+                let gap = (dist - size[i] - size[j]).max(dist * 0.1);
+                let f = k * k / gap;
                 let (fx, fy) = (dx / dist * f, dy / dist * f);
                 disp[i].0 += fx;
                 disp[i].1 += fy;
@@ -228,6 +312,12 @@ pub fn layout(spec: &GraphSpec) -> Vec<(String, f64, f64)> {
 }
 
 /// Draw a graph as a standalone `<svg>` string.
+///
+/// Labels are placed greedily: nodes by degree, highest first (ties in node
+/// order), each label centred above its node (below it when there is no room
+/// above, and moved in from a side edge) and drawn only when its
+/// [`LabelBox`] overlaps no label already drawn. A node whose label is not
+/// drawn has it as a `<title>`.
 pub fn render_graph_svg(spec: &GraphSpec) -> String {
     let (w, h) = dims(spec);
     let placed = layout(spec);
@@ -259,25 +349,26 @@ pub fn render_graph_svg(spec: &GraphSpec) -> String {
         }
     }
 
-    // The first node of a duplicated id wins, label included.
-    let first_label = |id: &str| -> Option<&str> {
-        spec.nodes
-            .iter()
-            .find(|n| n.id == id)
-            .and_then(|n| n.label.as_deref())
+    // Which labels are drawn, and where: highest degree first.
+    let shown = if labelled {
+        place_labels(spec, &placed, radius, w)
+    } else {
+        vec![None; placed.len()]
     };
 
-    for (id, x, y) in &placed {
+    for ((id, x, y), label_at) in placed.iter().zip(shown) {
         let eid = escape_xml(id);
+        let text = escape_xml(label_of(spec, id));
         out.push(format!(r#"<g class="koine-graph-node" data-id="{eid}">"#));
+        if label_at.is_none() {
+            out.push(format!("<title>{text}</title>"));
+        }
         out.push(format!(
             r##"<circle cx="{x:.2}" cy="{y:.2}" r="{radius:.1}" fill="#4c78a8" stroke="white" stroke-width="0.8"/>"##
         ));
-        if labelled {
-            let text = escape_xml(first_label(id).unwrap_or(id));
+        if let Some((lx, ly)) = label_at {
             out.push(format!(
-                r##"<text x="{x:.2}" y="{:.2}" text-anchor="middle" font-size="10px" fill="#333333" dominant-baseline="auto">{text}</text>"##,
-                y - radius - 4.0
+                r##"<text x="{lx:.2}" y="{ly:.2}" text-anchor="middle" font-size="10px" fill="#333333" dominant-baseline="auto">{text}</text>"##
             ));
         }
         out.push("</g>".to_string());
@@ -285,6 +376,61 @@ pub fn render_graph_svg(spec: &GraphSpec) -> String {
 
     out.push("</svg>".to_string());
     out.join("\n")
+}
+
+/// The label position of each placed node (`(x, baseline y)`), or `None`
+/// where it would overlap a label of a node of higher degree.
+fn place_labels(
+    spec: &GraphSpec,
+    placed: &[(String, f64, f64)],
+    radius: f64,
+    width: f64,
+) -> Vec<Option<(f64, f64)>> {
+    let index: std::collections::HashMap<&str, usize> = placed
+        .iter()
+        .enumerate()
+        .map(|(i, (id, _, _))| (id.as_str(), i))
+        .collect();
+    let mut degree = vec![0usize; placed.len()];
+    for e in &spec.edges {
+        if e.source == e.target {
+            continue;
+        }
+        if let (Some(&s), Some(&t)) = (index.get(e.source.as_str()), index.get(e.target.as_str())) {
+            degree[s] += 1;
+            degree[t] += 1;
+        }
+    }
+    let mut order: Vec<usize> = (0..placed.len()).collect();
+    // Stable: equal degrees keep node order.
+    order.sort_by(|a, b| degree[*b].cmp(&degree[*a]));
+
+    let mut drawn: Vec<LabelBox> = Vec::new();
+    let mut out = vec![None; placed.len()];
+    for i in order {
+        let (id, x, y) = &placed[i];
+        let label = label_of(spec, id);
+        let half = label_width(label) / 2.0;
+        // Moved in from a side edge when it would run off it.
+        let lx = if 2.0 * half >= width {
+            width / 2.0
+        } else {
+            x.clamp(half, width - half)
+        };
+        // Above the dot; below it when there is no room above.
+        let above = y - radius - LABEL_GAP;
+        let ly = if above - LABEL_FONT < 0.0 {
+            y + radius + LABEL_GAP + LABEL_FONT
+        } else {
+            above
+        };
+        let rect = LabelBox::of(label, lx, ly);
+        if drawn.iter().all(|other| !rect.overlaps(other)) {
+            drawn.push(rect);
+            out[i] = Some((lx, ly));
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -426,11 +572,127 @@ mod tests {
         let svg = render_graph_svg(&g);
         assert_eq!(svg.matches("koine-graph-node").count(), 501);
         assert!(!svg.contains("<text"));
+        // Every node still names itself, as a title.
+        assert_eq!(svg.matches("<title>").count(), 501);
+        // At 500, labels are drawn where they fit and the rest are titles.
         let g500 = GraphSpec {
             nodes: (0..500).map(|i| node(&format!("n{i}"))).collect(),
             ..GraphSpec::default()
         };
-        assert_eq!(render_graph_svg(&g500).matches("<text").count(), 500);
+        let svg = render_graph_svg(&g500);
+        let drawn = svg.matches("<text").count();
+        assert!(drawn > 0);
+        assert_eq!(drawn + svg.matches("<title>").count(), 500);
+    }
+
+    /// Every drawn label's box, read back off the SVG.
+    fn drawn_labels(svg: &str) -> Vec<(String, LabelBox)> {
+        svg.split("<text ")
+            .skip(1)
+            .map(|rest| {
+                let num = |name: &str| -> f64 {
+                    let at = rest.find(&format!("{name}=\"")).unwrap() + name.len() + 2;
+                    rest[at..at + rest[at..].find('"').unwrap()]
+                        .parse()
+                        .unwrap()
+                };
+                let open = rest.find('>').unwrap() + 1;
+                let text = rest[open..open + rest[open..].find("</text>").unwrap()].to_string();
+                let label = text
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&amp;", "&");
+                let rect = LabelBox::of(&label, num("x"), num("y"));
+                (label, rect)
+            })
+            .collect()
+    }
+
+    /// A dense map: a hub, a ring of spokes with long labels, a few chords.
+    fn dense() -> GraphSpec {
+        let mut nodes = vec![GraphNode {
+            id: "hub".into(),
+            label: Some("surface-demo-service".into()),
+        }];
+        let mut edges = Vec::new();
+        for i in 0..40 {
+            nodes.push(GraphNode {
+                id: format!("n{i}"),
+                label: Some(format!("surface-demo-service_verb-{i}")),
+            });
+            edges.push(edge("hub", &format!("n{i}")));
+            edges.push(edge(&format!("n{i}"), &format!("n{}", (i + 1) % 40)));
+        }
+        GraphSpec {
+            nodes,
+            edges,
+            ..GraphSpec::default()
+        }
+    }
+
+    #[test]
+    fn no_two_drawn_labels_overlap_and_a_skipped_one_is_a_title() {
+        let g = dense();
+        let svg = render_graph_svg(&g);
+        let labels = drawn_labels(&svg);
+        assert!(!labels.is_empty());
+        for i in 0..labels.len() {
+            for j in (i + 1)..labels.len() {
+                assert!(
+                    !labels[i].1.overlaps(&labels[j].1),
+                    "{:?} overlaps {:?}",
+                    labels[i],
+                    labels[j]
+                );
+            }
+        }
+        // Each node has its label once: drawn, or as a title.
+        let titles = svg.matches("<title>").count();
+        assert_eq!(labels.len() + titles, g.nodes.len(), "{svg}");
+        assert!(titles > 0, "the dense map cannot draw every label");
+        // The hub has the highest degree: its label is drawn first, so it is
+        // drawn at all.
+        assert!(labels.iter().any(|(l, _)| l == "surface-demo-service"));
+        // Every drawn label stays inside the drawing, sideways.
+        for (label, rect) in &labels {
+            assert!(
+                rect.x0 >= -1e-9 && rect.x1 <= 640.0 + 1e-9,
+                "{label} {rect:?}"
+            );
+            assert!(rect.y0 >= 0.0, "{label} {rect:?}");
+        }
+        assert!(svg.contains(r#"viewBox="0 0 640 480""#));
+    }
+
+    #[test]
+    fn labels_count_in_the_layouts_repulsion() {
+        // Two linked nodes with long labels end up further apart than the
+        // same pair with one-letter labels.
+        let pair = |a: &str, b: &str| GraphSpec {
+            nodes: vec![
+                GraphNode {
+                    id: "a".into(),
+                    label: Some(a.into()),
+                },
+                GraphNode {
+                    id: "b".into(),
+                    label: Some(b.into()),
+                },
+            ],
+            edges: vec![edge("a", "b")],
+            ..GraphSpec::default()
+        };
+        let gap = |g: &GraphSpec| {
+            let p = layout(g);
+            ((p[0].1 - p[1].1).powi(2) + (p[0].2 - p[1].2).powi(2)).sqrt()
+        };
+        let short = gap(&pair("a", "b"));
+        let long = gap(&pair(
+            "a very long label on the left",
+            "and another long label",
+        ));
+        assert!(long > short, "{long} <= {short}");
+        assert_eq!(label_width("abcde"), 30.0);
     }
 
     #[test]

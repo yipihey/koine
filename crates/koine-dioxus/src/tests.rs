@@ -387,39 +387,146 @@ fn a_row_being_renamed_shows_an_input_with_its_text_instead_of_its_label() {
 }
 
 #[test]
-fn a_movable_tree_has_draggable_rows_and_gaps_only_while_dragging() {
+fn a_movable_tree_has_a_grip_per_row_and_gaps_only_while_moving() {
     let html = render_html(&outline(), &web(), None);
     let side = &html
         [html.find("data-koine-id=\"side\"").unwrap()..html.find("data-koine-id=\"tbl\"").unwrap()];
-    assert_eq!(side.matches("draggable=\"true\"").count(), 3, "{side}");
+    // One grip per row, after the label, hidden from assistive technology;
+    // no HTML5 drag and drop anywhere (A-D1: one way to move a row).
+    assert_eq!(
+        side.matches("<span class=\"koine-grip\" aria-hidden=\"true\">\u{2261}</span>")
+            .count(),
+        3,
+        "{side}"
+    );
+    assert!(!html.contains("draggable"), "{html}");
     assert!(!html.contains("koine-drop-gap"));
-    // A tree that does not declare on_move has no draggable rows.
-    assert!(!render_html(&everything(), &web(), None).contains("draggable"));
+    assert!(!html.contains("data-koine-moving"));
+    // A tree that does not declare on_move has no grip.
+    assert!(!render_html(&everything(), &web(), None).contains("koine-grip"));
 
-    // Dragging the leaf `b`: a gap before each of the three rows plus one at
+    // Moving the leaf `b`: a gap before each of the three rows plus one at
     // the end, none of which would put `b` under itself.
     let view = crate::RowView {
         dragging: row("side", json!("b")),
         ..Default::default()
     };
     let html = crate::render_html_with(&outline(), &web(), None, &view);
-    assert_eq!(html.matches("koine-drop-gap").count(), 4, "{html}");
-    // Dragging `a` (which holds `b`): the gap before `b` would put `a` under
+    assert_eq!(
+        html.matches("class=\"koine-drop-gap\"").count(),
+        4,
+        "{html}"
+    );
+    assert!(html.contains("data-koine-moving=\"true\""));
+    assert!(!html.contains("data-koine-drop="), "no target yet");
+    // Moving `a` (which holds `b`): the gap before `b` would put `a` under
     // itself, so it is not drawn.
     let view = crate::RowView {
         dragging: row("side", json!("a")),
         ..Default::default()
     };
     let html = crate::render_html_with(&outline(), &web(), None, &view);
-    assert_eq!(html.matches("koine-drop-gap").count(), 3, "{html}");
+    assert_eq!(
+        html.matches("class=\"koine-drop-gap\"").count(),
+        3,
+        "{html}"
+    );
     assert!(!html.contains("data-koine-gap=\"1\""));
-    // A drag of another widget draws none.
+    // A move in another widget draws none.
     let view = crate::RowView {
         dragging: row("tbl", json!("p1")),
         ..Default::default()
     };
     let html = crate::render_html_with(&outline(), &web(), None, &view);
     assert!(!html.contains("koine-drop-gap"));
+}
+
+#[test]
+fn the_row_or_gap_under_the_pointer_is_marked_as_the_drop_target() {
+    let target = |at| crate::RowView {
+        dragging: row("side", json!("b")),
+        drop_target: Some(("side".to_string(), at)),
+        ..Default::default()
+    };
+    // Over `docs` (row 2): that row, and only it.
+    let html = crate::render_html_with(&outline(), &web(), None, &target(crate::DropAt::Row(2)));
+    assert_eq!(
+        html.matches("data-koine-drop=\"true\"").count(),
+        1,
+        "{html}"
+    );
+    let marked = tags(&html)
+        .into_iter()
+        .find(|t| t.contains("data-koine-drop"))
+        .unwrap();
+    assert_eq!(attr(marked, "data-koine-row"), Some("2"), "{marked}");
+    // Over the gap at the end.
+    let html = crate::render_html_with(&outline(), &web(), None, &target(crate::DropAt::Gap(3)));
+    let marked = tags(&html)
+        .into_iter()
+        .find(|t| t.contains("data-koine-drop"))
+        .unwrap();
+    assert_eq!(attr(marked, "data-koine-gap"), Some("3"), "{marked}");
+    // A target with no move in progress marks nothing.
+    let view = crate::RowView {
+        drop_target: Some(("side".to_string(), crate::DropAt::Row(0))),
+        ..Default::default()
+    };
+    let html = crate::render_html_with(&outline(), &web(), None, &view);
+    assert!(!html.contains("data-koine-drop"));
+}
+
+#[test]
+fn a_tree_that_renames_and_deletes_lists_both_around_its_actions() {
+    let mut tree = outline();
+    if let impress_surface::RenderKind::Column { items } = &mut tree.root.node {
+        if let impress_surface::RenderKind::Tree {
+            actions,
+            renameable,
+            deletable,
+            ..
+        } = &mut items[0].node
+        {
+            *actions = vec!["Add child".into()];
+            *renameable = true;
+            *deletable = true;
+        }
+    }
+    let view = crate::RowView {
+        menu: row("side", json!("a")),
+        ..Default::default()
+    };
+    let html = crate::render_html_with(&tree, &web(), None, &view);
+    let items: Vec<&str> = html
+        .split("class=\"koine-menu-item\" role=\"menuitem\">")
+        .skip(1)
+        .map(|rest| &rest[..rest.find("</li>").unwrap()])
+        .collect();
+    assert_eq!(items, vec!["Rename", "Add child", "Delete"], "{html}");
+    // A tree with no actions but a rename handler still has a `…` button.
+    if let impress_surface::RenderKind::Column { items } = &mut tree.root.node {
+        if let impress_surface::RenderKind::Tree {
+            actions, deletable, ..
+        } = &mut items[0].node
+        {
+            actions.clear();
+            *deletable = false;
+        }
+    }
+    let html = render_html(&tree, &web(), None);
+    let side = &html
+        [html.find("data-koine-id=\"side\"").unwrap()..html.find("data-koine-id=\"tbl\"").unwrap()];
+    assert_eq!(side.matches("class=\"koine-more\"").count(), 3, "{side}");
+    // And none at all: no button.
+    if let impress_surface::RenderKind::Column { items } = &mut tree.root.node {
+        if let impress_surface::RenderKind::Tree { renameable, .. } = &mut items[0].node {
+            *renameable = false;
+        }
+    }
+    let html = render_html(&tree, &web(), None);
+    let side = &html
+        [html.find("data-koine-id=\"side\"").unwrap()..html.find("data-koine-id=\"tbl\"").unwrap()];
+    assert!(!side.contains("koine-more"), "{side}");
 }
 
 #[test]
@@ -865,4 +972,23 @@ fn a_click_on_an_image_is_a_fraction_of_its_displayed_size() {
     );
     assert_eq!(image_click_to_fraction(1.0, 1.0, 0.0, 100.0), None);
     assert_eq!(image_click_to_fraction(f64::NAN, 1.0, 10.0, 10.0), None);
+}
+
+#[test]
+fn a_text_node_is_markdown_in_a_div_and_raw_html_stays_text() {
+    let page = tree(
+        json!({ "id": "t", "node": { "kind": "text",
+            "text": "# Map of this app\n\nVerbs are `calls`. <b onclick=\"x()\">bold</b>" } }),
+        json!([]),
+    );
+    let html = render_html(&page, &web(), None);
+    let (tag, rest) = element(&html, "t");
+    assert!(tag.starts_with("<div"), "{tag}");
+    assert!(attr(tag, "class").unwrap().contains("koine-text"), "{tag}");
+    assert!(
+        rest.starts_with("<h1>Map of this app</h1>\n<p>Verbs are <code>calls</code>. &lt;b"),
+        "{rest}"
+    );
+    assert!(!html.contains("<b "), "{html}");
+    assert!(!html.contains("# Map"), "{html}");
 }

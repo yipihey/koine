@@ -13,7 +13,7 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 use impress_surface::{Event, EventKind, RenderTree};
 use koine::cursor::Cursor;
-use koine_dioxus::outline::{self, MenuKey, RowRef};
+use koine_dioxus::outline::{self, MenuChoice, MenuKey, RowRef};
 use koine_dioxus::{FileChosen, Surface};
 
 use crate::api::{self, ApiError, WAIT_TIMEOUT_MS};
@@ -211,22 +211,33 @@ impl Live {
             self.menu.set(None);
             return false;
         }
-        let actions = self
+        let menu = self
             .tree
             .peek()
             .as_ref()
-            .map(|tree| keys::actions_of(tree, &widget))
+            .map(|tree| keys::menu_of(tree, &widget))
             .unwrap_or_default();
         event.prevent_default();
-        match outline::menu_key(&name, actions.len()) {
+        // A digit indexes the entries the menu shows (`menu_entries`), and
+        // the pick means what it means for a click (`MenuChoice`).
+        match outline::menu_key(&name, menu.entries().len()) {
             MenuKey::Close => self.menu.set(None),
             MenuKey::Pick(index) => {
                 self.menu.set(None);
-                self.on_event(Event {
-                    widget,
-                    kind: EventKind::Menu,
-                    value: outline::menu_value(&row, &actions[index]),
-                });
+                match menu.choice(index) {
+                    Some(MenuChoice::Rename) => self.renaming.set(Some((widget, row))),
+                    Some(MenuChoice::Delete) => self.on_event(Event {
+                        widget,
+                        kind: EventKind::Delete,
+                        value: serde_json::Value::Array(vec![row]),
+                    }),
+                    Some(MenuChoice::Action(action)) => self.on_event(Event {
+                        widget,
+                        kind: EventKind::Menu,
+                        value: outline::menu_value(&row, &action),
+                    }),
+                    None => {}
+                }
             }
             MenuKey::Swallow => {}
         }
