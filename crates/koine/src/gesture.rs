@@ -17,7 +17,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::layout::{Direction, LinearDir, PaneRef, Placement, TileId, Verb, ViewKindId};
+use crate::layout::{
+    Container, Direction, Layout, LinearDir, PaneRef, Placement, Tile, TileId, Verb, ViewKindId,
+};
 
 /// The element a gesture names. A surface widget and a layout tile are both
 /// addresses a frontend can point at. [`Element::Focused`] is the one the
@@ -282,6 +284,104 @@ pub fn resize_verb(
     })
 }
 
+/// The `move-tile` a tree widget's `move` asks for, over a window's tiles
+/// drawn as an outline (docs/plan-koine-affordances.md A-D3).
+///
+/// The outline's rows are a window's tiles in container order, without the
+/// window's root container: its children are the roots. A `move` names the
+/// dragged rows (`ids`), the row they go under (`to`, `None` for the roots,
+/// which is the window's root container) and their position among that row's
+/// children as they are *before* the move (`impress_surface::tree::drop_gap`;
+/// `index == len` is after the last). The verb is `MoveTile` beside the child
+/// now at `index`:
+///
+/// - into a `Linear`: before that child (`Left` / `Above` by the container's
+///   axis), or after the last one (`Right` / `Below`) when `index == len`;
+/// - into a `Tabs` strip: `IntoTabs` after the child at `index - 1`, which
+///   is where `MoveTile` puts a tile it tabs beside a tab. A strip has no
+///   "before the first tab", so `index == 0` joins the strip at its end
+///   (`IntoTabs` on the strip), which is also what a drop *on* the strip's
+///   row means; for a tile already in that strip it is `None`;
+/// - onto a pane (`to` is a pane, `index == 0`: a drop on the pane's row):
+///   `IntoTabs` with that pane, the centre drop of a pane frame.
+///
+/// `None` when the move is not one tile, names a tile the layout lacks, would
+/// put a tile under itself, leaves the order unchanged, lands in a `Grid`
+/// (which has no axis to say before or after by), or `to` is `None` and the
+/// window's root is a pane.
+pub fn tree_move_verb(layout: &Layout, ids: &[u64], to: Option<u64>, index: usize) -> Option<Verb> {
+    let [dragged] = ids else {
+        return None;
+    };
+    let dragged = TileId(*dragged);
+    layout.tile(dragged)?;
+    let to = match to {
+        Some(to) => TileId(to),
+        None => {
+            let window = layout.window_of(dragged)?;
+            let root = layout.window(window)?.root;
+            layout.tile(root)?.as_container()?;
+            root
+        }
+    };
+    if layout.is_ancestor(dragged, to) {
+        return None;
+    }
+    let move_tile = |target: TileId, placement: Placement| {
+        (target != dragged && !layout.is_ancestor(dragged, target)).then(|| Verb::MoveTile {
+            tile: PaneRef::id(dragged),
+            target: PaneRef::id(target),
+            placement,
+        })
+    };
+    let container = match layout.tile(to)? {
+        Tile::Pane(_) if index == 0 => return move_tile(to, Placement::IntoTabs),
+        Tile::Pane(_) => return None,
+        Tile::Container(container) => container,
+    };
+    let children = container.children();
+    if index > children.len() {
+        return None;
+    }
+    // Already a child here, and the drop is on either side of itself.
+    if let Some(at) = container.index_of(dragged) {
+        if index == at || index == at + 1 {
+            return None;
+        }
+    }
+    match container {
+        Container::Linear { dir, .. } => {
+            let (before, after) = match dir {
+                LinearDir::Horizontal => (Placement::Left, Placement::Right),
+                LinearDir::Vertical => (Placement::Above, Placement::Below),
+            };
+            match children.get(index) {
+                Some(child) => move_tile(*child, before),
+                None => move_tile(*children.last()?, after),
+            }
+        }
+        Container::Tabs { .. } => {
+            let target = match index.checked_sub(1) {
+                Some(previous) => children[previous],
+                None if container.index_of(dragged).is_some() => return None,
+                None => to,
+            };
+            // `IntoTabs` on a strip nested in this one would join the nested
+            // strip instead.
+            if target != to
+                && matches!(
+                    layout.tile(target),
+                    Some(Tile::Container(Container::Tabs { .. }))
+                )
+            {
+                return None;
+            }
+            move_tile(target, Placement::IntoTabs)
+        }
+        Container::Grid { .. } => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -529,5 +629,218 @@ mod tests {
                 serde_json::json!({"placement": name, "dir": dir, "after": after})
             })
             .collect()
+    }
+
+    // ---- tree_move_verb (docs/plan-koine-affordances.md A-D3) ----
+
+    fn pane(kind: &str) -> serde_json::Value {
+        serde_json::json!({"pane": {"view_kind": kind, "query": {"kinds": ["surface"]}}})
+    }
+
+    fn layout_of(tiles: serde_json::Value, root: u64) -> Layout {
+        serde_json::from_value(serde_json::json!({
+            "windows": [{"id": 1, "root": root, "focused": 1}],
+            "tiles": tiles,
+        }))
+        .unwrap()
+    }
+
+    /// Tile 4 is a row of panes 1, 2, 3.
+    fn row_of_three(dir: &str) -> Layout {
+        layout_of(
+            serde_json::json!({
+                "1": pane("surface"), "2": pane("surface"), "3": pane("surface"),
+                "4": {"container": {"linear": {"dir": dir, "children": [1, 2, 3], "shares": [1.0, 1.0, 1.0]}}},
+            }),
+            4,
+        )
+    }
+
+    fn moved(tile: u64, target: u64, placement: Placement) -> Option<Verb> {
+        Some(Verb::MoveTile {
+            tile: PaneRef::id(TileId(tile)),
+            target: PaneRef::id(TileId(target)),
+            placement,
+        })
+    }
+
+    /// The children of `container` after applying `verb`.
+    fn children_after(mut layout: Layout, verb: Verb, container: u64) -> Vec<u64> {
+        layout.apply(verb).unwrap();
+        layout
+            .tile(TileId(container))
+            .and_then(Tile::as_container)
+            .unwrap()
+            .children()
+            .iter()
+            .map(|child| child.raw())
+            .collect()
+    }
+
+    #[test]
+    fn a_tree_move_in_a_row_is_beside_the_tile_at_the_index_by_the_rows_axis() {
+        let layout = row_of_three("horizontal");
+        // The roots of the outline are the root container's children.
+        assert_eq!(
+            tree_move_verb(&layout, &[3], None, 0),
+            moved(3, 1, Placement::Left)
+        );
+        assert_eq!(
+            tree_move_verb(&layout, &[1], Some(4), 2),
+            moved(1, 3, Placement::Left)
+        );
+        assert_eq!(
+            tree_move_verb(&layout, &[1], None, 3),
+            moved(1, 3, Placement::Right),
+            "index == len is after the last"
+        );
+        // The verb does what the outline drew.
+        let verb = tree_move_verb(&layout, &[3], None, 0).unwrap();
+        assert_eq!(children_after(layout.clone(), verb, 4), vec![3, 1, 2]);
+        let verb = tree_move_verb(&layout, &[1], None, 2).unwrap();
+        assert_eq!(children_after(layout.clone(), verb, 4), vec![2, 1, 3]);
+        let verb = tree_move_verb(&layout, &[1], None, 3).unwrap();
+        assert_eq!(children_after(layout, verb, 4), vec![2, 3, 1]);
+
+        let column = row_of_three("vertical");
+        assert_eq!(
+            tree_move_verb(&column, &[3], None, 1),
+            moved(3, 2, Placement::Above)
+        );
+        assert_eq!(
+            tree_move_verb(&column, &[1], None, 3),
+            moved(1, 3, Placement::Below)
+        );
+    }
+
+    #[test]
+    fn a_tree_move_that_changes_nothing_or_cannot_be_said_is_none() {
+        let layout = row_of_three("horizontal");
+        // Either side of itself.
+        assert_eq!(tree_move_verb(&layout, &[2], None, 1), None);
+        assert_eq!(tree_move_verb(&layout, &[2], None, 2), None);
+        // Past the end, two tiles, a tile the layout lacks.
+        assert_eq!(tree_move_verb(&layout, &[2], None, 4), None);
+        assert_eq!(tree_move_verb(&layout, &[1, 2], None, 0), None);
+        assert_eq!(tree_move_verb(&layout, &[9], None, 0), None);
+        // A pane's row has no gaps under it.
+        assert_eq!(tree_move_verb(&layout, &[1], Some(2), 1), None);
+        // A window whose root is a pane has no root container to move into.
+        let single = layout_of(serde_json::json!({"1": pane("surface")}), 1);
+        assert_eq!(tree_move_verb(&single, &[1], None, 0), None);
+        // A grid has no axis to say before or after by.
+        let grid = layout_of(
+            serde_json::json!({
+                "1": pane("surface"), "2": pane("surface"),
+                "3": {"container": {"grid": {"children": [1, 2]}}},
+            }),
+            3,
+        );
+        assert_eq!(tree_move_verb(&grid, &[2], None, 0), None);
+    }
+
+    /// Tile 5 is a row of pane 1 and a column (4) of panes 2 and 3.
+    fn nested() -> Layout {
+        layout_of(
+            serde_json::json!({
+                "1": pane("surface"), "2": pane("surface"), "3": pane("surface"),
+                "4": {"container": {"linear": {"dir": "vertical", "children": [2, 3], "shares": [1.0, 1.0]}}},
+                "5": {"container": {"linear": {"dir": "horizontal", "children": [1, 4], "shares": [1.0, 1.0]}}},
+            }),
+            5,
+        )
+    }
+
+    #[test]
+    fn a_tree_move_into_a_nested_container_uses_that_containers_axis() {
+        let layout = nested();
+        assert_eq!(
+            tree_move_verb(&layout, &[1], Some(4), 1),
+            moved(1, 3, Placement::Above)
+        );
+        assert_eq!(
+            tree_move_verb(&layout, &[1], Some(4), 2),
+            moved(1, 3, Placement::Below)
+        );
+        let verb = tree_move_verb(&layout, &[1], Some(4), 1).unwrap();
+        let mut after = layout.clone();
+        after.apply(verb).unwrap();
+        let column: Vec<u64> = after
+            .tile(TileId(4))
+            .and_then(Tile::as_container)
+            .unwrap()
+            .children()
+            .iter()
+            .map(|child| child.raw())
+            .collect();
+        assert_eq!(column, vec![2, 1, 3]);
+        // A drop on a container's row is before its first child.
+        assert_eq!(
+            tree_move_verb(&layout, &[1], Some(4), 0),
+            moved(1, 2, Placement::Above)
+        );
+        // Out of the column, to the roots.
+        assert_eq!(
+            tree_move_verb(&layout, &[3], None, 0),
+            moved(3, 1, Placement::Left)
+        );
+        // Never under itself.
+        assert_eq!(tree_move_verb(&layout, &[4], Some(4), 0), None);
+        assert_eq!(tree_move_verb(&layout, &[4], Some(2), 0), None);
+    }
+
+    #[test]
+    fn a_tree_move_into_tabs_or_onto_a_pane_is_into_tabs() {
+        // Tile 5 is a row of pane 1 and a strip (4) of panes 2 and 3.
+        let layout = layout_of(
+            serde_json::json!({
+                "1": pane("surface"), "2": pane("surface"), "3": pane("surface"),
+                "4": {"container": {"tabs": {"children": [2, 3], "active": 2}}},
+                "5": {"container": {"linear": {"dir": "horizontal", "children": [1, 4], "shares": [1.0, 1.0]}}},
+            }),
+            5,
+        );
+        // After the tab before the index; index 0 (or a drop on the strip's
+        // row) joins the strip at its end.
+        assert_eq!(
+            tree_move_verb(&layout, &[1], Some(4), 1),
+            moved(1, 2, Placement::IntoTabs)
+        );
+        assert_eq!(
+            tree_move_verb(&layout, &[1], Some(4), 2),
+            moved(1, 3, Placement::IntoTabs)
+        );
+        assert_eq!(
+            tree_move_verb(&layout, &[1], Some(4), 0),
+            moved(1, 4, Placement::IntoTabs)
+        );
+        let verb = tree_move_verb(&layout, &[1], Some(4), 1).unwrap();
+        let mut after = layout.clone();
+        after.apply(verb).unwrap();
+        let strip: Vec<u64> = after
+            .tile(TileId(4))
+            .and_then(Tile::as_container)
+            .unwrap()
+            .children()
+            .iter()
+            .map(|child| child.raw())
+            .collect();
+        assert_eq!(strip, vec![2, 1, 3]);
+        // Reordering inside the strip.
+        assert_eq!(
+            tree_move_verb(&layout, &[2], Some(4), 2),
+            moved(2, 3, Placement::IntoTabs)
+        );
+        assert_eq!(
+            tree_move_verb(&layout, &[3], Some(4), 0),
+            None,
+            "a strip has no place before its first tab"
+        );
+        // A drop on a pane's row tabs the two together.
+        assert_eq!(
+            tree_move_verb(&layout, &[2], Some(1), 0),
+            moved(2, 1, Placement::IntoTabs)
+        );
+        assert_eq!(tree_move_verb(&layout, &[1], Some(1), 0), None);
     }
 }
