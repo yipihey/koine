@@ -23,29 +23,42 @@ Every page has a status line: the app origin, whether a token is held
 ## The layout page
 
 `/layout` fetches `GET /api/layout/tree` and draws every window of the layout,
-the current one first, each titled by its id, as its tile tree. A `Linear` is a
-flex row or column whose children grow by their share, with a divider between
-siblings; a `Tabs` container is a strip on the top edge of the pane it shows
-(one button per child, the active one marked, only the active child drawn); a
-`Grid` is a CSS grid. Every pane has the frame `koine-tui` draws as cells: a
-`≡` grip and the title (`role · view kind`) on the top edge, and four edges.
-The focused tile is outlined in the sheet's `focus` colour. A pane whose view
-kind is `surface` draws that surface live, with its own wait loop; any other
-kind is a "View Kind Unavailable" placeholder naming its query kinds, role and
-tile, because imbib's list and detail are Swift views and another tool's
-domain is that tool's surface (ADR-0032).
+the current one first, each titled by its id and its root container's kind.
+Each window is drawn twice over (docs/plan-koine-affordances.md A-D3):
 
-Pointer events become the shared gestures; the page decides none of them. A
-click on a pane or a tab is a focus. Pressing the grip (or the title) and
-releasing over another pane's edge moves it there, over its middle makes it a
-tab (`koine::gesture::layout_verb` names the verb). Pressing a divider and
-releasing resizes (`koine::gesture::resize_verb`, over the lengths the browser
-measured; the verb is posted on release only). `h` and `l` post
-`focus-direction`. A refusal goes to the status line; a success fetches the
-tree again. The layout has no wait route, so the page also fetches every five
-seconds while the tab is visible. Dragging a tab out of its strip, reordering
-tabs, and the secondary-click menu are not drawn; touch screens keep the
-pointer on the element they pressed, so drag-and-drop is for a mouse or a pen.
+- **Its outline**: the window's containers and panes as rows of the tree
+  widget (`koine_dioxus::Surface`), in container order, a pane labelled
+  `view kind · role`, a container `split-h`, `split-v`, `tabs` or `grid`. The
+  root container's children are the roots. The focused tile is the active
+  row. The tree is `movable`: dragging a row (or `x` on it, then `p`/`P` on
+  another) sends the widget's `move`, and `koine::gesture::tree_move_verb`
+  names the `move-tile` beside the tile at that place, by the container's
+  axis, or into a tab strip; a drop on a pane's row tabs the two. A click on
+  a row focuses that tile (a container's first pane); a disclosure folds a
+  container in the page only. The gesture is the widget's, so whatever moves a
+  row of any surface's tree on a pointer moves a tile here.
+- **Its panes**: a `Linear` is a flex row or column whose children grow by
+  their share; a `Tabs` container is a strip on the top edge of the pane it
+  shows (one button per child, the active one marked, only the active child
+  drawn); a `Grid` is a CSS grid. Each pane's top edge carries its title
+  (`role · view kind`). The focused tile is outlined in the sheet's `focus`
+  colour. A pane whose view kind is `surface` draws that surface live, with
+  its own wait loop; any other kind is a "View Kind Unavailable" placeholder
+  naming its query kinds, role and tile, because imbib's list and detail are
+  Swift views and another tool's domain is that tool's surface (ADR-0032).
+  When every pane is one, the page says there is nothing to lay out.
+
+A click on a pane or a tab is a focus. With a fine pointer on a page wide
+enough to lay panes side by side, a divider sits between siblings: pressing it
+and releasing resizes (`koine::gesture::resize_verb`, over the lengths the
+browser measured; posted on release). A phone stacks its panes and draws no
+divider. `h` and `l` post `focus-direction`. A refusal goes to the status line;
+a success fetches the tree again. The layout has no wait route, so the page
+also fetches every five seconds while the tab is visible.
+
+The nav shows the layout tab only when the host serves the layout verbs and
+its layout has a pane the page can draw (a `surface` pane), A-D4; the route is
+there either way.
 
 ## The page is same-origin with the app
 

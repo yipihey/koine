@@ -355,6 +355,44 @@ pub fn wait_url(origin: &str, id: &str, after_seq: u64, timeout_ms: u64) -> Stri
     )
 }
 
+/// The verb the layout routes run: linked when the host serves the layout
+/// (`koine_host::routes::layout`). The inventory spells the layout service's
+/// tools `layout-service_*`.
+pub const LAYOUT_VERB: &str = "layout-service_get-layout";
+
+/// `GET /api/verb/<name>/surface`: the one read-only route that answers
+/// whether a verb is linked (200) or not (404 `not-found`). A GET, so it
+/// needs no token.
+pub fn verb_probe_url(origin: &str, name: &str) -> String {
+    format!(
+        "{}/api/verb/{}/surface",
+        origin.trim_end_matches('/'),
+        encode(name)
+    )
+}
+
+/// What the probe's answer says: `Ok(true)` linked, `Ok(false)` the host
+/// answered that no such verb is linked, `Err` anything else (a refusal of
+/// another kind, a body that is not an envelope), which says nothing either
+/// way.
+pub fn parse_verb_probe(value: &Value) -> Result<bool, ApiError> {
+    match value.get("ok").and_then(Value::as_bool) {
+        Some(true) => Ok(true),
+        Some(false) if value.get("code").and_then(Value::as_str) == Some("not-found") => Ok(false),
+        _ => Err(ApiError::new(
+            value
+                .get("code")
+                .and_then(Value::as_str)
+                .unwrap_or("bad-response"),
+            value
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("verb probe: not an envelope")
+                .to_string(),
+        )),
+    }
+}
+
 pub fn layout_tree_url(origin: &str) -> String {
     format!("{}/api/layout/tree", origin.trim_end_matches('/'))
 }
@@ -554,6 +592,11 @@ pub async fn wait(id: &str, after_seq: u64, timeout_ms: u64) -> Result<WaitResul
     }
 }
 
+/// Whether the host links verb `name` ([`parse_verb_probe`]).
+pub async fn verb_linked(name: &str) -> Result<bool, ApiError> {
+    parse_verb_probe(&get(&verb_probe_url(&origin(), name)).await?)
+}
+
 /// The app's window tree. A refusal, or a snapshot that failed, is the `Err`.
 /// There is no wait route for the layout, so the layout page polls this.
 pub async fn layout_tree() -> Result<LayoutTree, ApiError> {
@@ -581,6 +624,30 @@ mod tests {
             token: Some("t".into()),
             app_id: "demo".into(),
         }
+    }
+
+    #[test]
+    fn a_verb_probe_says_linked_not_linked_or_nothing() {
+        assert_eq!(
+            verb_probe_url("http://h:1/", LAYOUT_VERB),
+            "http://h:1/api/verb/layout-service_get-layout/surface"
+        );
+        assert_eq!(
+            parse_verb_probe(&json!({"ok": true, "verb": LAYOUT_VERB, "spec": {}})),
+            Ok(true)
+        );
+        assert_eq!(
+            parse_verb_probe(&json!({"ok": false, "code": "not-found", "message": "no verb"})),
+            Ok(false)
+        );
+        // Another refusal, or no envelope, says nothing about linking.
+        assert_eq!(
+            parse_verb_probe(&json!({"ok": false, "code": "internal", "message": "x"}))
+                .unwrap_err()
+                .code,
+            "internal"
+        );
+        assert!(parse_verb_probe(&json!([1])).is_err());
     }
 
     #[test]

@@ -36,9 +36,9 @@ use crate::surface_page::SurfacePage;
 /// theme's tokens and fonts, are `koine_dioxus::STYLESHEET`.
 ///
 /// Above 700px this is a desktop window: a toolbar across the top with the
-/// four pages as icon-and-label items (TH-D2), a 22px title, 13px text.
+/// pages as icon-and-label items (TH-D2), a 22px title, 13px text.
 /// At or below it, or with a coarse pointer (a phone, plan-koine-tour T-D4;
-/// `koine.css` and the layout page use the same width), the four pages are
+/// `koine.css` and the layout page use the same width), the pages are
 /// a tab bar pinned over the home indicator, the title is a large title,
 /// the home list and the host's pairs are grouped inset cards (TH-D3), and
 /// `main` is padded so nothing hides under the bar.
@@ -47,8 +47,11 @@ use crate::surface_page::SurfacePage;
 /// screen, the size below which iOS zooms into a focused input.
 const PAGE_CSS: &str = r#"
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+/* The top safe-area inset is not body padding: that scrolls away with the
+   page, and on a desktop the sticky toolbar slides over it. It belongs to
+   whatever is at the top: the toolbar here, `.kw-main` on a phone (below). */
 body { margin: 0; min-height: 100vh;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+  padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left); }
 a { color: var(--koine-color-accent); text-decoration: none; }
 .kw-main { max-width: 980px; margin: 0 auto; padding: 8px 20px 32px; box-sizing: border-box; }
 .kw-main h1 { margin: 10px 0 12px; font-size: 22px; font-weight: 700; letter-spacing: -0.26px; line-height: 1.2; }
@@ -69,7 +72,8 @@ a { color: var(--koine-color-accent); text-decoration: none; }
 
 /* The navigation: a toolbar on a desktop, a tab bar on a phone (below). */
 .kw-nav { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 2px;
-  min-height: 52px; padding: 4px 12px; box-sizing: border-box;
+  min-height: calc(52px + env(safe-area-inset-top, 0px)); box-sizing: border-box;
+  padding: calc(4px + env(safe-area-inset-top, 0px)) 12px 4px;
   background: var(--koine-bg-bar); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
   border-bottom: var(--koine-hairline) solid var(--koine-separator);
   user-select: none; -webkit-user-select: none; }
@@ -149,7 +153,15 @@ a { color: var(--koine-color-accent); text-decoration: none; }
 
 /* A phone, or a finger: the tab bar, pinned over the home indicator. */
 @media (max-width: 700px), (pointer: coarse) {
-  .kw-main { padding: 0 16px calc(49px + env(safe-area-inset-bottom) + 24px); }
+  /* The large title sits 8px below the status bar, on every page: the
+     inset is the top padding of the page itself, and its first element
+     brings no margin of its own. A strip the colour of the bars covers the
+     status bar, so a scrolled page never draws under the clock. */
+  .kw-main { padding: calc(env(safe-area-inset-top, 0px) + 8px) 16px calc(49px + env(safe-area-inset-bottom) + 24px); }
+  .kw-main h1, .kw-main .kw-crumb { margin-top: 0; }
+  body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; z-index: 21; pointer-events: none;
+    height: env(safe-area-inset-top, 0px); background: var(--koine-bg-bar);
+    -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
   .kw-nav { position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 20;
     min-height: 0; height: calc(49px + env(safe-area-inset-bottom)); padding: 0 0 env(safe-area-inset-bottom);
     justify-content: space-around; gap: 0; border-bottom: 0;
@@ -173,8 +185,9 @@ a { color: var(--koine-color-accent); text-decoration: none; }
 /// user-scalable=no`); this one comes after it, before `</head>`, so WebKit
 /// takes it as the viewport (the last viewport meta processed wins), and it
 /// adds `viewport-fit=cover` so the page may run under the notch and the
-/// home bar, where `body`'s safe-area padding keeps the text out from under
-/// them. The browser bundle's `index.html` is `dx`'s, which carries
+/// home bar, where the page's safe-area padding (`PAGE_CSS`: the toolbar's
+/// top, a phone's `.kw-main` top and tab bar bottom) keeps the text out from
+/// under them. The browser bundle's `index.html` is `dx`'s, which carries
 /// `width=device-width, initial-scale=1` of its own.
 #[cfg(any(feature = "desktop", feature = "mobile"))]
 const NATIVE_HEAD: &str =
@@ -298,6 +311,9 @@ fn App() -> Element {
     use_future(move || async move {
         token.set(token::load().await);
     });
+    // Which tabs the host can serve (A-D4): asked once here, and again by
+    // the layout page's poll.
+    use_future(move || async move { session.check_layout().await });
     rsx! {
         style { dangerous_inner_html: koine_dioxus::STYLESHEET }
         style { dangerous_inner_html: PAGE_CSS }
@@ -315,7 +331,7 @@ fn Shell() -> Element {
     }
 }
 
-/// The four pages a tab names (TH-D2). A surface page is the surfaces tab.
+/// The pages a tab names (TH-D2). A surface page is the surfaces tab.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Tab {
     Surfaces,
@@ -345,6 +361,26 @@ impl Tab {
         }
     }
 
+    /// The tabs the nav shows (docs/plan-koine-affordances.md A-D4): a tab
+    /// only when the host can serve its page.
+    ///
+    /// - "surfaces" and "host" always: every host lists surfaces, and the host
+    ///   page is how a person reaches one that does not answer.
+    /// - "layout" when `layout` ([`session::layout_tab`]: the host serves the
+    ///   layout verbs and its layout has a tile the page can draw), or when it
+    ///   is the page being shown, so the page in view keeps its tab.
+    /// - "style" always: the editor is client-side. It edits the page's own
+    ///   sheet through `koine::style::editor_apply` and calls no verb, so
+    ///   every host can serve it.
+    ///
+    /// The routes stay registered whatever the nav shows.
+    fn shown(layout: bool, current: Tab) -> Vec<Tab> {
+        Tab::ALL
+            .into_iter()
+            .filter(|tab| *tab != Tab::Layout || layout || current == Tab::Layout)
+            .collect()
+    }
+
     fn label(self) -> &'static str {
         match self {
             Tab::Surfaces => "surfaces",
@@ -355,18 +391,21 @@ impl Tab {
     }
 }
 
-/// The navigation: the four pages as icon-and-label items, a toolbar across
-/// the top of a desktop window and a tab bar pinned to the bottom of a phone
-/// (`PAGE_CSS` decides which; the markup is one). Each item is a router
-/// `Link`, so it carries `aria-current="page"` when it is the page.
+/// The navigation: the pages the host can serve ([`Tab::shown`]) as
+/// icon-and-label items, a toolbar across the top of a desktop window and a
+/// tab bar pinned to the bottom of a phone (`PAGE_CSS` decides which; the
+/// markup is one). Each item is a router `Link`, so it carries
+/// `aria-current="page"` when it is the page.
 #[component]
 fn Nav() -> Element {
+    let session = use_context::<Session>();
     let route = use_route::<Route>();
     let current = Tab::of(&route);
+    let tabs = Tab::shown(*session.layout_tab.read(), current);
     rsx! {
         nav { class: "kw-nav", aria_label: "pages",
             span { class: "kw-nav-title", "koine" }
-            for tab in Tab::ALL {
+            for tab in tabs {
                 Link {
                     key: "{tab.label()}",
                     to: tab.route(),
@@ -537,5 +576,24 @@ fn Home() -> Element {
                 }
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Tab;
+
+    #[test]
+    fn the_nav_shows_layout_only_when_the_host_can_serve_it() {
+        assert_eq!(
+            Tab::shown(false, Tab::Surfaces),
+            vec![Tab::Surfaces, Tab::Style, Tab::Host]
+        );
+        assert_eq!(
+            Tab::shown(true, Tab::Surfaces),
+            vec![Tab::Surfaces, Tab::Layout, Tab::Style, Tab::Host]
+        );
+        // The page in view keeps its tab (the route is always registered).
+        assert_eq!(Tab::shown(false, Tab::Layout), Tab::ALL.to_vec());
     }
 }

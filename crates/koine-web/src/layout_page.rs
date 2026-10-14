@@ -1,48 +1,65 @@
-//! `/layout`: the window tree, performed (plan D7).
+//! `/layout`: the window tree, performed (plan D7, and
+//! docs/plan-koine-affordances.md A-D3).
 //!
-//! The page fetches `GET /api/layout/tree` and draws every window's tile tree:
-//! a `Linear` is a flex container whose children grow by their share, a `Tabs`
-//! is a strip on the top edge of the pane it shows, a `Grid` is a CSS grid.
-//! Every pane has the frame `koine-tui` draws as cells: a grip and a title on
-//! the top edge, four edges, and a divider between siblings. A pane whose view
+//! The page fetches `GET /api/layout/tree` and draws every window twice over:
+//! first its tiles as an outline, the tree widget of any surface
+//! ([`TileOutline`], drawn through `koine_dioxus::Surface`), then its panes.
+//! The outline is how a tile moves, on every pointer: its rows are the
+//! window's containers and panes in container order, `movable`, and a row
+//! dropped elsewhere sends the widget's `move`, which
+//! `koine::gesture::tree_move_verb` turns into the `move-tile` beside the
+//! tile now at that place. The widget owns the gesture (a mouse, a finger, a
+//! pen, and `x` then `p`/`P` on the keyboard), so the page draws no handle and
+//! no drop targets of its own: a touch pointer's `pointerup` fires on the
+//! element the press began on, so drop targets that listen for it never hear
+//! a finger.
+//!
+//! Below the outline the panes draw as before: a `Linear` is a flex
+//! container whose children grow by their share, a `Tabs` is a strip on the
+//! top edge of the pane it shows, a `Grid` is a CSS grid. A pane whose view
 //! kind is `surface` draws that surface live ([`SurfaceView`], the surface
 //! page's component, with its own wait loop). Any other kind is a placeholder
-//! that names its query kinds, role and tile, as `kit-demo` does: imbib's list
-//! and detail are Swift views, and the web shows what koine can show
+//! that names its query kinds, role and tile, as `kit-demo` does: imbib's
+//! list and detail are Swift views, and the web shows what koine can show
 //! (ADR-0032).
 //!
 //! # The page decides nothing about what a pointer means
 //!
-//! The browser does not hit-test cells. Each frame element carries what it is
-//! (`data-koine-edge`, `data-koine-grip`, `data-koine-tab`,
-//! `data-koine-divider`), and the handler on that element already knows its
-//! [`Hit`]. From there:
-//!
 //! | Pointer | Decided by |
 //! |---|---|
-//! | click a pane | [`frame::verb_for_pointer`] (`Focus`), then `koine::gesture::layout_verb` |
-//! | click a tab | the same, on the tab's child tile: a focus activates that tab |
-//! | grip or title down, then up on another pane's edge or body | [`frame::drag_gesture`], then `koine::gesture::layout_verb`; a pane dropped on its own edge inside a tab strip asks `koine::gesture::tab_split_target` for the sibling, as that function says a host does |
-//! | divider down, then up | `koine::gesture::resize_verb` (which calls `share_beside`) over the lengths the browser measured |
+//! | click a pane, a tab, or a row of the outline | `koine::gesture::layout_verb` of a `Focus` (a container's row focuses its first pane) |
+//! | a row of the outline dropped (or cut and pasted) | the tree widget's `move`, then `koine::gesture::tree_move_verb` |
+//! | a disclosure in the outline | the page's own memory: which containers are folded |
+//! | divider down, then up (a fine pointer only) | `koine::gesture::resize_verb` (which calls `share_beside`) over the lengths the browser measured |
 //! | `h` / `l` | [`keys::on_layout_keydown`], which is `keys::decide` |
+//!
+//! A divider is drawn only for a fine pointer on a page wide enough to lay
+//! panes side by side (`@media (pointer: fine) and (min-width: 701px)`): a
+//! phone stacks its panes and has nothing to resize, and the keyboard's
+//! resize verbs serve the rest.
 //!
 //! There is no wait route for the layout (the surface routes have one), so the
 //! page fetches again after every verb it posts and every [`POLL_MS`] while the
 //! tab is visible.
 
 use std::cell::Cell;
+use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
 use impress_layout::{Container, Layout, LinearDir, Tile, TileId, Verb, Window, WindowId};
-use koine::frame::{self, Hit};
-use koine::gesture::{self, Edge, Element as GestureElement, Gesture, Pointer};
+use impress_surface::tree::{self as outline, Fields};
+use impress_surface::{Event, EventKind, RenderKind, RenderNode, RenderTree};
+use koine::cursor::Cursor;
+use koine::gesture::{self, Element as GestureElement, Gesture};
 use koine::pane_query::{ItemRef, Scope};
+use koine_dioxus::Surface;
+use serde_json::{json, Value};
 
 use crate::api::{self, LayoutTree};
 use crate::dom;
-use crate::keys;
-use crate::session::Session;
+use crate::keys::{self, KeyAction};
+use crate::session::{LayoutAnswer, Session};
 use crate::surface_page::SurfaceView;
 
 /// How often the page asks for the tree again while it is visible.
@@ -51,10 +68,12 @@ const POLL_MS: u32 = 5_000;
 /// A divider drag shorter than this many pixels is a click, not a resize.
 const MIN_RESIZE_PX: f32 = 2.0;
 
-/// The page's own styles. The surface and the focus colour are `koine.css`.
+/// The page's own styles. The surface, the outline and the focus colour are
+/// `koine.css`.
 const LAYOUT_CSS: &str = r#"
 .koine-layout { display: flex; flex-direction: column; gap: 16px; outline: none; min-height: 60vh; }
 .koine-window h2 { margin: 0 0 6px; }
+.koine-outline { margin: 0 0 10px; }
 .koine-window-body { display: flex; height: 70vh; min-height: 280px; }
 .koine-window-body > *, .koine-cell > * { flex: 1 1 auto; min-width: 0; min-height: 0; }
 .koine-linear { display: flex; }
@@ -64,10 +83,19 @@ const LAYOUT_CSS: &str = r#"
 .koine-gridbox { display: grid; gap: 6px; }
 .koine-tabbed { display: flex; flex-direction: column; }
 .koine-tabbed > :last-child { flex: 1 1 auto; min-height: 0; }
-.koine-divider { flex: none; margin: 0; border: 0; background: transparent; border-radius: 3px; touch-action: none; user-select: none; }
-.koine-horizontal > .koine-divider { width: 6px; cursor: col-resize; }
-.koine-vertical > .koine-divider { height: 6px; cursor: row-resize; }
-.koine-divider:hover { background: var(--koine-color-accent, #007aff); }
+/* A divider resizes with a fine pointer on a page that lays panes side by
+   side; anywhere else it is not drawn (a phone stacks its panes). Without a
+   divider, siblings keep a gap. */
+.koine-divider { display: none; }
+.koine-linear { gap: 6px; }
+@media (pointer: fine) and (min-width: 701px) {
+  .koine-linear { gap: 0; }
+  .koine-divider { display: block; flex: none; margin: 0; border: 0; background: transparent;
+    border-radius: 3px; touch-action: none; user-select: none; }
+  .koine-horizontal > .koine-divider { width: 6px; cursor: col-resize; }
+  .koine-vertical > .koine-divider { height: 6px; cursor: row-resize; }
+  .koine-divider:hover { background: var(--koine-color-accent, #007aff); }
+}
 .koine-pane { position: relative; display: flex; flex-direction: column; overflow: hidden;
   background: var(--koine-bg-card); border: var(--koine-hairline) solid var(--koine-separator);
   border-radius: var(--koine-radius-card, 10px); }
@@ -75,21 +103,12 @@ const LAYOUT_CSS: &str = r#"
 .koine-top { display: flex; align-items: center; gap: 6px; flex: none; padding: 4px 10px;
   border-bottom: var(--koine-hairline) solid var(--koine-separator); font-size: 0.85rem;
   background: var(--koine-bg-grouped); user-select: none; -webkit-user-select: none; }
-.koine-grip { cursor: grab; touch-action: none; user-select: none; padding: 0 4px; }
-.koine-title { margin-left: auto; opacity: 0.7; white-space: nowrap; overflow: hidden;
-  text-overflow: ellipsis; cursor: grab; touch-action: none; user-select: none; }
+.koine-title { margin-left: auto; opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .koine-tabs { display: inline-flex; gap: 2px; }
 .koine-tabs button { font: inherit; color: inherit; background: none; border: 0;
   border-bottom: 2px solid transparent; padding: 0 6px; cursor: pointer; }
 .koine-tabs button[aria-selected="true"] { border-bottom-color: var(--koine-color-accent, #007aff); font-weight: 600; }
 .koine-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px; }
-.koine-edge { position: absolute; z-index: 2; pointer-events: none; }
-.koine-edge[data-koine-edge="top"] { top: 0; left: 0; right: 0; height: 10px; }
-.koine-edge[data-koine-edge="bottom"] { bottom: 0; left: 0; right: 0; height: 10px; }
-.koine-edge[data-koine-edge="left"] { top: 0; bottom: 0; left: 0; width: 10px; }
-.koine-edge[data-koine-edge="right"] { top: 0; bottom: 0; right: 0; width: 10px; }
-.koine-layout[data-koine-dragging] .koine-edge { pointer-events: auto; }
-.koine-layout[data-koine-dragging] .koine-edge:hover { background: var(--koine-color-accent, #007aff); opacity: 0.35; }
 .koine-unavailable { display: flex; flex-direction: column; gap: 2px; align-items: center;
   justify-content: center; text-align: center; height: 100%; color: var(--koine-color-secondary, #6b7280); }
 .koine-unavailable strong { color: var(--koine-color-primary, inherit); }
@@ -97,27 +116,16 @@ const LAYOUT_CSS: &str = r#"
 @media (max-width: 700px) {
   /* A phone: the panes stack, each at its content's height (a surface pane
      at least a few rows), instead of side by side in a 70vh window. The
-     shares still set flex-grow, which has nothing to grow into here; a
-     divider is drawn but a resize is a mouse gesture (README). */
+     shares still set flex-grow, which has nothing to grow into here. */
   .koine-layout { min-height: 0; }
   .koine-window-body { height: auto; min-height: 0; flex-direction: column; }
   .koine-window-body > *, .koine-cell, .koine-cell > * { flex-basis: auto; }
   .koine-horizontal { flex-direction: column; }
-  .koine-horizontal > .koine-divider { width: auto; height: 6px; cursor: row-resize; }
   .koine-pane { min-height: 160px; }
   .koine-body { max-height: 70vh; }
   .koine-tabs button { min-height: 44px; padding: 0 12px; }
-  .koine-grip { padding: 8px; }
 }
 "#;
-
-/// The four edges of a frame, with the word the DOM carries for each.
-const EDGES: [(Edge, &str); 4] = [
-    (Edge::Top, "top"),
-    (Edge::Bottom, "bottom"),
-    (Edge::Left, "left"),
-    (Edge::Right, "right"),
-];
 
 // ---------------------------------------------------------------- pure helpers
 
@@ -236,44 +244,183 @@ pub fn pane_body(layout: &Layout, tile: TileId) -> Option<PaneBody> {
     })
 }
 
-/// The children of the tab strip that holds `tile`, and its index among them.
-fn tab_siblings(layout: &Layout, tile: u64) -> Option<(Vec<u64>, usize)> {
-    let parent = layout.parent_of(TileId(tile))?;
-    let Some(Container::Tabs { children, .. }) = layout.tile(parent).and_then(Tile::as_container)
-    else {
-        return None;
-    };
-    let ids: Vec<u64> = children.iter().map(|child| child.raw()).collect();
-    let index = ids.iter().position(|id| *id == tile)?;
-    Some((ids, index))
+/// Whether the page has anything to draw: some window's pane is one the page
+/// draws (a `surface` pane, bound or not), not a placeholder. The nav shows
+/// the layout tab only then (A-D4, `session::layout_tab`).
+pub fn drawable(layout: &Layout) -> bool {
+    layout.panes().into_iter().any(|tile| {
+        matches!(
+            pane_body(layout, tile),
+            Some(PaneBody::Surface(_) | PaneBody::NoSurface)
+        )
+    })
 }
 
-/// The verb for dropping pane `tile`'s handle (`from`) on `target` at `to`.
-///
-/// The gesture is [`frame::drag_gesture`], the verb `koine::gesture::layout_verb`.
-/// A pane dropped on its own edge is no verb until the host names the
-/// sibling it splits beside; for a pane in a tab strip that sibling is
-/// `koine::gesture::tab_split_target`'s, and the gesture is asked again.
-pub fn drop_verb(layout: &Layout, from: Hit, to: Hit, tile: u64, target: u64) -> Option<Verb> {
-    let dragged = GestureElement::Tile { id: tile };
-    let landed = GestureElement::Tile { id: target };
-    let gesture = frame::drag_gesture(from, to, &dragged, &landed, tile == target)?;
-    if let Some(verb) = gesture::layout_verb(&gesture, Some(target)) {
-        return Some(verb);
+// ------------------------------------------------------------- the outline
+
+/// The outline widget's id for one window.
+pub fn outline_id(window: WindowId) -> String {
+    format!("tiles-{window}")
+}
+
+/// What a container is called in the outline and the window's heading.
+pub fn container_label(container: &Container) -> &'static str {
+    match container {
+        Container::Linear {
+            dir: LinearDir::Horizontal,
+            ..
+        } => "split-h",
+        Container::Linear {
+            dir: LinearDir::Vertical,
+            ..
+        } => "split-v",
+        Container::Tabs { .. } => "tabs",
+        Container::Grid { .. } => "grid",
     }
-    let Gesture::Drag { placement, .. } = gesture else {
-        return None;
-    };
-    let (children, index) = tab_siblings(layout, tile)?;
-    let sibling = gesture::tab_split_target(&children, index, placement)?;
-    gesture::layout_verb(
-        &Gesture::Drag {
-            element: dragged,
-            target: GestureElement::Tile { id: sibling },
-            placement,
+}
+
+/// A row's label: a pane's `<view kind> · <role>` (the view kind alone when
+/// it has no role), a container's kind.
+pub fn tile_label(layout: &Layout, tile: TileId) -> String {
+    match layout.tile(tile) {
+        Some(Tile::Pane(spec)) => match &spec.role {
+            Some(role) => format!("{} · {role}", spec.view_kind),
+            None => spec.view_kind.to_string(),
         },
-        Some(sibling),
-    )
+        Some(Tile::Container(container)) => container_label(container).to_string(),
+        None => format!("tile {tile}"),
+    }
+}
+
+/// The outline's rows for one window: every container and pane under the
+/// window's root, in container order, as `{id, parent, label}`. The root
+/// container is not a row (its kind is in the window's heading): its children
+/// are the outline's roots, so a drop among the roots (`to: null`) is a move
+/// within it, which is what `tree_move_verb` reads `None` as. A window whose
+/// root is a pane has that pane as its one row.
+pub fn outline_rows(layout: &Layout, window: &Window) -> Vec<Value> {
+    fn walk(layout: &Layout, tile: TileId, parent: Option<TileId>, out: &mut Vec<Value>) {
+        // A tree that loops (it never should) is drawn once.
+        if out.len() > 4096 || out.iter().any(|row| row["id"] == json!(tile.raw())) {
+            return;
+        }
+        out.push(json!({
+            "id": tile.raw(),
+            "parent": parent.map(TileId::raw),
+            "label": tile_label(layout, tile),
+        }));
+        if let Some(container) = layout.tile(tile).and_then(Tile::as_container) {
+            for child in container.children() {
+                walk(layout, *child, Some(tile), out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    match layout.tile(window.root).and_then(Tile::as_container) {
+        Some(root) => {
+            for child in root.children() {
+                walk(layout, *child, None, &mut out);
+            }
+        }
+        None => walk(layout, window.root, None, &mut out),
+    }
+    out
+}
+
+/// The containers among a window's rows: the ones the outline can fold.
+pub fn outline_containers(layout: &Layout, window: &Window) -> Vec<u64> {
+    outline_rows(layout, window)
+        .iter()
+        .filter_map(|row| row["id"].as_u64())
+        .filter(|id| matches!(layout.tile(TileId(*id)), Some(Tile::Container(_))))
+        .collect()
+}
+
+/// The outline of one window as a `RenderTree`: one movable `tree` widget
+/// whose expanded list is every container but the ones folded here.
+pub fn outline_tree(layout: &Layout, window: &Window, folded: &BTreeSet<u64>) -> RenderTree {
+    let rows = Value::Array(outline_rows(layout, window));
+    let expanded: Vec<Value> = outline_containers(layout, window)
+        .into_iter()
+        .filter(|id| !folded.contains(id))
+        .map(Value::from)
+        .collect();
+    let nodes = outline::build(&rows, &expanded, Fields::default());
+    let id = outline_id(window.id);
+    RenderTree {
+        root: RenderNode {
+            id: id.clone(),
+            label: Some(format!("tiles of window {}", window.id)),
+            help: Some(
+                "drag a row to move its tile; x then p or P moves it from the keyboard".into(),
+            ),
+            node: RenderKind::Tree {
+                nodes,
+                bind: Some("expanded".into()),
+                expanded,
+                actions: Vec::new(),
+                movable: true,
+            },
+        },
+        focus_order: vec![id],
+    }
+}
+
+/// The containers folded after a disclosure sent `expanded`: every container
+/// of the window the list leaves out.
+pub fn folded_after(layout: &Layout, window: &Window, expanded: &Value) -> BTreeSet<u64> {
+    let open: BTreeSet<u64> = expanded
+        .as_array()
+        .map(|ids| ids.iter().filter_map(Value::as_u64).collect())
+        .unwrap_or_default();
+    outline_containers(layout, window)
+        .into_iter()
+        .filter(|id| !open.contains(id))
+        .collect()
+}
+
+/// The layout verb an outline event asks for.
+///
+/// - `select` of `[id]`: focus that tile, or a container's first pane; none
+///   when it is already focused.
+/// - `move` of `{"ids", "to", "index"}`: `koine::gesture::tree_move_verb`.
+///
+/// Anything else (a disclosure is the page's own) is no verb.
+pub fn outline_verb(layout: &Layout, focused: Option<u64>, event: &Event) -> Option<Verb> {
+    match event.kind {
+        EventKind::Select => {
+            let tile = TileId(event.value.as_array()?.first()?.as_u64()?);
+            let pane = match layout.tile(tile)? {
+                Tile::Pane(_) => tile,
+                Tile::Container(_) => layout.first_leaf(tile)?,
+            };
+            if focused == Some(pane.raw()) {
+                return None;
+            }
+            gesture::layout_verb(
+                &Gesture::Focus {
+                    element: GestureElement::Tile { id: pane.raw() },
+                },
+                Some(pane.raw()),
+            )
+        }
+        EventKind::Move => {
+            let value = &event.value;
+            let ids: Vec<u64> = value
+                .get("ids")?
+                .as_array()?
+                .iter()
+                .map(Value::as_u64)
+                .collect::<Option<_>>()?;
+            let to = match value.get("to") {
+                None | Some(Value::Null) => None,
+                Some(to) => Some(to.as_u64()?),
+            };
+            let index = usize::try_from(value.get("index")?.as_u64()?).ok()?;
+            gesture::tree_move_verb(layout, &ids, to, index)
+        }
+        _ => None,
+    }
 }
 
 /// `resize` of `container` after the divider following child `index` moved
@@ -301,27 +448,23 @@ pub fn newer(old: Option<&LayoutTree>, new: &LayoutTree) -> bool {
 
 // ------------------------------------------------------------------- the board
 
-/// A pointer press that is waiting for its release.
+/// A divider pressed at `start` (client x or y), waiting for its release.
+/// `lengths` are the two neighbours measured at that moment; none until the
+/// browser answers.
 #[derive(Debug, Clone, PartialEq)]
-enum DragState {
-    /// The grip or title of `tile` is down; the drop names the target.
-    Handle { from: Hit, tile: u64 },
-    /// A divider is down at `start` (client x or y). `lengths` are the two
-    /// neighbours measured at that moment; none until the browser answers.
-    Divider {
-        container: u64,
-        index: usize,
-        horizontal: bool,
-        start: f64,
-        lengths: Option<(f32, f32)>,
-    },
+struct Resize {
+    container: u64,
+    index: usize,
+    horizontal: bool,
+    start: f64,
+    lengths: Option<(f32, f32)>,
 }
 
 /// What every component of the page reads and writes. All signals: `Copy`.
 #[derive(Clone, Copy)]
 struct Board {
     tree: Signal<Option<LayoutTree>>,
-    drag: Signal<Option<DragState>>,
+    resize: Signal<Option<Resize>>,
     session: Session,
 }
 
@@ -346,7 +489,11 @@ impl Board {
                 Ok(_) => {
                     self.session.clear();
                     match api::layout_tree().await {
-                        Ok(tree) => self.show(tree),
+                        Ok(tree) => {
+                            self.session
+                                .saw_layout(LayoutAnswer::Tree(drawable(&tree.layout)));
+                            self.show(tree);
+                        }
                         Err(error) => self.session.refuse(error),
                     }
                 }
@@ -355,8 +502,9 @@ impl Board {
         });
     }
 
-    /// A press on `tile`'s frame. A tile that already has focus needs no verb.
-    fn press(self, at: Hit, tile: u64) {
+    /// A click on `tile` (a pane, or a tab naming it). A tile that already
+    /// has focus needs no verb.
+    fn focus(self, tile: u64) {
         if self
             .tree
             .peek()
@@ -366,35 +514,13 @@ impl Board {
             return;
         }
         let pane = GestureElement::Tile { id: tile };
-        if let Some(verb) = frame::verb_for_pointer(at, Pointer::Primary, &pane, &[]) {
-            self.post(verb);
-        }
-    }
-
-    fn start_handle(mut self, from: Hit, tile: u64) {
-        self.drag.set(Some(DragState::Handle { from, tile }));
-    }
-
-    /// A handle was released over `target`'s `to`.
-    fn drop_on(mut self, target: u64, to: Hit) {
-        let handle = match &*self.drag.peek() {
-            Some(DragState::Handle { from, tile }) => Some((*from, *tile)),
-            _ => None,
-        };
-        let Some((from, tile)) = handle else { return };
-        self.drag.set(None);
-        let verb = self
-            .tree
-            .peek()
-            .as_ref()
-            .and_then(|tree| drop_verb(&tree.layout, from, to, tile, target));
-        if let Some(verb) = verb {
+        if let Some(verb) = gesture::layout_verb(&Gesture::Focus { element: pane }, Some(tile)) {
             self.post(verb);
         }
     }
 
     fn start_divider(mut self, container: u64, index: usize, horizontal: bool, start: f64) {
-        self.drag.set(Some(DragState::Divider {
+        self.resize.set(Some(Resize {
             container,
             index,
             horizontal,
@@ -405,32 +531,25 @@ impl Board {
             let Some(measured) = dom::measure_neighbours(container, index, horizontal).await else {
                 return;
             };
-            let mut state = self.drag.write();
-            if let Some(DragState::Divider {
-                container: held,
-                index: held_index,
-                lengths,
-                ..
-            }) = state.as_mut()
-            {
-                if *held == container && *held_index == index {
-                    *lengths = Some(measured);
+            let mut state = self.resize.write();
+            if let Some(held) = state.as_mut() {
+                if held.container == container && held.index == index {
+                    held.lengths = Some(measured);
                 }
             }
         });
     }
 
-    /// Any release inside the page: a divider drag ends here; a handle that
-    /// was not dropped on a pane is forgotten.
+    /// Any release inside the page: a divider drag ends here.
     fn pointer_up(mut self, event: &dioxus::events::PointerEvent) {
-        let drag = std::mem::take(&mut *self.drag.write());
-        let Some(DragState::Divider {
+        let held = std::mem::take(&mut *self.resize.write());
+        let Some(Resize {
             container,
             index,
             horizontal,
             start,
             lengths: Some((before, after)),
-        }) = drag
+        }) = held
         else {
             return;
         };
@@ -462,10 +581,10 @@ impl Board {
 pub fn LayoutPage() -> Element {
     let session = use_context::<Session>();
     let tree = use_signal(|| None);
-    let drag = use_signal(|| None);
+    let resize = use_signal(|| None);
     let board = use_context_provider(move || Board {
         tree,
-        drag,
+        resize,
         session,
     });
     // The poll's flag, as the surface page's wait loop has: a `Cell`, because a
@@ -488,6 +607,8 @@ pub fn LayoutPage() -> Element {
                     if !alive.get() {
                         break;
                     }
+                    // The nav's layout tab follows every answer (A-D4).
+                    session.saw_layout(LayoutAnswer::of_tree(&answer));
                     match answer {
                         Ok(fetched) => {
                             board.show(fetched);
@@ -510,13 +631,17 @@ pub fn LayoutPage() -> Element {
         style { dangerous_inner_html: LAYOUT_CSS }
         h1 { "Layout" }
         p { class: "kw-note",
-            "drag a pane's ≡ onto another pane's edge to move it; drag a divider to resize; "
-            "click a pane or a tab to focus it; h and l step between panes. "
-            "The page asks for the tree every five seconds."
+            "drag a row of a window's outline to move its tile (or x, then p or P); "
+            "click a pane, a tab or a row to focus it; h and l step between panes. "
+            "With a mouse, drag a divider to resize. The page asks for the tree every five seconds."
         }
         LayoutBody {}
     }
 }
+
+/// What the page says when the layout has panes but none it can draw.
+pub const NOTHING_TO_LAY_OUT: &str =
+    "Nothing to lay out here: this host has no view for any pane of this layout.";
 
 /// The root of the drawing: every window, with the keys and the release.
 #[component]
@@ -524,14 +649,12 @@ fn LayoutBody() -> Element {
     let session = use_context::<Session>();
     let board = use_context::<Board>();
     let vars = koine_dioxus::css_variables(session.style.read().sheet());
-    let dragging = matches!(&*board.drag.read(), Some(DragState::Handle { .. }));
     let guard = board.tree.read();
     rsx! {
         div {
             class: "koine koine-layout",
             style: "{vars}",
             tabindex: "0",
-            "data-koine-dragging": dragging.then_some("true"),
             onkeydown: move |event| {
                 if let Some(verb) = keys::on_layout_keydown(&event) {
                     board.post(verb);
@@ -544,6 +667,9 @@ fn LayoutBody() -> Element {
                     rsx! { p { class: "kw-note", "the layout has no windows" } }
                 }
                 Some(tree) => rsx! {
+                    if !drawable(&tree.layout) {
+                        p { class: "kw-note", "{NOTHING_TO_LAY_OUT}" }
+                    }
                     for window in windows_in_order(&tree.layout) {
                         section {
                             key: "{window.id}",
@@ -554,13 +680,143 @@ fn LayoutBody() -> Element {
                                 if current_window(&tree.layout) == Some(window.id) {
                                     " (current)"
                                 }
+                                if let Some(root) = tree.layout.tile(window.root).and_then(Tile::as_container) {
+                                    " · {container_label(root)}"
+                                }
                             }
+                            TileOutline { window: window.id.raw() }
                             div { class: "koine-window-body",
                                 TileView { tile: shown_root(&tree.layout, window).raw(), strip: None }
                             }
                         }
                     }
                 },
+            }
+        }
+    }
+}
+
+/// One window's tiles as the tree widget (A-D3): drawn by
+/// `koine_dioxus::Surface` with the shared sheet, so a row moves the way a
+/// row of any surface's tree moves. Its events are the page's: a row click
+/// focuses the tile, a move posts [`outline_verb`]'s `move-tile`, a
+/// disclosure folds a container here. The keys are `keys::on_keydown`'s over
+/// the outline: `j`/`k` walk the rows, Enter focuses, `h`/`l` fold and
+/// unfold, `x` then `p`/`P` moves.
+#[component]
+fn TileOutline(window: u64) -> Element {
+    let session = use_context::<Session>();
+    let board = use_context::<Board>();
+    let window_id = WindowId::new(window);
+    let id = outline_id(window_id);
+    let mut folded = use_signal(BTreeSet::<u64>::new);
+    let mut cursor = use_signal(Cursor::new);
+    let mut focused = use_signal(|| None::<String>);
+    let mut clipboard = use_signal(|| None::<(String, Value)>);
+    let tree = use_memo(move || {
+        let guard = board.tree.read();
+        guard
+            .as_ref()
+            .and_then(|tree| {
+                let window = tree.layout.window(window_id)?;
+                Some(outline_tree(&tree.layout, window, &folded.read()))
+            })
+            .unwrap_or_else(keys::empty_tree)
+    });
+    // The focused tile is the active row, until j or k moves it.
+    let mut seen_focus = use_signal(|| None::<u64>);
+    {
+        let id = id.clone();
+        use_effect(move || {
+            let focus = board.tree.read().as_ref().and_then(|tree| tree.focused);
+            if *seen_focus.peek() != focus {
+                seen_focus.set(focus);
+                if let Some(tile) = focus {
+                    cursor.write().set_active_row(&id, Value::from(tile));
+                }
+            }
+        });
+    }
+    // Before the effect has run (and in a server render) the focused tile is
+    // the active row.
+    let active = use_memo(move || {
+        let mut rows = keys::active_rows(&tree.read(), &cursor.read());
+        let tree = tree.read();
+        if let Some(widget) = tree.focus_order.first() {
+            if !rows.contains_key(widget) {
+                let focus = board.tree.read().as_ref().and_then(|shown| shown.focused);
+                if let Some(focus) = focus {
+                    rows.insert(widget.clone(), Value::from(focus));
+                }
+            }
+        }
+        rows
+    });
+    let sheet = use_memo(move || session.style.read().sheet().clone());
+
+    let mut handle = move |event: Event| {
+        if let Some(row) = keys::selected_row(&tree.peek(), &event) {
+            cursor.write().set_active_row(&event.widget, row);
+        }
+        let guard = board.tree.peek();
+        let Some(shown) = guard.as_ref() else { return };
+        let Some(window) = shown.layout.window(window_id) else {
+            return;
+        };
+        if event.kind == EventKind::Change {
+            let next = folded_after(&shown.layout, window, &event.value);
+            drop(guard);
+            folded.set(next);
+            return;
+        }
+        let verb = outline_verb(&shown.layout, shown.focused, &event);
+        drop(guard);
+        if let Some(verb) = verb {
+            board.post(verb);
+        }
+    };
+
+    let on_keydown = move |event: dioxus::events::KeyboardEvent| {
+        let action = {
+            let tree = tree.peek();
+            let mut cursor = cursor.write();
+            keys::on_keydown(&event, &tree, &mut cursor, false)
+        };
+        if action.claims() {
+            // The layout page around the outline reads h and l as a pane
+            // step; here they fold and unfold.
+            event.stop_propagation();
+        }
+        match action {
+            KeyAction::Focus => {
+                let now = cursor.peek().focused_id(&tree.peek()).map(str::to_string);
+                focused.set(now);
+            }
+            KeyAction::Event(event) => handle(event),
+            KeyAction::Cut(widget, row) => clipboard.set(Some((widget, row))),
+            paste @ (KeyAction::Paste(..) | KeyAction::PasteBeside(..)) => {
+                let cut = clipboard.peek().clone();
+                let event = cut.and_then(|cut| keys::paste_event(&tree.peek(), &cut, &paste));
+                if let Some(event) = event {
+                    clipboard.set(None);
+                    handle(event);
+                }
+            }
+            _ => {}
+        }
+    };
+
+    rsx! {
+        div { class: "koine-outline", "data-koine-outline": "{window}", onkeydown: on_keydown,
+            Surface {
+                tree,
+                sheet,
+                focused,
+                on_event: move |event: Event| {
+                    focused.set(Some(event.widget.clone()));
+                    handle(event);
+                },
+                active,
             }
         }
     }
@@ -644,7 +900,7 @@ fn TileView(tile: u64, strip: Option<Strip>) -> Element {
             };
             let shown_is_pane = layout.pane(shown).is_some();
             if shown_is_pane {
-                // The strip shares the shown pane's top edge, after its grip.
+                // The strip shares the shown pane's top edge.
                 rsx! {
                     TileView { key: "{shown}", tile: shown.raw(), strip: Some(strip) }
                 }
@@ -673,8 +929,9 @@ fn TileView(tile: u64, strip: Option<Strip>) -> Element {
     }
 }
 
-/// A pane with its frame: four edges, the grip, the title (and a tab strip
-/// when a `Tabs` container shows this pane), and the body.
+/// A pane: its top edge (a tab strip when a `Tabs` container shows this
+/// pane, and the title) and its body. A click focuses it; moving it is the
+/// outline's.
 #[component]
 fn PaneView(tile: u64, strip: Option<Strip>) -> Element {
     let board = use_context::<Board>();
@@ -698,43 +955,12 @@ fn PaneView(tile: u64, strip: Option<Strip>) -> Element {
             class: "{class}",
             "data-koine-tile": "{tile}",
             "data-koine-focused": focused.then_some("true"),
-            onclick: move |_| board.press(Hit::Body, tile),
-            onpointerup: move |_| board.drop_on(tile, Hit::Body),
-            for (edge , name) in EDGES {
-                div {
-                    key: "{name}",
-                    class: "koine-edge",
-                    "data-koine-edge": name,
-                    onpointerup: move |event| {
-                        event.stop_propagation();
-                        board.drop_on(tile, Hit::Frame(edge));
-                    },
-                }
-            }
+            onclick: move |_| board.focus(tile),
             div { class: "koine-top",
-                span {
-                    class: "koine-grip",
-                    "data-koine-grip": "",
-                    title: "drag onto another pane's edge to move this pane",
-                    onpointerdown: move |event| {
-                        event.prevent_default();
-                        event.stop_propagation();
-                        board.start_handle(Hit::Grip, tile);
-                    },
-                    "≡"
-                }
                 if let Some(strip) = strip {
                     TabBar { strip }
                 }
-                span {
-                    class: "koine-title",
-                    onpointerdown: move |event| {
-                        event.prevent_default();
-                        event.stop_propagation();
-                        board.start_handle(Hit::Title, tile);
-                    },
-                    "{title}"
-                }
+                span { class: "koine-title", "{title}" }
             }
             div { class: "koine-body",
                 match body {
@@ -785,7 +1011,7 @@ fn TabBar(strip: Strip) -> Element {
                     "data-koine-tab": "{i}",
                     onclick: move |event| {
                         event.stop_propagation();
-                        board.press(Hit::Title, child);
+                        board.focus(child);
                     },
                     "{label}"
                 }
