@@ -1,10 +1,13 @@
-//! What the page reads off the browser's click: the one place `web-sys` is
-//! touched. Each function answers `None` when the DOM does not say, and the
-//! mapping then sends no event; nothing here decides what a click means.
+//! What the page reads off the browser's click and pointer: the one place
+//! `web-sys` is touched. Each function answers `None` when the DOM does not
+//! say, and the mapping then sends no event; nothing here decides what a
+//! click or a drop means.
 
-use dioxus::prelude::MouseEvent;
+use dioxus::prelude::{MouseEvent, PointerEvent};
 use web_sys::wasm_bindgen::JsCast;
-use web_sys::{Element, MouseEvent as WebMouseEvent};
+use web_sys::{Element, MouseEvent as WebMouseEvent, PointerEvent as WebPointerEvent};
+
+use crate::outline::{self, DropAt};
 
 fn web_event(e: &MouseEvent) -> Option<WebMouseEvent> {
     e.data().downcast::<WebMouseEvent>().cloned()
@@ -55,4 +58,38 @@ pub(crate) fn data_id(e: &MouseEvent) -> Option<String> {
     let event = web_event(e)?;
     let target = event.target()?.dyn_into::<Element>().ok()?;
     target.closest("[data-id]").ok()??.get_attribute("data-id")
+}
+
+/// Keep the pointer's stream on the row grip it went down on
+/// (`setPointerCapture`), so `pointermove` and `pointerup` reach the grip's
+/// handlers wherever the pointer goes. A finger's pointer is captured to its
+/// target by the browser already; a mouse's is not.
+pub(crate) fn capture(e: &PointerEvent) {
+    let Some(event) = e.data().downcast::<WebPointerEvent>().cloned() else {
+        return;
+    };
+    let grip = event
+        .target()
+        .and_then(|t| t.dyn_into::<Element>().ok())
+        .and_then(|t| t.closest(".koine-grip").ok().flatten());
+    if let Some(grip) = grip {
+        let _ = grip.set_pointer_capture(event.pointer_id());
+    }
+}
+
+/// The drop target under the viewport point `(x, y)` in the tree `widget`:
+/// the element there (`document.elementFromPoint`), climbed to the nearest
+/// row or gap, kept only when it is inside this widget's `ul.koine-tree`.
+pub(crate) fn drop_at_point(widget: &str, x: f64, y: f64) -> Option<DropAt> {
+    let document = web_sys::window()?.document()?;
+    let under = document.element_from_point(x as f32, y as f32)?;
+    let hit = under.closest("[data-koine-row], [data-koine-gap]").ok()??;
+    let tree = hit.closest("ul.koine-tree").ok()??;
+    if tree.get_attribute("data-koine-id").as_deref() != Some(widget) {
+        return None;
+    }
+    outline::drop_at(
+        hit.get_attribute("data-koine-row").as_deref(),
+        hit.get_attribute("data-koine-gap").as_deref(),
+    )
 }

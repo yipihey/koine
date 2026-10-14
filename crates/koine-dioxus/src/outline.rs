@@ -17,6 +17,53 @@ use serde_json::{json, Value};
 /// A row the gestures name: the widget id and the row's id.
 pub type RowRef = (String, Value);
 
+pub use koine::outline::{menu_entries, MenuChoice, RowMenu};
+
+/// Where a row being moved would land (plan-koine-affordances A-D1): on the
+/// row at this visible index (it becomes the parent), or in the gap before
+/// the row at this index (`len` is after the last row).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropAt {
+    Row(usize),
+    Gap(usize),
+}
+
+/// A drop target the gestures name: the widget id and where in it.
+pub type DropRef = (String, DropAt);
+
+/// The drop target an element names by its attributes: `data-koine-row`
+/// (a row), else `data-koine-gap` (a gap). `None` when neither is an index.
+pub fn drop_at(row: Option<&str>, gap: Option<&str>) -> Option<DropAt> {
+    if let Some(row) = row {
+        return row.parse().ok().map(DropAt::Row);
+    }
+    gap?.parse().ok().map(DropAt::Gap)
+}
+
+/// The `move` value releasing `dragged` over `at` sends: [`drop_on`] for a
+/// row, [`drop_gap`] for a gap. `None` where the row may not land (on itself,
+/// inside its own branch).
+pub fn drop_value(
+    all: &[impress_surface::tree::TreeNode],
+    dragged: &Value,
+    at: DropAt,
+) -> Option<Value> {
+    match at {
+        DropAt::Row(index) => drop_on(all, dragged, index),
+        DropAt::Gap(at) => drop_gap(all, dragged, at),
+    }
+}
+
+/// `drop_at` from the answer of the page's hit test, `row:<n>` or `gap:<n>`
+/// (the form a script in a WebView can return).
+pub fn parse_drop_at(answer: &str) -> Option<DropAt> {
+    match answer.split_once(':')? {
+        ("row", n) => drop_at(Some(n), None),
+        ("gap", n) => drop_at(None, Some(n)),
+        _ => None,
+    }
+}
+
 /// The expanded list with `id` open or closed: the whole list, one id added
 /// or removed (O-D2). Adding an id already there keeps one.
 pub fn set_open(expanded: &[Value], id: &Value, open: bool) -> Value {
@@ -124,6 +171,47 @@ mod tests {
         assert_eq!(menu_key("3", 2), MenuKey::Swallow);
         assert_eq!(menu_key("0", 2), MenuKey::Swallow);
         assert_eq!(menu_key("j", 2), MenuKey::Swallow);
+    }
+
+    #[test]
+    fn a_drop_target_is_read_off_the_attributes_and_sends_what_drop_on_and_drop_gap_say() {
+        use impress_surface::tree::TreeNode;
+        assert_eq!(drop_at(Some("2"), None), Some(DropAt::Row(2)));
+        assert_eq!(drop_at(None, Some("0")), Some(DropAt::Gap(0)));
+        assert_eq!(drop_at(Some("x"), Some("1")), None, "a row attribute wins");
+        assert_eq!(drop_at(None, None), None);
+        assert_eq!(parse_drop_at("row:3"), Some(DropAt::Row(3)));
+        assert_eq!(parse_drop_at("gap:4"), Some(DropAt::Gap(4)));
+        assert_eq!(parse_drop_at(""), None);
+        assert_eq!(parse_drop_at("cell:1"), None);
+
+        let node = |id: &str, depth| TreeNode {
+            id: json!(id),
+            label: id.into(),
+            depth,
+            has_children: false,
+            expanded: false,
+            count: None,
+            row: json!({}),
+        };
+        let all = [node("a", 0), node("b", 0)];
+        assert_eq!(
+            drop_value(&all, &json!("b"), DropAt::Row(0)),
+            drop_on(&all, &json!("b"), 0)
+        );
+        assert_eq!(
+            drop_value(&all, &json!("b"), DropAt::Row(0)),
+            Some(json!({"ids": ["b"], "to": "a", "index": 0}))
+        );
+        assert_eq!(
+            drop_value(&all, &json!("b"), DropAt::Row(1)),
+            None,
+            "on itself"
+        );
+        assert_eq!(
+            drop_value(&all, &json!("b"), DropAt::Gap(0)),
+            drop_gap(&all, &json!("b"), 0)
+        );
     }
 
     #[test]

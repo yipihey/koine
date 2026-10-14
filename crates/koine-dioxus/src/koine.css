@@ -495,11 +495,44 @@
   color: inherit;
 }
 
-[draggable="true"] {
+/* A movable row's grip (plan-koine-affordances A-D1): the one way to move a
+   row, for a mouse and a finger alike, at the trailing edge like a reorder
+   handle. `touch-action: none` keeps a finger's drag a pointer stream rather
+   than a scroll. */
+.koine-grip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5em;
+  margin-left: 0.25em;
+  color: var(--koine-color-tertiary);
   cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
-/* A thin target between rows, drawn only while a drag is in progress. */
+.koine-tree[data-koine-moving="true"],
+.koine-tree[data-koine-moving="true"] .koine-grip {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The row being moved fades; the row or gap under the pointer is the
+   target. */
+.koine-tree-node[data-koine-moving="true"] {
+  opacity: 0.5;
+}
+
+.koine-tree-node[data-koine-drop="true"] {
+  background: color-mix(in srgb, var(--koine-color-accent) 18%, transparent);
+  box-shadow: inset 0 0 0 2px var(--koine-color-accent);
+}
+
+/* A thin target between rows, drawn only while a row is moved. */
 .koine-drop-gap {
   height: 6px;
   margin: -3px 0;
@@ -507,6 +540,10 @@
   z-index: 1;
   border-radius: 3px;
   background: color-mix(in srgb, var(--koine-color-accent) 35%, transparent);
+}
+
+.koine-drop-gap[data-koine-drop="true"] {
+  background: var(--koine-color-accent);
 }
 
 /* Widgets (TH-D4): a tinted pill button, inset rounded fields, the system
@@ -972,6 +1009,19 @@
     justify-content: center;
     min-width: 44px;
     min-height: 44px;
+  }
+
+  .koine-grip {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 1.25em;
+  }
+
+  /* A finger is wider than a hairline: the gap between rows is easier to
+     land on, and still adds no height to the list. */
+  .koine-drop-gap {
+    height: 14px;
+    margin: -7px 0;
   }
 
   .koine-list > li,

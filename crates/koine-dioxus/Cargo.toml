@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-dioxus = { version = "0.7", default-features = false, features = ["macro", "html", "signals", "hooks"] }
+dioxus = { version = "0.7", default-features = false, features = ["macro", "html", "signals", "hooks", "document"] }
 dioxus-ssr = { version = "0.7", optional = true }
 # By path, not `workspace = true`: a member cannot turn off a workspace
 # dependency's default features, and `koine`'s default `verbs` feature links
@@ -15,6 +15,10 @@ dioxus-ssr = { version = "0.7", optional = true }
 koine = { path = "../koine", default-features = false }
 impress-surface = { workspace = true }
 koine-plot = { workspace = true }
+# A `text` node is markdown (plan-koine-affordances A-D7): headings,
+# emphasis, code, lists, links, tables and strikethrough. `html` is the
+# writer; raw HTML in the source is escaped before it reaches it.
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 serde_json = { workspace = true }
 koine-workspace-hack.workspace = true
 
@@ -23,8 +27,10 @@ koine-workspace-hack.workspace = true
 uuid = { version = "1", features = ["js"] }
 # The click handlers read the DOM event the browser gave the page: the drawn
 # size of a plot or an image, and the `data-id` of the graph node under the
-# pointer (plan-koine-tree-stream T-D3, T-D4). Native builds never see it.
-web-sys = { version = "0.3", features = ["Element", "DomRect", "Event", "EventTarget", "MouseEvent"] }
+# pointer (plan-koine-tree-stream T-D3, T-D4). A row grip captures its
+# pointer and finds the row under it (plan-koine-affordances A-D1). Native
+# builds never see it: in a WebView the grip asks through `document::eval`.
+web-sys = { version = "0.3", features = ["Element", "DomRect", "Event", "EventTarget", "MouseEvent", "PointerEvent", "Window", "Document"] }
 
 # The SSR tests run in the workspace's plain `cargo test --all-targets`
 # (CI's one job), so the string renderer is always there under test.
