@@ -417,7 +417,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(answer["code"], crate::refusal::codes::HOST_UNAVAILABLE);
-        let records = sink.0.lock().unwrap();
+        let records = sink.0.lock().unwrap_or_else(|e| e.into_inner());
         let row = records.iter().find(|row| row.verb == name).unwrap();
         assert!(!row.ok);
         assert_eq!(

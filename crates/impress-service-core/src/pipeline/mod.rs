@@ -1122,7 +1122,12 @@ pub(crate) mod tests {
     pub(crate) struct Captured(pub(crate) Mutex<Vec<audit::VerbCallRecord>>);
     impl audit::Sink for Captured {
         fn record(&self, record: audit::VerbCallRecord) {
-            self.0.lock().unwrap().push(record);
+            // A test that panicked holding the lock must not fail every
+            // other test that records after it.
+            self.0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(record);
         }
     }
 
@@ -1214,7 +1219,7 @@ pub(crate) mod tests {
         let call_id = answer["call"]
             .as_str()
             .expect("the handler saw its call id");
-        let records = sink.0.lock().unwrap();
+        let records = sink.0.lock().unwrap_or_else(|e| e.into_inner());
         let record = records
             .iter()
             .find(|r| r.call_id == call_id)
@@ -1241,7 +1246,7 @@ pub(crate) mod tests {
         })
         .unwrap();
         let call_id = answer["call"].as_str().unwrap();
-        let records = sink.0.lock().unwrap();
+        let records = sink.0.lock().unwrap_or_else(|e| e.into_inner());
         let record = records.iter().find(|r| r.call_id == call_id).unwrap();
         assert_eq!(record.inserted_ids, ["a", "b"]);
         assert_eq!(record.deleted_ids, ["z"]);
@@ -1272,7 +1277,7 @@ pub(crate) mod tests {
         let answer =
             invoke_blocking(&OUTER, Call::agent("mcp", json!({})).with_trace("trace-1")).unwrap();
         assert_eq!(answer["trace"], "trace-1");
-        let records = sink.0.lock().unwrap();
+        let records = sink.0.lock().unwrap_or_else(|e| e.into_inner());
         let inner = records
             .iter()
             .find(|r| r.call_id == answer["inner"].as_str().unwrap())
@@ -1526,15 +1531,17 @@ pub(crate) mod tests {
         record.adverbs["used"].clone()
     }
     fn record_of(verb: &str) -> audit::VerbCallRecord {
-        captured()
+        // Look the row up, release the lock, then panic if it is missing:
+        // a panic under the guard would poison the sink for every test.
+        let found = captured()
             .0
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .rev()
             .find(|r| r.verb == verb)
-            .cloned()
-            .unwrap_or_else(|| panic!("no audit row for {verb}"))
+            .cloned();
+        found.unwrap_or_else(|| panic!("no audit row for {verb}"))
     }
 
     #[test]
@@ -1585,6 +1592,7 @@ pub(crate) mod tests {
 
     #[test]
     fn tentatively_answers_statically_without_running_and_is_on_the_record() {
+        captured();
         let answer = invoke_blocking(
             &TENT_WRITES,
             Call::agent("t", json!({"adverbs": {"tentatively": true}})),
@@ -1607,6 +1615,9 @@ pub(crate) mod tests {
 
     #[test]
     fn a_tentative_read_only_call_is_recorded_too() {
+        // The sink installs on first use: install it before the call, or a
+        // run where this test goes first records nothing.
+        captured();
         let answer = invoke_blocking(
             &REV_READ,
             with(Adverbs {
@@ -1669,6 +1680,7 @@ pub(crate) mod tests {
 
     #[test]
     fn tentatively_on_a_verb_that_supports_it_runs_the_handler_simulated() {
+        captured();
         let answer = invoke_blocking(
             &TENT_SIM,
             with(Adverbs {
@@ -1703,6 +1715,7 @@ pub(crate) mod tests {
 
     #[test]
     fn reversibly_puts_the_noted_inverse_on_the_envelope_and_the_audit_row() {
+        captured();
         let answer = invoke_blocking(
             &REV,
             with(Adverbs {
@@ -1769,7 +1782,11 @@ pub(crate) mod tests {
         assert!(other.get("replayed").is_none());
         assert_eq!(hits("t-service_adv-once"), 2);
         // The key's value is never on the record.
-        let rows = captured().0.lock().unwrap().clone();
+        let rows = captured()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         for row in rows.iter().filter(|r| r.verb == "t-service_adv-once") {
             assert!(!row
                 .payload()
@@ -1880,6 +1897,7 @@ pub(crate) mod tests {
 
     #[test]
     fn in_background_needs_a_runner_and_hands_it_the_call_without_the_adverb() {
+        captured();
         struct Fake(Mutex<Vec<Call>>, Mutex<Vec<Duration>>);
         impl adverbs::BackgroundRunner for Fake {
             fn repeat(
@@ -1888,7 +1906,7 @@ pub(crate) mod tests {
                 call: Call,
                 interval: Duration,
             ) -> Result<crate::job::JobHandle, Refusal> {
-                self.0.lock().unwrap().push(call);
+                self.0.lock().unwrap_or_else(|e| e.into_inner()).push(call);
                 self.1.lock().unwrap().push(interval);
                 Ok(crate::job::JobHandle {
                     id: "routine-9".into(),
@@ -1902,7 +1920,7 @@ pub(crate) mod tests {
                 verb: VerbHandle,
                 call: Call,
             ) -> Result<crate::job::JobHandle, Refusal> {
-                self.0.lock().unwrap().push(call);
+                self.0.lock().unwrap_or_else(|e| e.into_inner()).push(call);
                 Ok(crate::job::JobHandle {
                     id: "job-7".into(),
                     kind: verb.name().to_string(),
