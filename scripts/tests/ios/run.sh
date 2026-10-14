@@ -121,6 +121,27 @@ dump_console() {
     if [[ -s "$LOG" ]]; then
         echo "        | app console (last 30 lines):"
         tail -n 30 "$LOG" | sed 's/^/        | /'
+    else
+        echo "        | the app's console relayed nothing"
+    fi
+    # What the app could not say itself: its crash report from a previous
+    # run (koine_host::embed::record_crashes), the simulator's log for the
+    # process, and any crash report the system wrote.
+    if [[ -n "${DATA:-}" && -s "$DATA/Documents/$APP_ID/last-crash.txt" ]]; then
+        echo "        | Documents/$APP_ID/last-crash.txt:"
+        head -n 40 "$DATA/Documents/$APP_ID/last-crash.txt" | sed 's/^/        | /'
+    fi
+    if [[ -n "${UDID:-}" ]]; then
+        echo "        | simulator log for the app (last 3 minutes, last 40 lines):"
+        xcrun simctl spawn "$UDID" log show --last 3m --style compact \
+            --predicate 'process CONTAINS "KoineDemo" OR (process == "SpringBoard" AND eventMessage CONTAINS "koine")' \
+            2>/dev/null | tail -n 40 | sed 's/^/        | /'
+    fi
+    local reports
+    reports="$(ls -t "$HOME"/Library/Logs/DiagnosticReports/*KoineDemo* 2>/dev/null | head -n 1)"
+    if [[ -n "$reports" ]]; then
+        echo "        | crash report $reports (first 60 lines):"
+        head -n 60 "$reports" | sed 's/^/        | /'
     fi
 }
 
