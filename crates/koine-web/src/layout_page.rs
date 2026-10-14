@@ -360,6 +360,10 @@ pub fn outline_tree(layout: &Layout, window: &Window, folded: &BTreeSet<u64>) ->
                 expanded,
                 actions: Vec::new(),
                 movable: true,
+                // A tile has no name to change, and closing one is the `close` verb
+                // (keys and the pane menu), not a row delete.
+                renameable: false,
+                deletable: false,
             },
         },
         focus_order: vec![id],
