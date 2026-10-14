@@ -16,6 +16,8 @@
 //! shares: the same keys move the same focus and send the same events on the
 //! text frontend and the web one. [`frame`] is what a pointer on a pane frame
 //! means (`Hit` to `Gesture` to layout verb), one copy for both.
+//! [`outline::menu_entries`] is a row menu's list, the same on every
+//! frontend and every pointer (`docs/plan-koine-affordances.md` A-D2).
 //!
 //! Two parts sit beside the document. Adjectives (`pane_query::adjective`)
 //! are the named, typed filters a pane query is written in, each lowering to
@@ -33,6 +35,7 @@
 pub mod cursor;
 pub mod frame;
 pub mod gesture;
+pub mod outline;
 pub mod style;
 pub mod style_file;
 pub mod surface;

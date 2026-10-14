@@ -157,6 +157,15 @@ pub enum RenderKind {
         /// (plan-koine-outline O-D4). Absent (false) for a tree that does not.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         movable: bool,
+        /// The tree declares `on_rename`, so a renderer offers "Rename" in
+        /// its row menu (plan-koine-affordances A-D2). Absent (false) for a
+        /// tree that does not.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        renameable: bool,
+        /// The tree declares `on_delete`, so a renderer offers "Delete" in
+        /// its row menu unless `actions` already has that label (A-D2).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        deletable: bool,
     },
     /// `graph{…}` (plan-koine-tree-stream T-D3): `spec` is the
     /// `koine_plot::graph::GraphSpec` the rows became (ids as text), `svg`
@@ -439,6 +448,8 @@ fn resolve_kind(
                 expanded,
                 actions: menu_labels(&t.actions),
                 movable: !t.on_move.is_empty(),
+                renameable: !t.on_rename.is_empty(),
+                deletable: !t.on_delete.is_empty(),
             }
         }
         NodeKind::Graph(g) => resolve_graph(g, ctx)?,

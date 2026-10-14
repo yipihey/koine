@@ -368,6 +368,8 @@ fn the_wire_of_a_tree_table_list_that_declare_nothing_new_is_unchanged() {
         "\"expanded\":[",
         "\"count\"",
         "movable",
+        "renameable",
+        "deletable",
     ] {
         assert!(!text.contains(key), "{key} leaked into {text}");
     }
@@ -400,6 +402,46 @@ fn a_tree_that_declares_on_move_is_movable_and_one_that_does_not_says_nothing() 
     }
     let wire = serde_json::to_value(&rendered.root.node).unwrap();
     assert!(wire.get("movable").is_none(), "{wire}");
+}
+
+#[test]
+fn a_tree_says_whether_it_renames_and_deletes_so_its_menu_can_offer_them() {
+    let s = sidebar();
+    let rendered = resolve(&s, &s.state, &Value::Null, &Value::Null);
+    match &rendered.root.node {
+        RenderKind::Tree {
+            renameable,
+            deletable,
+            ..
+        } => assert!(*renameable && *deletable),
+        other => panic!("{other:?}"),
+    }
+    let wire = serde_json::to_value(&rendered.root.node).unwrap();
+    assert_eq!(wire["renameable"], json!(true));
+    assert_eq!(wire["deletable"], json!(true));
+
+    let plain = spec_of(json!({"id": "t", "tree": {"rows": "{{state.rows}}"}}));
+    let rendered = resolve(&plain, &plain.state, &Value::Null, &Value::Null);
+    match &rendered.root.node {
+        RenderKind::Tree {
+            renameable,
+            deletable,
+            ..
+        } => assert!(!renameable && !deletable),
+        other => panic!("{other:?}"),
+    }
+    // A render tree written before the fields existed reads as neither.
+    let mut old = serde_json::to_value(&rendered.root.node).unwrap();
+    old.as_object_mut().unwrap().remove("renameable");
+    let back: RenderKind = serde_json::from_value(old).unwrap();
+    assert!(matches!(
+        back,
+        RenderKind::Tree {
+            renameable: false,
+            deletable: false,
+            ..
+        }
+    ));
 }
 
 // ── serde ───────────────────────────────────────────────────────────────────

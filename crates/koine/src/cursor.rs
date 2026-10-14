@@ -659,6 +659,8 @@ mod tests {
                 expanded: vec![json!(1), json!(2), json!(9)],
                 actions: Vec::new(),
                 movable: false,
+                renameable: false,
+                deletable: false,
             },
         )])
     }
@@ -854,6 +856,8 @@ mod tests {
                 expanded: Vec::new(),
                 actions: Vec::new(),
                 movable: false,
+                renameable: false,
+                deletable: false,
             },
         )]);
         let mut cursor = Cursor::new();
@@ -919,6 +923,8 @@ mod tests {
                 expanded: Vec::new(),
                 actions: Vec::new(),
                 movable: false,
+                renameable: false,
+                deletable: false,
             },
         )]);
         cursor.set_active_row("tree", json!(2));
@@ -935,6 +941,8 @@ mod tests {
                 expanded: Vec::new(),
                 actions: Vec::new(),
                 movable: false,
+                renameable: false,
+                deletable: false,
             },
         )]);
         assert_eq!(cursor.active_row(&inserted, "tree"), Some(&json!(2)));
@@ -948,6 +956,8 @@ mod tests {
                 expanded: Vec::new(),
                 actions: Vec::new(),
                 movable: false,
+                renameable: false,
+                deletable: false,
             },
         )]);
         assert_eq!(cursor.active_row(&deleted, "tree"), None);
