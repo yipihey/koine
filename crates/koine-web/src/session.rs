@@ -17,6 +17,11 @@ pub struct Session {
     pub token: Signal<Option<Token>>,
     /// The last refusal, drawn in the status line as `code: message`.
     pub refusal: Signal<Option<ApiError>>,
+    /// Whether that refusal came from a background read (a render, the wait
+    /// loop) rather than something the person did. A read that succeeds
+    /// clears only a read's refusal, so the reason a click was refused stays
+    /// on screen until the next action, not until the next poll.
+    pub refusal_is_read: Signal<bool>,
     /// The sheet this page applies (`web`). The style page edits it and the
     /// surface page reads it, so an edit is visible on the next paint. Nothing
     /// persists it (plan D12).
@@ -72,6 +77,7 @@ impl Session {
         Self {
             token: Signal::new(None),
             refusal: Signal::new(None),
+            refusal_is_read: Signal::new(false),
             style: Signal::new(StyleHost::new("web").expect("web is a koine frontend")),
             layout_tab: Signal::new(false),
         }
@@ -100,10 +106,35 @@ impl Session {
         self.saw_layout(answer);
     }
 
-    /// Record a refusal.
+    /// Record a refusal of something the person did.
     pub fn refuse(mut self, error: ApiError) {
+        if *self.refusal_is_read.peek() {
+            self.refusal_is_read.set(false);
+        }
         if self.refusal.peek().as_ref() != Some(&error) {
             self.refusal.set(Some(error));
+        }
+    }
+
+    /// Record a refusal of a background read, unless an action's refusal is
+    /// showing (it says more).
+    pub fn refuse_read(mut self, error: ApiError) {
+        if self.refusal.peek().is_some() && !*self.refusal_is_read.peek() {
+            return;
+        }
+        if !*self.refusal_is_read.peek() {
+            self.refusal_is_read.set(true);
+        }
+        if self.refusal.peek().as_ref() != Some(&error) {
+            self.refusal.set(Some(error));
+        }
+    }
+
+    /// A background read answered: a read's refusal no longer holds; an
+    /// action's stays.
+    pub fn clear_read(self) {
+        if *self.refusal_is_read.peek() {
+            self.clear();
         }
     }
 

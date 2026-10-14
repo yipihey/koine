@@ -65,6 +65,58 @@ fn layout_refused(code: Option<String>, message: String) -> Refusal {
 /// Run one verb by its MCP tool name through the pipeline. Retain the exact
 /// resolved handle across the call so a runtime provider's structured
 /// refusal can be distinguished from a linked verb's ordinary result.
+/// A verb's answer that says it refused: a non-null `error` carrying a
+/// `message` (and usually a `code`), or `"ok": false`. Answers the code and
+/// the message; `None` for an answer that is a result.
+fn in_band_refusal(value: &Value) -> Option<(String, String)> {
+    let obj = value.as_object()?;
+    let text = |v: Option<&Value>| v.and_then(Value::as_str).map(str::to_string);
+    match obj.get("error") {
+        Some(Value::Object(error)) => {
+            let message = text(error.get("message")).unwrap_or_else(|| "refused".to_string());
+            let code = text(error.get("code")).unwrap_or_else(|| "verb-refused".to_string());
+            return Some((code, message));
+        }
+        Some(Value::String(message)) if !message.is_empty() => {
+            return Some(("verb-refused".to_string(), message.clone()));
+        }
+        _ => {}
+    }
+    (obj.get("ok") == Some(&Value::Bool(false))).then(|| {
+        (
+            text(obj.get("code")).unwrap_or_else(|| "verb-refused".to_string()),
+            text(obj.get("message")).unwrap_or_else(|| "refused".to_string()),
+        )
+    })
+}
+
+#[cfg(test)]
+mod in_band_tests {
+    use super::in_band_refusal;
+    use serde_json::json;
+
+    #[test]
+    fn an_error_object_or_ok_false_is_a_refusal_and_a_result_is_not() {
+        assert_eq!(
+            in_band_refusal(
+                &json!({"error": {"code": "empty-title", "message": "a note needs a title"}})
+            ),
+            Some(("empty-title".into(), "a note needs a title".into()))
+        );
+        assert_eq!(
+            in_band_refusal(&json!({"ok": false, "code": "conflict", "message": "stale"})),
+            Some(("conflict".into(), "stale".into()))
+        );
+        assert_eq!(in_band_refusal(&json!({"note": {"id": "a"}})), None);
+        assert_eq!(
+            in_band_refusal(&json!({"note": {"id": "a"}, "error": null})),
+            None
+        );
+        assert_eq!(in_band_refusal(&json!({"ok": true, "x": 1})), None);
+        assert_eq!(in_band_refusal(&json!([1, 2])), None);
+    }
+}
+
 pub(crate) async fn call_verb(name: &str, args: Value) -> Result<Value> {
     // A surface's sources and effects run inside the surface verb's own call
     // when one encloses them, and the pipeline then inherits its caller and
@@ -1439,6 +1491,17 @@ impl SurfaceRuntime {
                 }
                 let called = executor.call_verb(&verb, args).await;
                 match called {
+                    // A verb refuses in its answer, not with an error (no
+                    // `#[impress_method]` returns `Result`): an `error` object
+                    // or `"ok": false` is a failed call, so the rest of the
+                    // handler does not run and the page shows why.
+                    Ok(value) if in_band_refusal(&value).is_some() => {
+                        let (code, message) = in_band_refusal(&value).unwrap_or_default();
+                        EffectOutcomeDto::failed(
+                            "call",
+                            Refusal::new(&code, format!("{verb}: {message}")),
+                        )
+                    }
                     Ok(value) => {
                         if let Some(path) = &into {
                             if let Err(e) = state_path::write(&mut self.state, path, value) {

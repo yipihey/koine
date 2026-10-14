@@ -98,8 +98,22 @@ pub struct DispatchResult {
 }
 
 impl DispatchResult {
+    /// Why the dispatch did not land: the first failed effect's own code and
+    /// message when one failed (the reason, say `empty-title: a note needs a
+    /// title`, rather than "1 effect failed"), else the dispatch's refusal.
     pub fn refusal(&self) -> Option<ApiError> {
-        refusal_of(self.ok, &self.code, &self.message)
+        let failed = self
+            .effects
+            .iter()
+            .find(|e| e.get("ok") == Some(&Value::Bool(false)))
+            .map(|e| {
+                let text = |k: &str| e.get(k).and_then(Value::as_str).map(str::to_string);
+                ApiError::new(
+                    text("code").as_deref().unwrap_or("refused"),
+                    text("message").unwrap_or_default(),
+                )
+            });
+        failed.or_else(|| refusal_of(self.ok, &self.code, &self.message))
     }
 }
 
@@ -758,11 +772,15 @@ mod tests {
             "ok": false, "code": "effect-failed",
             "message": "dispatched; 2 effect(s), 1 failed",
             "tree": tree_json(),
-            "effects": [{"kind": "emit", "ok": true}, {"kind": "publish", "ok": false, "code": "no-pane"}],
+            "effects": [{"kind": "emit", "ok": true}, {"kind": "publish", "ok": false, "code": "no-pane", "message": "no pane shows this surface"}],
             "effects_failed": 1
         });
         let result = parse_dispatch(&body).unwrap();
-        assert_eq!(result.refusal().unwrap().code, "effect-failed");
+        // The reason, not the count.
+        assert_eq!(
+            result.refusal(),
+            Some(ApiError::new("no-pane", "no pane shows this surface"))
+        );
         assert!(result.tree.is_some());
         assert_eq!(result.effects.len(), 2);
         assert_eq!(result.effects_failed, 1);

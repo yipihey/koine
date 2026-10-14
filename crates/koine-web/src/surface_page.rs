@@ -8,6 +8,7 @@
 //! the app's `reduce` does.
 
 use std::cell::Cell;
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
@@ -47,6 +48,12 @@ struct Live {
     renaming: Signal<Option<RowRef>>,
     /// The row `x` cut, waiting for `p` or `P`.
     clipboard: Signal<Option<RowRef>>,
+    /// Events not yet answered, in the order they happened, and whether a
+    /// task is sending them. One at a time: a field's `change` (sent on blur)
+    /// and the click that blurred it arrive in that order, so the click's
+    /// handler reads the text just typed (docs/plan-koine-affordances.md).
+    outbox: Signal<VecDeque<Event>>,
+    sending: Signal<bool>,
     session: Session,
     /// Whether `h` and `l` mean a layout verb here. A surface that fills a
     /// page says yes; one inside a layout pane says no, and the key bubbles to
@@ -75,7 +82,7 @@ impl Live {
         let id = self.id.peek().clone();
         let tree = api::render(&id).await?;
         self.apply_tree(tree);
-        self.session.clear();
+        self.session.clear_read();
         Ok(())
     }
 
@@ -133,21 +140,34 @@ impl Live {
         });
     }
 
-    fn send(self, event: Event) {
-        let id = self.id.peek().clone();
-        let token = self.session.token.peek().clone();
+    /// Queue `event` and, when no task is sending, start one that sends the
+    /// queue in order, each after the last one's answer.
+    fn send(mut self, event: Event) {
+        self.outbox.write().push_back(event);
+        if *self.sending.peek() {
+            return;
+        }
+        self.sending.set(true);
         spawn(async move {
-            match api::dispatch(&id, &event, token.as_ref()).await {
-                Ok(result) => {
-                    if let Some(tree) = result.tree.clone() {
-                        self.apply_tree(tree);
+            loop {
+                let Some(event) = self.outbox.write().pop_front() else {
+                    self.sending.set(false);
+                    break;
+                };
+                let id = self.id.peek().clone();
+                let token = self.session.token.peek().clone();
+                match api::dispatch(&id, &event, token.as_ref()).await {
+                    Ok(result) => {
+                        if let Some(tree) = result.tree.clone() {
+                            self.apply_tree(tree);
+                        }
+                        match result.refusal() {
+                            Some(refusal) => self.session.refuse(refusal),
+                            None => self.session.clear(),
+                        }
                     }
-                    match result.refusal() {
-                        Some(refusal) => self.session.refuse(refusal),
-                        None => self.session.clear(),
-                    }
+                    Err(error) => self.session.refuse(error),
                 }
-                Err(error) => self.session.refuse(error),
             }
         });
     }
@@ -277,6 +297,8 @@ pub fn SurfaceView(id: String, #[props(default)] embedded: bool) -> Element {
         menu: use_signal(|| None),
         renaming: use_signal(|| None),
         clipboard: use_signal(|| None),
+        outbox: use_signal(VecDeque::new),
+        sending: use_signal(|| false),
         session,
         layout_keys: !embedded,
     };
@@ -297,7 +319,7 @@ pub fn SurfaceView(id: String, #[props(default)] embedded: bool) -> Element {
             async move {
                 let id = live.id.peek().clone();
                 if let Err(error) = live.refresh().await {
-                    session.refuse(error);
+                    session.refuse_read(error);
                 }
                 let mut after_seq = 0;
                 while alive.get() {
@@ -309,11 +331,11 @@ pub fn SurfaceView(id: String, #[props(default)] embedded: bool) -> Element {
                             after_seq = answer.next_seq;
                             // An event, or a quiet window: either way, look.
                             if let Err(error) = live.refresh().await {
-                                session.refuse(error);
+                                session.refuse_read(error);
                             }
                         }
                         Err(error) => {
-                            session.refuse(error);
+                            session.refuse_read(error);
                             dom::sleep(RETRY_MS).await;
                         }
                     }

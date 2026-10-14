@@ -534,12 +534,12 @@ fn Home() -> Element {
                     match &answer {
                         Ok(_) => {
                             if failed {
-                                session.clear();
+                                session.clear_read();
                                 failed = false;
                             }
                         }
                         Err(error) => {
-                            session.refuse(error.clone());
+                            session.refuse_read(error.clone());
                             failed = true;
                         }
                     }

@@ -35,6 +35,42 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  # Every gesture the tour offers, fired with a mouse and with a finger
+  # against a fresh demo host, each judged by what the host then answers
+  # (docs/plan-koine-affordances.md A-D5). The screenshots prove looks; this
+  # proves that what is drawn can be done.
+  gestures:
+    name: gestures (mouse and touch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DIOXUS_CLI_VERSION: 0.7.10
+      PLAYWRIGHT_VERSION: 1.56.1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+          targets: wasm32-unknown-unknown
+      - name: Cache dx
+        id: dx-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/dx
+          key: dx-${{ runner.os }}-${{ runner.arch }}-${{ env.DIOXUS_CLI_VERSION }}
+      - name: Install dioxus-cli
+        if: steps.dx-cache.outputs.cache-hit != 'true'
+        run: cargo install dioxus-cli --version "$DIOXUS_CLI_VERSION" --locked
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Playwright and its Chromium
+        run: |
+          npm install -g "playwright@$PLAYWRIGHT_VERSION"
+          npx -y "playwright@$PLAYWRIGHT_VERSION" install --with-deps chromium
+      - name: Fire every gesture
+        run: scripts/tests/gestures/run.sh
+
   # The app on an iPhone (docs/plan-koine-mobile.md M-D5, docs/mobile.md): build
   # crates/koine-demo-mobile for the simulator with `dx`, install and launch it,
   # and drive the host inside it from the runner. The Linux job cannot do this

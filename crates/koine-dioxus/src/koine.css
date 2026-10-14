@@ -550,6 +550,17 @@
   -webkit-user-select: none;
 }
 
+/* With a mouse the "…" appears on the row under it or holding focus, so
+   the menu a right-click opens is also visible (docs/plan-koine-affordances.md
+   A-D2: every row verb has a visible path on every pointer). */
+@media (hover: hover) {
+  [data-koine-row]:hover > .koine-more,
+  [data-koine-row]:focus-within > .koine-more,
+  [data-koine-active] > .koine-more {
+    display: inline-flex;
+  }
+}
+
 .koine-rename-form {
   margin: 0;
 }

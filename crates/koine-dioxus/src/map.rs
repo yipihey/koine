@@ -36,8 +36,11 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                 "data-koine-focused": focused,
                 aria_label: label,
                 title: help,
+                // Keyed by widget id: a `when` node that appears above a field
+                // must not take over that field's input element, and the text
+                // typed in it (docs/plan-koine-affordances.md).
                 for item in items {
-                    {self::node(item, ctx)}
+                    Fragment { key: "{item.id}", {self::node(item, ctx)} }
                 }
             }
         },
@@ -48,8 +51,11 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                 "data-koine-focused": focused,
                 aria_label: label,
                 title: help,
+                // Keyed by widget id: a `when` node that appears above a field
+                // must not take over that field's input element, and the text
+                // typed in it (docs/plan-koine-affordances.md).
                 for item in items {
-                    {self::node(item, ctx)}
+                    Fragment { key: "{item.id}", {self::node(item, ctx)} }
                 }
             }
         },
@@ -61,8 +67,11 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                 "data-koine-focused": focused,
                 aria_label: label,
                 title: help,
+                // Keyed by widget id: a `when` node that appears above a field
+                // must not take over that field's input element, and the text
+                // typed in it (docs/plan-koine-affordances.md).
                 for item in items {
-                    {self::node(item, ctx)}
+                    Fragment { key: "{item.id}", {self::node(item, ctx)} }
                 }
             }
         },
@@ -1266,6 +1275,11 @@ fn field_node(
                     value: shown,
                     title: help,
                     aria_label: label.clone(),
+                    oninput: {
+                        let widget = widget.clone();
+                        let mut typed = ctx.typed;
+                        move |e: FormEvent| typed.set(Some((widget.clone(), e.value())))
+                    },
                     onchange: move |e| on_event.call(event(&widget, EventKind::Change, Value::String(e.value()))),
                 }
             }

@@ -43,3 +43,11 @@ surface loop, MCP). PASS/FAIL per assertion. Needs macOS with Xcode, curl and jq
 the `ios` job of `.github/workflows/ci.yml` runs it, and so can a person.
 
 - `release/sign-ipa.sh`: from a `dx`-built iOS `.app` to a TestFlight-ready `.ipa` (entitlements from the profile, version and build stamped, re-sealed, packed); run by `.github/workflows/release-ios.yml`.
+
+## `tests/gestures/run.sh`
+
+Every gesture the tour offers, fired with a mouse and then with a finger
+against a fresh demo host, each judged by what the host answers
+(docs/plan-koine-affordances.md A-D5). `KOINE_SKIP_BUILD=1` reuses the page
+bundle, `GESTURE_POINTERS=touch` runs one pointer, `GESTURE_DEBUG=1` prints
+every event the page posts. CI runs it as the `gestures` job.

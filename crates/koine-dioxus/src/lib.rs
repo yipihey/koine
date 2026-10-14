@@ -33,7 +33,7 @@ mod pointer;
 use std::collections::BTreeMap;
 
 use dioxus::prelude::*;
-use impress_surface::{Event, RenderTree};
+use impress_surface::{Event, EventKind, RenderTree};
 use koine::style::{slots, StyleSheet, ValueKind, COLOR_TOKENS, FONT_TOKENS};
 use serde_json::Value;
 
@@ -114,6 +114,10 @@ pub(crate) struct Ctx<'a> {
     /// The row being renamed, as `menu`: the page sets it for `r`; the input
     /// clears it on Enter (after sending `rename`) and on Escape.
     pub renaming: Signal<Option<RowRef>>,
+    /// Text typed into a field and not yet sent: `(widget, text)`. A text
+    /// input sends `change` on blur, and a tap on a button does not always
+    /// blur it first (iOS), so `on_event` sends this before any other event.
+    pub typed: Signal<Option<(String, String)>>,
     /// The row being moved by its grip. The mapping's own memory of a gesture.
     pub dragging: Signal<Option<RowRef>>,
     /// The row or gap under the pointer while a row is moved: it is drawn
@@ -178,6 +182,22 @@ pub fn Surface(
     let renaming = renaming.unwrap_or(own_renaming);
     let dragging = dragging.unwrap_or(own_dragging);
     let drop_target = drop_target.unwrap_or(own_drop_target);
+    // Typing not yet sent goes first, so the click that follows it reads it
+    // (a change from that same field supersedes it: it carries the text).
+    let mut typed = use_signal(|| None::<(String, String)>);
+    let on_event = EventHandler::new(move |ev: Event| {
+        if let Some((widget, text)) = typed.take() {
+            let superseded = ev.kind == EventKind::Change && ev.widget == widget;
+            if !superseded {
+                on_event.call(Event {
+                    widget,
+                    kind: EventKind::Change,
+                    value: Value::String(text),
+                });
+            }
+        }
+        on_event.call(ev);
+    });
     let active = active.read();
     let tree = tree.read();
     let sheet = sheet.read();
@@ -203,6 +223,7 @@ pub fn Surface(
         renaming,
         dragging,
         drop_target,
+        typed,
     };
     rsx! {
         div {

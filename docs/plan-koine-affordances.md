@@ -138,4 +138,39 @@ read a dense map.
 
 ## Status
 
-Planned 2026-10-14.
+Landed 2026-10-14 on branch `affordances`: G1 to G5 as planned, and G6 as
+`scripts/tests/gestures/run.sh` (the `gestures` job in CI). The suite runs
+twenty cases, ten per pointer, each judged by the host's answer: move a
+note by its grip, rename and delete from the row menu, add a collection
+and a note into it, write a note's body, see a refused verb's reason,
+pick a colour token, reorder a layout tile, stack two tiles as tabs.
+
+Running it found four defects that every screenshot had hidden, all now
+fixed, which is the case for A-D5 in one paragraph:
+
+- **A field's text went to another field.** A column's children were
+  matched by position, so the body editor that appears when a note is
+  selected took over the Name input, and the text typed in it was sent as
+  the body. Children of a column, row and grid are now keyed by widget id.
+- **A click could overtake the text it depended on.** The page sent each
+  event as its own request, so a field's `change` (on blur) and the click
+  that blurred it could land in either order. The surface page now has an
+  outbox and sends one event at a time; and since a tap does not always
+  blur a field first, the renderer sends typed-but-unsent text before any
+  other event.
+- **A refused verb was silent.** A verb refuses in its answer (an `error`
+  object, or `"ok": false`); the runtime counted that as done. It is now a
+  failed effect, the rest of the handler does not run, and the banner
+  shows the verb's own reason rather than "1 effect failed".
+- **The banner vanished.** The wait loop's next good render cleared any
+  refusal, including the one a click had just caused. A refusal now
+  records whether a background read or an action produced it, and a read
+  clears only a read's.
+
+Also: with a mouse the row's "…" appears on hover and on the active row
+(it was never shown), so the menu is visible on every pointer (A-D2).
+
+Not done: the safe-area fix is proven in Chromium with the inset emulated,
+not yet on a device; the layout outline labels a tile `surface · role`
+rather than the surface's name; the plot still paints a white background
+in dark mode.

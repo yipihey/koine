@@ -617,12 +617,12 @@ pub fn LayoutPage() -> Element {
                         Ok(fetched) => {
                             board.show(fetched);
                             if failed {
-                                session.clear();
+                                session.clear_read();
                                 failed = false;
                             }
                         }
                         Err(error) => {
-                            session.refuse(error);
+                            session.refuse_read(error);
                             failed = true;
                         }
                     }
