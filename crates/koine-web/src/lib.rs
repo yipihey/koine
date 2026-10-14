@@ -36,9 +36,9 @@ use crate::surface_page::SurfacePage;
 /// theme's tokens and fonts, are `koine_dioxus::STYLESHEET`.
 ///
 /// Above 700px this is a desktop window: a toolbar across the top with the
-/// four pages as icon-and-label items (TH-D2), a 22px title, 13px text.
+/// pages as icon-and-label items (TH-D2), a 22px title, 13px text.
 /// At or below it, or with a coarse pointer (a phone, plan-koine-tour T-D4;
-/// `koine.css` and the layout page use the same width), the four pages are
+/// `koine.css` and the layout page use the same width), the pages are
 /// a tab bar pinned over the home indicator, the title is a large title,
 /// the home list and the host's pairs are grouped inset cards (TH-D3), and
 /// `main` is padded so nothing hides under the bar.
@@ -298,6 +298,9 @@ fn App() -> Element {
     use_future(move || async move {
         token.set(token::load().await);
     });
+    // Which tabs the host can serve (A-D4): asked once here, and again by
+    // the layout page's poll.
+    use_future(move || async move { session.check_layout().await });
     rsx! {
         style { dangerous_inner_html: koine_dioxus::STYLESHEET }
         style { dangerous_inner_html: PAGE_CSS }
@@ -315,7 +318,7 @@ fn Shell() -> Element {
     }
 }
 
-/// The four pages a tab names (TH-D2). A surface page is the surfaces tab.
+/// The pages a tab names (TH-D2). A surface page is the surfaces tab.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Tab {
     Surfaces,
@@ -345,6 +348,26 @@ impl Tab {
         }
     }
 
+    /// The tabs the nav shows (docs/plan-koine-affordances.md A-D4): a tab
+    /// only when the host can serve its page.
+    ///
+    /// - "surfaces" and "host" always: every host lists surfaces, and the host
+    ///   page is how a person reaches one that does not answer.
+    /// - "layout" when `layout` ([`session::layout_tab`]: the host serves the
+    ///   layout verbs and its layout has a tile the page can draw), or when it
+    ///   is the page being shown, so the page in view keeps its tab.
+    /// - "style" always: the editor is client-side. It edits the page's own
+    ///   sheet through `koine::style::editor_apply` and calls no verb, so
+    ///   every host can serve it.
+    ///
+    /// The routes stay registered whatever the nav shows.
+    fn shown(layout: bool, current: Tab) -> Vec<Tab> {
+        Tab::ALL
+            .into_iter()
+            .filter(|tab| *tab != Tab::Layout || layout || current == Tab::Layout)
+            .collect()
+    }
+
     fn label(self) -> &'static str {
         match self {
             Tab::Surfaces => "surfaces",
@@ -355,18 +378,21 @@ impl Tab {
     }
 }
 
-/// The navigation: the four pages as icon-and-label items, a toolbar across
-/// the top of a desktop window and a tab bar pinned to the bottom of a phone
-/// (`PAGE_CSS` decides which; the markup is one). Each item is a router
-/// `Link`, so it carries `aria-current="page"` when it is the page.
+/// The navigation: the pages the host can serve ([`Tab::shown`]) as
+/// icon-and-label items, a toolbar across the top of a desktop window and a
+/// tab bar pinned to the bottom of a phone (`PAGE_CSS` decides which; the
+/// markup is one). Each item is a router `Link`, so it carries
+/// `aria-current="page"` when it is the page.
 #[component]
 fn Nav() -> Element {
+    let session = use_context::<Session>();
     let route = use_route::<Route>();
     let current = Tab::of(&route);
+    let tabs = Tab::shown(*session.layout_tab.read(), current);
     rsx! {
         nav { class: "kw-nav", aria_label: "pages",
             span { class: "kw-nav-title", "koine" }
-            for tab in Tab::ALL {
+            for tab in tabs {
                 Link {
                     key: "{tab.label()}",
                     to: tab.route(),
@@ -537,5 +563,24 @@ fn Home() -> Element {
                 }
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Tab;
+
+    #[test]
+    fn the_nav_shows_layout_only_when_the_host_can_serve_it() {
+        assert_eq!(
+            Tab::shown(false, Tab::Surfaces),
+            vec![Tab::Surfaces, Tab::Style, Tab::Host]
+        );
+        assert_eq!(
+            Tab::shown(true, Tab::Surfaces),
+            vec![Tab::Surfaces, Tab::Layout, Tab::Style, Tab::Host]
+        );
+        // The page in view keeps its tab (the route is always registered).
+        assert_eq!(Tab::shown(false, Tab::Layout), Tab::ALL.to_vec());
     }
 }
