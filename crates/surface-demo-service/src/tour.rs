@@ -265,12 +265,17 @@ mod tests {
             let column = spec["root"]["column"]
                 .as_array()
                 .unwrap_or_else(|| panic!("{name}"));
-            let title = column[0]["text"].as_str().unwrap_or_default();
-            assert!(title.starts_with("# "), "{name}: first node is the title");
-            let description = column[1]["text"].as_str().unwrap_or_default();
+            // The page shows the surface's name as its title (koine-web's
+            // surface page), so the first node is the one-line description,
+            // in plain text: the web text node draws markdown literally.
+            let description = column[0]["text"].as_str().unwrap_or_default();
             assert!(
                 description.len() > 20,
-                "{name}: second node describes the surface"
+                "{name}: first node describes the surface"
+            );
+            assert!(
+                !description.starts_with('#') && !description.contains('`'),
+                "{name}: the description is plain text"
             );
         }
     }

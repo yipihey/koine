@@ -28,8 +28,7 @@
   },
   "root": {
     "column": [
-      { "text": "# Live job" },
-      { "text": "Run `tick` in the background: it emits a line every half second onto its job row, and this page, whose `job` source is a query over the `task` kind, re-renders as each flush lands. No new vocabulary: a query, a `log`, a `status`." },
+      { "text": "Run tick in the background: it emits a line every half second onto its job row, and this page, whose job source is a query over the task kind, re-renders as each flush lands. No new vocabulary: a query, a log, a status." },
       { "id": "run-btn",
         "button": {
           "label": "Run tick (30 × 500 ms) in the background",
@@ -45,7 +44,7 @@
         } },
       { "id": "nothing-yet", "text": "No job has run yet. Press the button.",
         "when": { "path": "state.started", "equals": false } },
-      { "id": "started", "text": "Started job `{{state.job.job.id}}`.",
+      { "id": "started", "text": "Started job {{state.job.job.id}}.",
         "when": { "path": "state.job.job.id" } },
       { "id": "job-state",
         "status": { "level": "info", "message": "Latest job: {{source.job.0.state}}" },

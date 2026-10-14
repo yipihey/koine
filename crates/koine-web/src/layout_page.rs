@@ -54,7 +54,7 @@ const MIN_RESIZE_PX: f32 = 2.0;
 /// The page's own styles. The surface and the focus colour are `koine.css`.
 const LAYOUT_CSS: &str = r#"
 .koine-layout { display: flex; flex-direction: column; gap: 16px; outline: none; min-height: 60vh; }
-.koine-window h2 { font-size: 0.95rem; font-weight: 600; margin: 0 0 6px; }
+.koine-window h2 { margin: 0 0 6px; }
 .koine-window-body { display: flex; height: 70vh; min-height: 280px; }
 .koine-window-body > *, .koine-cell > * { flex: 1 1 auto; min-width: 0; min-height: 0; }
 .koine-linear { display: flex; }
@@ -64,30 +64,32 @@ const LAYOUT_CSS: &str = r#"
 .koine-gridbox { display: grid; gap: 6px; }
 .koine-tabbed { display: flex; flex-direction: column; }
 .koine-tabbed > :last-child { flex: 1 1 auto; min-height: 0; }
-.koine-divider { flex: none; background: #8884; touch-action: none; user-select: none; }
+.koine-divider { flex: none; margin: 0; border: 0; background: transparent; border-radius: 3px; touch-action: none; user-select: none; }
 .koine-horizontal > .koine-divider { width: 6px; cursor: col-resize; }
 .koine-vertical > .koine-divider { height: 6px; cursor: row-resize; }
-.koine-divider:hover { background: var(--koine-color-accent, #2563eb); }
+.koine-divider:hover { background: var(--koine-color-accent, #007aff); }
 .koine-pane { position: relative; display: flex; flex-direction: column; overflow: hidden;
-  border: 1px solid #8886; border-radius: 4px; }
+  background: var(--koine-bg-card); border: var(--koine-hairline) solid var(--koine-separator);
+  border-radius: var(--koine-radius-card, 10px); }
 .koine-pane.koine-focused { outline-offset: -2px; }
-.koine-top { display: flex; align-items: center; gap: 6px; flex: none; padding: 2px 8px;
-  border-bottom: 1px solid #8884; font-size: 0.8rem; }
+.koine-top { display: flex; align-items: center; gap: 6px; flex: none; padding: 4px 10px;
+  border-bottom: var(--koine-hairline) solid var(--koine-separator); font-size: 0.85rem;
+  background: var(--koine-bg-grouped); user-select: none; -webkit-user-select: none; }
 .koine-grip { cursor: grab; touch-action: none; user-select: none; padding: 0 4px; }
 .koine-title { margin-left: auto; opacity: 0.7; white-space: nowrap; overflow: hidden;
   text-overflow: ellipsis; cursor: grab; touch-action: none; user-select: none; }
 .koine-tabs { display: inline-flex; gap: 2px; }
 .koine-tabs button { font: inherit; color: inherit; background: none; border: 0;
   border-bottom: 2px solid transparent; padding: 0 6px; cursor: pointer; }
-.koine-tabs button[aria-selected="true"] { border-bottom-color: var(--koine-color-accent, #2563eb); font-weight: 600; }
-.koine-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px; }
+.koine-tabs button[aria-selected="true"] { border-bottom-color: var(--koine-color-accent, #007aff); font-weight: 600; }
+.koine-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px; }
 .koine-edge { position: absolute; z-index: 2; pointer-events: none; }
 .koine-edge[data-koine-edge="top"] { top: 0; left: 0; right: 0; height: 10px; }
 .koine-edge[data-koine-edge="bottom"] { bottom: 0; left: 0; right: 0; height: 10px; }
 .koine-edge[data-koine-edge="left"] { top: 0; bottom: 0; left: 0; width: 10px; }
 .koine-edge[data-koine-edge="right"] { top: 0; bottom: 0; right: 0; width: 10px; }
 .koine-layout[data-koine-dragging] .koine-edge { pointer-events: auto; }
-.koine-layout[data-koine-dragging] .koine-edge:hover { background: var(--koine-color-accent, #2563eb); opacity: 0.35; }
+.koine-layout[data-koine-dragging] .koine-edge:hover { background: var(--koine-color-accent, #007aff); opacity: 0.35; }
 .koine-unavailable { display: flex; flex-direction: column; gap: 2px; align-items: center;
   justify-content: center; text-align: center; height: 100%; color: var(--koine-color-secondary, #6b7280); }
 .koine-unavailable strong { color: var(--koine-color-primary, inherit); }

@@ -4,8 +4,8 @@
 //! With a [`HostLink`](crate::HostLink) installed (a native app that linked
 //! its host) the page shows the app id, the origin and the bearer with a Copy
 //! button. Without one (the browser) it shows the window's origin and where
-//! the token it holds came from, with the same paste field the status line
-//! has.
+//! the token it holds came from, with the paste field and the Forget button
+//! (the page's only ones: there is no status line, TH-D2).
 
 use dioxus::prelude::*;
 
@@ -124,23 +124,24 @@ fn HostChecks() -> Element {
             }
         }
         h2 { "This page's transport" }
+        match result() {
+            None => rsx! { p { class: "kw-note", "checking…" } },
+            Some(Ok(status)) => rsx! { pre { class: "kw-code", "{status}" } },
+            Some(Err(error)) => rsx! { pre { class: "kw-code kw-refusal", "{error}" } },
+        }
         p {
             button { onclick: move |_| runs.set(runs() + 1), "Check now" }
-            " "
-            match result() {
-                None => rsx! { span { class: "kw-note", "checking…" } },
-                Some(Ok(status)) => rsx! { code { "{status}" } },
-                Some(Err(error)) => rsx! { code { class: "kw-refusal", "{error}" } },
-            }
         }
     }
 }
 
-/// No link: the window's origin and the token's source, with the paste field.
+/// No link: the window's origin, whether a token is held and where it came
+/// from, with the paste field when none is and a Forget button when one is
+/// (the status line's, before the theme moved them here; TH-D2).
 #[component]
 fn BrowserHost() -> Element {
     let session = use_context::<Session>();
-    let held = session.token;
+    let mut held = session.token;
     let origin = api::origin();
     // Re-read when the token changes (pasted or forgotten) so the source is
     // the current one.
@@ -158,12 +159,22 @@ fn BrowserHost() -> Element {
                 dd {
                     match &*source.read() {
                         None => rsx! { span { class: "kw-note", "reading…" } },
-                        Some(Some(source)) => rsx! { "{source.label()}" },
-                        Some(None) => rsx! { "none: the page is read-only" },
+                        Some(Some(source)) => rsx! { "token held: {source.label()}" },
+                        Some(None) => rsx! { "read-only: no token" },
                     }
                 }
             }
-            if held.read().is_none() {
+            if held.read().is_some() {
+                p {
+                    button {
+                        onclick: move |_| {
+                            held.set(None);
+                            spawn(async move { token::forget().await });
+                        },
+                        "Forget token"
+                    }
+                }
+            } else {
                 p { TokenField {} }
             }
             p { class: "kw-note",

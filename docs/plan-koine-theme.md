@@ -64,6 +64,18 @@ confirms what WebKit does differently.
 
 ## Status
 
-Planned. Unit TH1 is the CSS and the nav component (koine-web,
-koine-dioxus); TH2 the screenshot script and the images; TH3 gate, main,
-release `demo-v0.3.0`.
+Landed 2026-10-14 on branch `theme`: TH1 (the tokens in `koine.css`, the
+`Nav` tab bar and toolbar, the refusal banner, large titles, grouped
+cards, pill buttons, inset fields, the switch, the wrapping log and code
+cards) and TH2 (`scripts/screenshots.sh` + `scripts/screenshots.mjs`;
+`docs/screenshots/*.png`, 27 images: every page and every tour surface at
+390×844 light and dark and 1280×800). Beside the theme: the surface page
+shows the surface's name as its title (the tour's specs no longer carry a
+"# Title" text node, and their descriptions are plain text since the web
+text node draws markdown literally), the Home rows show tags rather than
+ids, and an iPhone's device tag is `iphone` (there is no `hostname` to
+run). Known and left: the plot SVG paints its own white background, so in
+dark mode it is a white card inside a dark one (koine-plot's, a later
+wave: plots that follow the theme); the map graph's labels overlap
+(the graph layout's); Linux Chromium draws DejaVu where a device draws
+SF. Release `demo-v0.3.0` is the phone's judgement.

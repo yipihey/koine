@@ -17,8 +17,7 @@
   },
   "root": {
     "column": [
-      { "text": "# Notes" },
-      { "text": "An outline over `note` records: rename a row, drag it under another, delete it, add one — each is a `note-*` verb, and the tree only reports what you did." },
+      { "text": "An outline over note records: rename a row, drag it under another, delete it, add one — each is a note-* verb, and the tree only reports what you did." },
       { "id": "outline",
         "tree": {
           "rows": "{{source.notes}}",

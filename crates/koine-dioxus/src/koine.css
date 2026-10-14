@@ -1,35 +1,120 @@
 /*
- * The web performance of a koine surface (docs/plan-koine-web.md D3).
+ * The web performance of a koine surface (docs/plan-koine-web.md D3), and the
+ * default theme every page that includes it takes (docs/plan-koine-theme.md).
  *
  * `koine_dioxus::css_variables` writes the style sheet on the root element as
  * custom properties (--koine-column, --koine-button, ...). This file reads
  * them. A changed slot is one attribute and a style pass, never a render.
  * Every value has a fallback here, so a root with no variables looks right.
+ *
+ * The theme (TH-D1) is the `:root` block: Apple's palette, `color-scheme:
+ * light dark` so dark mode is automatic, the `-apple-system` stack falling
+ * back to `system-ui` elsewhere, 17px body text on a phone and 13px on a
+ * desktop, hairlines where the screen can draw them. The `--koine-color-*`
+ * names are the ones the style slots name (`koine::style::COLOR_TOKENS`): a
+ * slot edit, or a host that writes them on `.koine`, still overrides them.
  */
 
-.koine {
-  /* The palette a colour token names. A host may override any of these. */
-  --koine-color-accent: #2563eb;
-  --koine-color-primary: #111827;
-  --koine-color-secondary: #6b7280;
-  --koine-color-error: #dc2626;
-  --koine-color-warning: #d97706;
-  --koine-color-info: #0891b2;
+:root {
+  color-scheme: light dark;
 
-  color: var(--koine-color-primary);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* The palette a colour token names. A host may override any of these. */
+  --koine-color-accent: #007aff;
+  --koine-color-primary: #000000;
+  --koine-color-secondary: rgba(60, 60, 67, 0.6);
+  --koine-color-tertiary: rgba(60, 60, 67, 0.3);
+  --koine-color-error: #ff3b30;
+  --koine-color-warning: #ff9500;
+  --koine-color-success: #34c759;
+  --koine-color-info: #30b0c7;
+
+  /* Surfaces: the grouped background a page sits on, the card a group is. */
+  --koine-bg-grouped: #f2f2f7;
+  --koine-bg-card: #ffffff;
+  --koine-bg-field: #ffffff;
+  --koine-bg-fill: rgba(120, 120, 128, 0.16);
+  --koine-bg-fill-strong: rgba(120, 120, 128, 0.32);
+  --koine-bg-pressed: #d1d1d6;
+  --koine-bg-bar: rgba(249, 249, 249, 0.94);
+  --koine-bg-switch: #34c759;
+  --koine-separator: rgba(60, 60, 67, 0.29);
+  --koine-shadow: 0 0.5px 2px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  --koine-radius-card: 10px;
+  --koine-radius-field: 8px;
+  --koine-hairline: 1px;
+  --koine-row-height: 36px;
+  --koine-inset: 16px;
+
+  --koine-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
+  --koine-font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  font-family: var(--koine-font);
+  font-size: 13px;
   line-height: 1.4;
+  color: var(--koine-color-primary);
+  background: var(--koine-bg-grouped);
+  -webkit-font-smoothing: antialiased;
 }
 
 @media (prefers-color-scheme: dark) {
-  .koine {
-    --koine-color-accent: #60a5fa;
-    --koine-color-primary: #f3f4f6;
-    --koine-color-secondary: #9ca3af;
-    --koine-color-error: #f87171;
-    --koine-color-warning: #fbbf24;
-    --koine-color-info: #22d3ee;
+  :root {
+    --koine-color-accent: #0a84ff;
+    --koine-color-primary: #ffffff;
+    --koine-color-secondary: rgba(235, 235, 245, 0.6);
+    --koine-color-tertiary: rgba(235, 235, 245, 0.3);
+    --koine-color-error: #ff453a;
+    --koine-color-warning: #ff9f0a;
+    --koine-color-success: #30d158;
+    --koine-color-info: #40c8e0;
+
+    /* A desktop window in the dark is the elevated grouped palette, not the
+       pure black of a phone's OLED; the phone block below sets that. */
+    --koine-bg-grouped: #1c1c1e;
+    --koine-bg-card: #2c2c2e;
+    --koine-bg-field: #2c2c2e;
+    --koine-bg-fill: rgba(120, 120, 128, 0.36);
+    --koine-bg-fill-strong: rgba(120, 120, 128, 0.48);
+    --koine-bg-pressed: #3a3a3c;
+    --koine-bg-bar: rgba(29, 29, 31, 0.94);
+    --koine-bg-switch: #30d158;
+    --koine-separator: rgba(84, 84, 88, 0.6);
+    --koine-shadow: 0 0.5px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.5);
   }
+}
+
+@media (min-resolution: 2dppx) {
+  :root { --koine-hairline: 0.5px; }
+}
+
+/* A phone (max-width: 700px, the breakpoint every koine page shares) or a
+   finger: Dynamic Type's body size, 44px rows, and in the dark the grouped
+   black of iOS. */
+@media (max-width: 700px), (pointer: coarse) {
+  :root {
+    font-size: 17px;
+    line-height: 1.3;
+    --koine-row-height: 44px;
+  }
+}
+
+@media (max-width: 700px) and (prefers-color-scheme: dark), (pointer: coarse) and (prefers-color-scheme: dark) {
+  :root {
+    --koine-bg-grouped: #000000;
+    --koine-bg-card: #1c1c1e;
+    --koine-bg-field: #1c1c1e;
+    --koine-bg-pressed: #2c2c2e;
+  }
+}
+
+*, ::before, ::after {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.koine {
+  color: var(--koine-color-primary);
+  font-family: var(--koine-font);
+  line-height: inherit;
 }
 
 /* Layout */
@@ -65,22 +150,46 @@
 
 .koine-divider {
   width: 100%;
+  margin: 0;
   border: 0;
-  border-top: 1px solid var(--koine-color-secondary);
-  opacity: 0.4;
+  border-top: var(--koine-hairline) solid var(--koine-separator);
 }
 
 /* Fonts: the `text`, `section` and `field` slots. `automatic` has no class. */
 
-.koine-font-body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-.koine-font-title { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-weight: 600; font-size: 1.25em; }
-.koine-font-mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.koine-font-body { font-family: var(--koine-font); }
+.koine-font-title { font-family: var(--koine-font); font-weight: 600; font-size: 1.25em; }
+.koine-font-mono { font-family: var(--koine-font-mono); }
+
+/* The card: a grouped inset group (TH-D3). */
+
+.koine-table,
+.koine-list,
+.koine-tree,
+.koine-kv,
+.koine-log,
+.koine-code,
+.koine-plot,
+.koine-graph {
+  background: var(--koine-bg-card);
+  border-radius: var(--koine-radius-card);
+}
 
 /* Sections and tabs */
 
 .koine-section > h2 {
-  margin: 0 0 var(--koine-column, 8px);
-  font-size: 1.1em;
+  margin: 0 0 6px;
+  padding: 0 var(--koine-inset);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.3;
+  color: var(--koine-color-secondary);
+  text-transform: uppercase;
+  letter-spacing: -0.08px;
+}
+
+.koine-section + .koine-section {
+  margin-top: 8px;
 }
 
 .koine-section-body[hidden],
@@ -88,26 +197,39 @@
   display: none;
 }
 
+/* The segmented control. */
 .koine-tablist {
   display: flex;
-  gap: var(--koine-row, 8px);
-  border-bottom: 1px solid var(--koine-color-secondary);
+  gap: 2px;
+  padding: 2px;
   margin-bottom: var(--koine-column, 8px);
+  border-radius: 9px;
+  background: var(--koine-bg-fill);
 }
 
 .koine-tab {
+  flex: 1 1 0;
+  min-width: 0;
   font: inherit;
+  font-size: 13px;
+  font-weight: 500;
   color: inherit;
-  background: none;
+  background: transparent;
   border: 0;
-  border-bottom: 2px solid transparent;
-  padding: 4px 8px;
+  border-radius: 7px;
+  padding: 4px 10px;
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .koine-tab[aria-selected="true"] {
-  border-bottom-color: var(--koine-color-accent);
+  background: var(--koine-bg-card);
   font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0.5px 1px rgba(0, 0, 0, 0.04);
 }
 
 /* Text */
@@ -115,9 +237,12 @@
 .koine-text {
   margin: 0;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-/* Lists and tables: row spacing is the `list` and `table` slots. */
+/* Lists and tables: row spacing is the `list` and `table` slots. A row is
+   `--koine-row-height` tall (44px with a finger), a hairline separates two
+   rows and is inset to the text like the platform's. */
 
 .koine-list {
   margin: 0;
@@ -126,30 +251,84 @@
 }
 
 .koine-list > li {
-  padding: var(--koine-list, 0px) 4px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: var(--koine-row-height);
+  box-sizing: border-box;
+  padding: var(--koine-list, 0px) var(--koine-inset);
   cursor: pointer;
 }
 
+.koine-list > li:first-child {
+  border-top-left-radius: var(--koine-radius-card);
+  border-top-right-radius: var(--koine-radius-card);
+}
+
+.koine-list > li:last-child {
+  border-bottom-left-radius: var(--koine-radius-card);
+  border-bottom-right-radius: var(--koine-radius-card);
+}
+
+.koine-list > li + li::before,
+.koine-tree > .koine-tree-node + .koine-tree-node::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--koine-inset);
+  right: 0;
+  height: var(--koine-hairline);
+  background: var(--koine-separator);
+  pointer-events: none;
+}
+
 .koine-table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   width: 100%;
 }
 
 .koine-table th,
 .koine-table td {
   text-align: left;
-  padding: calc(var(--koine-table, 0px) + 2px) 8px;
+  padding: calc(var(--koine-table, 0px) + 6px) 12px;
+  height: var(--koine-row-height);
+  box-sizing: border-box;
+  vertical-align: middle;
+}
+
+.koine-table th:first-child,
+.koine-table td:first-child {
+  padding-left: var(--koine-inset);
+}
+
+.koine-table th:last-child,
+.koine-table td:last-child {
+  padding-right: var(--koine-inset);
 }
 
 .koine-table thead th {
-  border-bottom: 1px solid var(--koine-color-secondary);
+  border-bottom: var(--koine-hairline) solid var(--koine-separator);
   color: var(--koine-color-secondary);
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: -0.08px;
+  height: auto;
 }
 
 .koine-table tbody tr {
   cursor: pointer;
 }
+
+.koine-table tbody tr + tr td {
+  border-top: var(--koine-hairline) solid var(--koine-separator);
+}
+
+.koine-table tbody tr:last-child td:first-child { border-bottom-left-radius: var(--koine-radius-card); }
+.koine-table tbody tr:last-child td:last-child { border-bottom-right-radius: var(--koine-radius-card); }
+.koine-table thead th:first-child { border-top-left-radius: var(--koine-radius-card); }
+.koine-table thead th:last-child { border-top-right-radius: var(--koine-radius-card); }
 
 /* The tree: depth is the inline `padding-left` of each node. */
 
@@ -160,56 +339,82 @@
 }
 
 .koine-tree-node {
+  position: relative;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.25em;
+  min-height: var(--koine-row-height);
+  box-sizing: border-box;
   padding-top: var(--koine-list, 0px);
   padding-bottom: var(--koine-list, 0px);
+  padding-right: var(--koine-inset);
+  /* The depth padding is inline; the inset is the row's own, added by the
+     disclosure's margin so the first column lines up with a list's text. */
+}
+
+.koine-tree > .koine-tree-node:first-child {
+  border-top-left-radius: var(--koine-radius-card);
+  border-top-right-radius: var(--koine-radius-card);
+}
+
+.koine-tree > .koine-tree-node:last-child {
+  border-bottom-left-radius: var(--koine-radius-card);
+  border-bottom-right-radius: var(--koine-radius-card);
 }
 
 .koine-tree-disclosure {
   font: inherit;
-  width: 1.25em;
+  width: 1.5em;
+  margin-left: calc(var(--koine-inset) - 0.25em);
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--koine-color-secondary);
+  color: var(--koine-color-tertiary);
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .koine-tree-label {
   flex: 1;
+  min-width: 0;
   cursor: pointer;
+  overflow-wrap: anywhere;
 }
 
 /* A leaf has no disclosure: its label lines up with a branch's. */
 .koine-tree-node > .koine-tree-label:first-child {
-  margin-left: 1.5em;
+  margin-left: calc(var(--koine-inset) + 1.25em);
 }
 
-.koine-list > li:hover,
-.koine-tree-node:hover,
-.koine-table tbody tr:hover {
-  background: color-mix(in srgb, var(--koine-color-accent) 12%, transparent);
+/* Hover only where there is something to hover with; a finger has the
+   pressed state. */
+@media (hover: hover) {
+  .koine-list > li:hover,
+  .koine-tree-node:hover,
+  .koine-table tbody tr:hover > td {
+    background: color-mix(in srgb, var(--koine-color-accent) 6%, transparent);
+  }
+}
+
+.koine-list > li:active,
+.koine-tree-node:active,
+.koine-table tbody tr:active > td {
+  background: var(--koine-bg-pressed);
 }
 
 /* The outline (docs/plan-koine-outline.md): the active row, counts, the row
    menu, the rename input and drag and drop. */
 
-.koine-list > li,
-.koine-tree-node,
 .koine-table td:first-child {
   position: relative;
 }
 
-/* The row the cursor is on. A little stronger than hover, and an outline so
-   it survives a theme that makes the two backgrounds alike. */
+/* The row the cursor is on: the accent at 12%. */
 .koine-list > li.koine-active,
 .koine-tree-node.koine-active,
-.koine-table tbody tr.koine-active {
-  background: color-mix(in srgb, var(--koine-color-accent) 24%, transparent);
-  outline: 1px solid var(--koine-color-accent);
-  outline-offset: -1px;
+.koine-table tbody tr.koine-active > td {
+  background: color-mix(in srgb, var(--koine-color-accent) 12%, transparent);
 }
 
 .koine-count {
@@ -223,25 +428,39 @@
   position: absolute;
   z-index: 10;
   top: 100%;
-  left: 1.5em;
+  left: var(--koine-inset);
   margin: 0;
-  padding: 4px 0;
-  min-width: 10em;
+  padding: 6px 0;
+  min-width: 12em;
   list-style: none;
-  background: Canvas;
-  color: CanvasText;
-  border: 1px solid var(--koine-color-secondary);
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgb(0 0 0 / 0.2);
+  background: var(--koine-bg-bar);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  color: var(--koine-color-primary);
+  border: var(--koine-hairline) solid var(--koine-separator);
+  border-radius: 12px;
+  box-shadow: var(--koine-shadow);
 }
 
 .koine-menu-item {
-  padding: 4px 12px;
+  padding: 6px 16px;
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.koine-menu-item:hover {
-  background: color-mix(in srgb, var(--koine-color-accent) 18%, transparent);
+.koine-menu-item + .koine-menu-item {
+  border-top: var(--koine-hairline) solid var(--koine-separator);
+}
+
+@media (hover: hover) {
+  .koine-menu-item:hover {
+    background: color-mix(in srgb, var(--koine-color-accent) 12%, transparent);
+  }
+}
+
+.koine-menu-item:active {
+  background: var(--koine-bg-fill);
 }
 
 /* The row's "…" button: the same menu a right-click opens, for a finger.
@@ -253,10 +472,12 @@
   margin-left: 0.5em;
   padding: 0 0.5em;
   border: 0;
-  border-radius: 4px;
+  border-radius: 999px;
   background: transparent;
-  color: var(--koine-color-secondary);
+  color: var(--koine-color-accent);
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .koine-rename-form {
@@ -267,7 +488,11 @@
   font: inherit;
   width: 100%;
   box-sizing: border-box;
-  padding: 0 4px;
+  padding: 2px 8px;
+  border: var(--koine-hairline) solid var(--koine-color-accent);
+  border-radius: 6px;
+  background: var(--koine-bg-field);
+  color: inherit;
 }
 
 [draggable="true"] {
@@ -284,27 +509,56 @@
   background: color-mix(in srgb, var(--koine-color-accent) 35%, transparent);
 }
 
-/* Widgets */
+/* Widgets (TH-D4): a tinted pill button, inset rounded fields, the system
+   slider and a switch for the toggle. */
 
 .koine-button {
   font: inherit;
-  padding: 4px 12px;
-  border: 1px solid var(--koine-button, var(--koine-color-secondary));
-  border-radius: 4px;
-  background: transparent;
-  color: var(--koine-button, inherit);
+  font-weight: 600;
+  padding: 5px 14px;
+  min-height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--koine-button, var(--koine-color-accent)) 15%, transparent);
+  color: var(--koine-button, var(--koine-color-accent));
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.koine-button:active {
+  background: color-mix(in srgb, var(--koine-button, var(--koine-color-accent)) 28%, transparent);
+}
+
+/* In a column a desktop button is its own width; a phone's fills it. */
+.koine-column > .koine-button {
+  align-self: flex-start;
+}
+
+/* The hook for a filled primary action: the mapping has no primary notion
+   yet, a host that adds the class gets the look. */
+.koine-button-primary,
+.koine-button.koine-button-primary {
+  background: var(--koine-button, var(--koine-color-accent));
+  color: #ffffff;
+}
+
+.koine-button-primary:active {
+  filter: brightness(0.85);
 }
 
 .koine-field {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  min-width: 0;
 }
 
 .koine-field > label {
   color: var(--koine-color-secondary);
-  font-size: 0.85em;
+  font-size: 13px;
 }
 
 .koine-field > input[type="text"],
@@ -313,47 +567,197 @@
 .koine-field > input[type="file"],
 .koine-field > select {
   font: inherit;
-  padding: 4px 6px;
+  padding: 6px 10px;
+  min-height: 28px;
+  box-sizing: border-box;
+  border: var(--koine-hairline) solid var(--koine-separator);
+  border-radius: var(--koine-radius-field);
+  background: var(--koine-bg-field);
+  color: var(--koine-color-primary);
+  -webkit-appearance: none;
+  appearance: none;
 }
 
-/* Status: the `status.<level>` slots */
+.koine-field > input:focus-visible,
+.koine-field > select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--koine-color-accent) 60%, transparent);
+  outline-offset: 0;
+}
+
+.koine-field > select {
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%238e8e93' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.koine-field > input[type="file"] {
+  padding: 4px 10px;
+}
+
+.koine-field > input[type="file"]::file-selector-button {
+  font: inherit;
+  font-weight: 600;
+  margin-right: 10px;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--koine-color-accent) 15%, transparent);
+  color: var(--koine-color-accent);
+}
+
+.koine-field > input[type="range"] {
+  accent-color: var(--koine-color-accent);
+  margin: 6px 0;
+  min-width: 0;
+}
+
+.koine-field > input[type="color"] {
+  width: 44px;
+  height: 28px;
+  padding: 2px;
+  border: var(--koine-hairline) solid var(--koine-separator);
+  border-radius: var(--koine-radius-field);
+  background: var(--koine-bg-field);
+}
+
+/* The toggle: a row with the label on the left and the switch on the right. */
+.koine-field:has(> input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.koine-field:has(> input[type="checkbox"]) > label {
+  color: var(--koine-color-primary);
+  font-size: inherit;
+}
+
+.koine-field > input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 51px;
+  height: 31px;
+  margin: 0;
+  border: 0;
+  border-radius: 15.5px;
+  background: var(--koine-bg-fill-strong);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.koine-field > input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16);
+  transition: transform 0.2s;
+}
+
+.koine-field > input[type="checkbox"]:checked {
+  background: var(--koine-bg-switch);
+}
+
+.koine-field > input[type="checkbox"]:checked::before {
+  transform: translateX(20px);
+}
+
+.koine-field > input[type="checkbox"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--koine-color-accent) 60%, transparent);
+  outline-offset: 2px;
+}
+
+/* Status: the `status.<level>` slots, as a banner in the level's colour. */
 
 .koine-status {
-  padding: 4px 8px;
-  border-left: 3px solid currentColor;
+  padding: 10px var(--koine-inset);
+  border-radius: var(--koine-radius-card);
+  color: var(--koine-color-secondary);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  overflow-wrap: anywhere;
 }
 
 .koine-status-error { color: var(--koine-status-error, var(--koine-color-error)); }
 .koine-status-warning { color: var(--koine-status-warning, var(--koine-color-warning)); }
 .koine-status-info { color: var(--koine-status-info, var(--koine-color-info)); }
 
-/* Data */
+/* Data: a log and a code block are a monospace card that wraps and scrolls
+   inside itself, never the page. */
 
-.koine-log {
+.koine-log,
+.koine-code {
   margin: 0;
-  padding: 8px;
+  padding: 10px var(--koine-inset);
+  max-height: 40vh;
+  max-width: 100%;
+  box-sizing: border-box;
   overflow: auto;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  -webkit-overflow-scrolling: touch;
+  font-family: var(--koine-font-mono);
   font-size: 0.9em;
-  background: color-mix(in srgb, var(--koine-color-secondary) 12%, transparent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .koine-kv {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 2px var(--koine-row, 8px);
+  gap: 0;
   margin: 0;
 }
 
-.koine-kv > dt { color: var(--koine-color-secondary); }
-.koine-kv > dd { margin: 0; }
-
-.koine-plot {
-  min-height: 120px;
-  border: 1px dashed var(--koine-color-secondary);
+.koine-kv > dt,
+.koine-kv > dd {
+  min-height: var(--koine-row-height);
+  box-sizing: border-box;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
 }
 
-.koine-plot svg { max-width: 100%; height: auto; display: block; }
+.koine-kv > dt {
+  padding-left: var(--koine-inset);
+  color: var(--koine-color-secondary);
+  padding-right: var(--koine-row, 8px);
+}
+
+.koine-kv > dd {
+  margin: 0;
+  padding-right: var(--koine-inset);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.koine-kv > dt:nth-of-type(n + 2),
+.koine-kv > dt:nth-of-type(n + 2) + dd {
+  border-top: var(--koine-hairline) solid var(--koine-separator);
+}
+
+.koine-plot,
+.koine-graph {
+  min-height: 120px;
+  padding: 8px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+/* At its own size on a desktop, centred in the card; the phone block below
+   stretches it to the width. */
+.koine-plot svg,
+.koine-graph svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto;
+}
 
 /* A plot or an image that is clicked reports where; show it can be. */
 .koine-plot[tabindex], .koine-image[tabindex] { cursor: crosshair; }
@@ -361,12 +765,6 @@
 /* The graph (plan-koine-tree-stream T-D3): the SVG is the layout's drawing,
    a node is a `g` with a `data-id` and a click on it selects. */
 
-.koine-graph {
-  min-height: 120px;
-  border: 1px dashed var(--koine-color-secondary);
-}
-
-.koine-graph svg { max-width: 100%; height: auto; display: block; }
 .koine-graph-node { cursor: pointer; }
 .koine-graph-node:hover circle { stroke: var(--koine-color-accent); stroke-width: 2; }
 
@@ -374,24 +772,19 @@
 .koine-plot-error {
   padding: 4px 8px;
   color: var(--koine-status-warning, var(--koine-color-warning));
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--koine-font-mono);
   font-size: 0.9em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
-.koine-image { max-width: 100%; }
+.koine-image {
+  max-width: 100%;
+  border-radius: var(--koine-radius-card);
+}
 
 /* Code (plan-koine-live L-D7): shown as written, in a monospace block. A diff
-   has each line classed by its prefix. There is no `success` token in the
-   palette, so an added line is the info colour unless a host defines one. */
-
-.koine-code {
-  margin: 0;
-  padding: 8px;
-  overflow: auto;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.9em;
-  background: color-mix(in srgb, var(--koine-color-secondary) 12%, transparent);
-}
+   has each line classed by its prefix. */
 
 .koine-code code { font: inherit; }
 
@@ -414,18 +807,28 @@
 /* A kind this build cannot draw keeps its slot and says so. */
 
 .koine-placeholder {
-  padding: 4px 8px;
-  border: 1px dashed var(--koine-color-secondary);
+  padding: 8px var(--koine-inset);
+  border: var(--koine-hairline) dashed var(--koine-separator);
+  border-radius: var(--koine-radius-card);
   color: var(--koine-color-secondary);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--koine-font-mono);
   font-size: 0.9em;
+  overflow-wrap: anywhere;
 }
 
-/* Focus: the `focus` slot. With `automatic` the outline is the text colour. */
+/* Focus: the `focus` slot. With `automatic` the outline is the accent. */
 
 .koine-focused {
-  outline: 2px solid var(--koine-focus, currentColor);
+  outline: 2px solid var(--koine-focus, var(--koine-color-accent));
   outline-offset: 2px;
+}
+
+/* A finger has no cursor to show: the ring is drawn only while the widget
+   has the keyboard's focus (an iPad with a keyboard still sees it). */
+@media (pointer: coarse) {
+  .koine-focused:not(:focus-visible) {
+    outline: none;
+  }
 }
 
 /* A phone (plan-koine-tour T-D4): at or below 700px every control is full
@@ -447,13 +850,19 @@
     box-sizing: border-box;
   }
 
+  .koine-field > input[type="color"] {
+    height: 44px;
+  }
+
   .koine-field {
     flex: 1 1 100%;
     min-width: 0;
   }
 
-  .koine-button {
+  .koine-button,
+  .koine-column > .koine-button {
     width: 100%;
+    align-self: stretch;
     box-sizing: border-box;
   }
 
@@ -478,12 +887,6 @@
   .koine-graph svg,
   .koine-image {
     width: 100%;
-  }
-
-  .koine-log,
-  .koine-code {
-    max-width: 100%;
-    box-sizing: border-box;
   }
 
   .koine-menu {
@@ -521,29 +924,37 @@
     box-sizing: border-box;
   }
 
+  .koine-field > input[type="text"],
+  .koine-field > input[type="number"],
+  .koine-field > input[type="date"],
+  .koine-field > select {
+    padding: 10px 14px;
+  }
+
+  .koine-field > select {
+    padding-right: 32px;
+  }
+
+  .koine-field > label {
+    font-size: 15px;
+  }
+
+  .koine-button {
+    padding: 10px 20px;
+  }
+
+  .koine-tab {
+    padding: 8px 12px;
+  }
+
+  .koine-tablist {
+    margin-bottom: 12px;
+  }
+
   .koine-menu-item {
     display: flex;
     align-items: center;
-  }
-
-  .koine-list > li,
-  .koine-tree-node,
-  .koine-table tbody tr {
-    min-height: 44px;
-  }
-
-  .koine-tree-node {
-    align-items: center;
-  }
-
-  .koine-list > li {
-    display: flex;
-    align-items: center;
-  }
-
-  .koine-table tbody td {
-    height: 44px;
-    vertical-align: middle;
+    padding: 0 16px;
   }
 
   .koine-tree-disclosure {
@@ -552,7 +963,7 @@
   }
 
   .koine-tree-node > .koine-tree-label:first-child {
-    margin-left: 2.25em;
+    margin-left: calc(var(--koine-inset) + 1.75em);
   }
 
   .koine-more {

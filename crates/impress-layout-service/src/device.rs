@@ -71,7 +71,15 @@ fn host_name() -> &'static str {
             .and_then(|out| String::from_utf8(out.stdout).ok())
             .map(|name| sanitize(&name))
             .filter(|name| !name.is_empty());
-        resolved.unwrap_or_else(|| UNKNOWN_DEVICE.to_string())
+        resolved.unwrap_or_else(|| {
+            // An iPhone has no `hostname` to run (an app may not spawn a
+            // process), and one person's phone is one device.
+            if cfg!(target_os = "ios") {
+                "iphone".to_string()
+            } else {
+                UNKNOWN_DEVICE.to_string()
+            }
+        })
     })
 }
 

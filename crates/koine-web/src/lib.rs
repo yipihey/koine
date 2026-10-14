@@ -32,51 +32,137 @@ use crate::session::Session;
 use crate::style_page::StylePage;
 use crate::surface_page::SurfacePage;
 
-/// The page's own chrome. The surface is `koine_dioxus::STYLESHEET`.
+/// The page's own chrome (docs/plan-koine-theme.md). The surface, and the
+/// theme's tokens and fonts, are `koine_dioxus::STYLESHEET`.
 ///
-/// Above 700px this is the desktop page. At or below it (a phone,
-/// plan-koine-tour T-D4; `koine.css` and the layout page use the same
-/// width) the nav wraps, every control is full width and at
-/// least a finger tall, and the status line's field no longer asks for 14rem.
+/// Above 700px this is a desktop window: a toolbar across the top with the
+/// four pages as icon-and-label items (TH-D2), a 22px title, 13px text.
+/// At or below it, or with a coarse pointer (a phone, plan-koine-tour T-D4;
+/// `koine.css` and the layout page use the same width), the four pages are
+/// a tab bar pinned over the home indicator, the title is a large title,
+/// the home list and the host's pairs are grouped inset cards (TH-D3), and
+/// `main` is padded so nothing hides under the bar.
 /// `-webkit-text-size-adjust: 100%` keeps iOS from inflating the text when
 /// the page is rotated, and a control's text is never under 16px on a touch
 /// screen, the size below which iOS zooms into a focused input.
 const PAGE_CSS: &str = r#"
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
-body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-.kw-status { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center;
-  padding: 6px 16px; font-size: 0.85rem; border-bottom: 1px solid #8884; }
-.kw-status .kw-refusal { color: #dc2626; }
-.kw-status input { font: inherit; padding: 1px 6px; min-width: 14rem; }
-.kw-nav { display: flex; flex-wrap: wrap; gap: 16px; padding: 8px 16px; border-bottom: 1px solid #8884; }
-.kw-main { padding: 16px; }
+body { margin: 0; min-height: 100vh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+a { color: var(--koine-color-accent); text-decoration: none; }
+.kw-main { max-width: 980px; margin: 0 auto; padding: 8px 20px 32px; box-sizing: border-box; }
+.kw-main h1 { margin: 10px 0 12px; font-size: 22px; font-weight: 700; letter-spacing: -0.26px; line-height: 1.2; }
+.kw-main h2 { margin: 20px 0 6px; padding: 0 16px; font-size: 13px; font-weight: 400; line-height: 1.3;
+  color: var(--koine-color-secondary); text-transform: uppercase; letter-spacing: -0.08px; }
+.kw-main p { margin: 10px 0; }
+.kw-note { color: var(--koine-color-secondary); font-size: 13px; overflow-wrap: anywhere; }
+.kw-note code { font-family: var(--koine-font-mono); }
 .kw-surface:focus { outline: none; }
-.kw-note { opacity: 0.7; font-size: 0.9rem; }
-.kw-surfaces { margin: 0; padding: 0; list-style: none; }
-.kw-surfaces li { border-bottom: 1px solid #8884; }
-.kw-surfaces a { display: block; padding: 8px 4px; text-decoration: none; color: inherit; }
-.kw-surfaces a:hover { background: #8882; }
-.kw-surfaces strong { display: block; font-weight: 600; }
-.kw-surfaces small { display: block; opacity: 0.7; overflow-wrap: anywhere; }
-.kw-host dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
-.kw-host dd { margin: 0; overflow-wrap: anywhere; }
-.kw-host input { font: inherit; min-width: 18rem; max-width: 100%; }
+/* The way back from a surface: a back link, then the id, cut to the line. */
+.kw-crumb { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.kw-crumb a { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.kw-crumb a::before { content: ""; width: 8px; height: 8px; margin-right: 2px;
+  border-left: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); }
+.kw-crumb-id { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kw-crumb-id::before { content: "/ "; }
+.kw-refusal { color: var(--koine-color-error); }
+
+/* The navigation: a toolbar on a desktop, a tab bar on a phone (below). */
+.kw-nav { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 2px;
+  min-height: 52px; padding: 4px 12px; box-sizing: border-box;
+  background: var(--koine-bg-bar); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: var(--koine-hairline) solid var(--koine-separator);
+  user-select: none; -webkit-user-select: none; }
+.kw-nav-title { margin: 0 14px 0 4px; font-size: 13px; font-weight: 600; }
+.kw-tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  min-width: 58px; padding: 3px 8px; border-radius: 6px; color: var(--koine-color-secondary);
+  font-size: 11px; line-height: 1.2; text-decoration: none; touch-action: manipulation; }
+.kw-tab svg { width: 22px; height: 22px; display: block; }
+.kw-tab-active { color: var(--koine-color-accent); }
+.kw-tab:active { opacity: 0.6; }
+@media (hover: hover) { .kw-tab:hover { background: var(--koine-bg-fill); } }
+
+/* The refusal banner: only drawn while there is a refusal. */
+.kw-banner { padding: 10px 20px; font-weight: 500; overflow-wrap: anywhere;
+  color: var(--koine-color-error); background: color-mix(in srgb, var(--koine-color-error) 12%, var(--koine-bg-grouped)); }
+
+/* The home list: a grouped inset list, a chevron on every row. */
+.kw-surfaces { margin: 0; padding: 0; list-style: none; background: var(--koine-bg-card); border-radius: var(--koine-radius-card); }
+.kw-surfaces li { position: relative; }
+.kw-surfaces li + li::before { content: ""; position: absolute; top: 0; left: 16px; right: 0;
+  height: var(--koine-hairline); background: var(--koine-separator); pointer-events: none; }
+.kw-surfaces a { display: grid; grid-template-columns: minmax(0, 1fr) 10px; column-gap: 12px; align-items: center;
+  min-height: 36px; padding: 7px 16px; box-sizing: border-box; color: inherit; touch-action: manipulation; }
+.kw-surfaces a::after { content: ""; grid-column: 2; grid-row: 1 / span 2; width: 8px; height: 8px;
+  border-right: 2px solid var(--koine-color-tertiary); border-top: 2px solid var(--koine-color-tertiary);
+  transform: rotate(45deg); margin-right: 3px; }
+.kw-surfaces li:first-child a { border-top-left-radius: var(--koine-radius-card); border-top-right-radius: var(--koine-radius-card); }
+.kw-surfaces li:last-child a { border-bottom-left-radius: var(--koine-radius-card); border-bottom-right-radius: var(--koine-radius-card); }
+.kw-surfaces a:active { background: var(--koine-bg-pressed); }
+@media (hover: hover) { .kw-surfaces a:hover { background: color-mix(in srgb, var(--koine-color-accent) 6%, transparent); } }
+.kw-surfaces strong { display: block; font-weight: 400; min-width: 0; overflow-wrap: anywhere; }
+.kw-surfaces small { display: block; font-size: 12px; color: var(--koine-color-secondary); min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* The host page: its pairs as a grouped card, its buttons as pills, its
+   code as a card that wraps. */
+.kw-host dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0; margin: 0;
+  background: var(--koine-bg-card); border-radius: var(--koine-radius-card); }
+.kw-host dt, .kw-host dd { display: flex; align-items: center; min-height: 36px; box-sizing: border-box; padding: 6px 12px; }
+.kw-host dt { padding-left: 16px; color: var(--koine-color-secondary); }
+.kw-host dd { margin: 0; padding-right: 16px; min-width: 0; overflow-wrap: anywhere; }
+.kw-host dt:nth-of-type(n + 2), .kw-host dt:nth-of-type(n + 2) + dd {
+  border-top: var(--koine-hairline) solid var(--koine-separator); }
+.kw-host dd code { font-family: var(--koine-font-mono); font-size: 0.95em; overflow-wrap: anywhere; }
+.kw-host input { font: inherit; width: 100%; max-width: 28rem; min-height: 28px; padding: 6px 10px; box-sizing: border-box;
+  border: var(--koine-hairline) solid var(--koine-separator); border-radius: var(--koine-radius-field);
+  background: var(--koine-bg-field); color: var(--koine-color-primary); -webkit-appearance: none; appearance: none; }
+.kw-host dd input { max-width: none; }
+.kw-host input:focus-visible { outline: 2px solid color-mix(in srgb, var(--koine-color-accent) 60%, transparent); outline-offset: 0; }
+.kw-host button { font: inherit; font-weight: 600; min-height: 28px; padding: 5px 14px; border: 0; border-radius: 999px;
+  background: color-mix(in srgb, var(--koine-color-accent) 15%, transparent); color: var(--koine-color-accent);
+  cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.kw-host button:active { background: color-mix(in srgb, var(--koine-color-accent) 28%, transparent); }
+.kw-code { margin: 10px 0; padding: 10px 16px; max-height: 40vh; overflow: auto; box-sizing: border-box;
+  font-family: var(--koine-font-mono); font-size: 0.9em; white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--koine-bg-card); border-radius: var(--koine-radius-card); }
+.kw-checks { margin: 0; padding: 0; list-style: none; background: var(--koine-bg-card); border-radius: var(--koine-radius-card); }
+.kw-checks li { position: relative; padding: 8px 16px; min-height: 36px; box-sizing: border-box; display: flex; align-items: center; overflow-wrap: anywhere; }
+.kw-checks li + li::before { content: ""; position: absolute; top: 0; left: 16px; right: 0;
+  height: var(--koine-hairline); background: var(--koine-separator); }
 .kw-secret { user-select: all; -webkit-user-select: all; }
+
 @media (max-width: 700px) {
-  .kw-status, .kw-nav, .kw-main { padding-left: 12px; padding-right: 12px; }
-  .kw-status { gap: 6px 12px; }
-  .kw-status input, .kw-host input { min-width: 0; width: 100%; box-sizing: border-box; }
-  .kw-nav { gap: 4px 8px; }
-  .kw-nav a { padding: 10px 8px; min-height: 44px; box-sizing: border-box;
-    display: inline-flex; align-items: center; }
-  .kw-host dl { grid-template-columns: 1fr; gap: 2px 0; }
-  .kw-host dt { margin-top: 8px; }
-  .kw-surfaces a { min-height: 44px; box-sizing: border-box; padding: 10px 4px; }
+  .kw-main h1 { margin: 6px 0 14px; font-size: 34px; letter-spacing: 0.37px; line-height: 41px; }
+  .kw-main h2 { margin: 24px 0 8px; }
+  .kw-note { font-size: 15px; }
+  .kw-surfaces a { min-height: 44px; padding: 9px 16px; }
+  .kw-surfaces small { font-size: 15px; }
+  .kw-host dl { grid-template-columns: minmax(0, 1fr); }
+  .kw-host dt { padding: 10px 16px 0; min-height: 0; font-size: 13px; }
+  .kw-host dd { padding: 2px 16px 10px; min-height: 0; }
+  .kw-host dt:nth-of-type(n + 2) + dd { border-top: 0; }
+  .kw-host input { max-width: none; }
+  .kw-checks li { min-height: 44px; }
+  .kw-host dt, .kw-host dd { display: block; }
 }
+
+/* A phone, or a finger: the tab bar, pinned over the home indicator. */
 @media (max-width: 700px), (pointer: coarse) {
-  .kw-status input, .kw-host input, .kw-status button, .kw-host button { font-size: max(1em, 16px); }
-  .kw-status button, .kw-host button { min-height: 44px; min-width: 44px; padding: 8px 12px; }
+  .kw-main { padding: 0 16px calc(49px + env(safe-area-inset-bottom) + 24px); }
+  .kw-nav { position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 20;
+    min-height: 0; height: calc(49px + env(safe-area-inset-bottom)); padding: 0 0 env(safe-area-inset-bottom);
+    justify-content: space-around; gap: 0; border-bottom: 0;
+    border-top: var(--koine-hairline) solid var(--koine-separator); }
+  .kw-nav-title { display: none; }
+  .kw-tab { flex: 1 1 0; min-width: 0; height: 49px; padding: 6px 0 0; gap: 2px; border-radius: 0;
+    justify-content: flex-start; font-size: 10px; font-weight: 500; }
+  .kw-tab svg { width: 26px; height: 26px; }
+  .kw-banner { position: fixed; left: 0; right: 0; bottom: calc(49px + env(safe-area-inset-bottom)); z-index: 19; padding: 11px 16px; }
+  .kw-host input, .kw-host button { font-size: max(1em, 16px); }
+  .kw-host button { min-height: 44px; min-width: 44px; padding: 8px 18px; }
+  .kw-host p > button:only-child { width: 100%; }
+  .kw-host input { min-height: 44px; padding: 10px 14px; }
   a, button { touch-action: manipulation; }
 }
 "#;
@@ -219,52 +305,133 @@ fn App() -> Element {
     }
 }
 
-/// The frame of every page: the status line, the navigation, the page.
+/// The frame of every page: the navigation, the refusal banner, the page.
 #[component]
 fn Shell() -> Element {
     rsx! {
-        StatusLine {}
-        nav { class: "kw-nav",
-            Link { to: Route::Home {}, "surfaces" }
-            Link { to: Route::LayoutPage {}, "layout" }
-            Link { to: Route::StylePage {}, "style" }
-            Link { to: Route::HostPage {}, "host" }
-        }
+        Nav {}
+        RefusalBanner {}
         main { class: "kw-main", Outlet::<Route> {} }
     }
 }
 
-/// App origin, whether a token is held, the last refusal.
+/// The four pages a tab names (TH-D2). A surface page is the surfaces tab.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Tab {
+    Surfaces,
+    Layout,
+    Style,
+    Host,
+}
+
+impl Tab {
+    const ALL: [Tab; 4] = [Tab::Surfaces, Tab::Layout, Tab::Style, Tab::Host];
+
+    fn of(route: &Route) -> Tab {
+        match route {
+            Route::Home {} | Route::SurfacePage { .. } => Tab::Surfaces,
+            Route::LayoutPage {} => Tab::Layout,
+            Route::StylePage {} => Tab::Style,
+            Route::HostPage {} => Tab::Host,
+        }
+    }
+
+    fn route(self) -> Route {
+        match self {
+            Tab::Surfaces => Route::Home {},
+            Tab::Layout => Route::LayoutPage {},
+            Tab::Style => Route::StylePage {},
+            Tab::Host => Route::HostPage {},
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Tab::Surfaces => "surfaces",
+            Tab::Layout => "layout",
+            Tab::Style => "style",
+            Tab::Host => "host",
+        }
+    }
+}
+
+/// The navigation: the four pages as icon-and-label items, a toolbar across
+/// the top of a desktop window and a tab bar pinned to the bottom of a phone
+/// (`PAGE_CSS` decides which; the markup is one). Each item is a router
+/// `Link`, so it carries `aria-current="page"` when it is the page.
 #[component]
-fn StatusLine() -> Element {
-    let session = use_context::<Session>();
-    let mut held = session.token;
-    let refusal = session.refusal;
-    let origin = api::origin();
-    let linked_token = host_link().is_some_and(|link| link.token.is_some());
+fn Nav() -> Element {
+    let route = use_route::<Route>();
+    let current = Tab::of(&route);
     rsx! {
-        div { class: "kw-status", role: "status",
-            span { "app: {origin}" }
-            if held.read().is_some() {
-                span { "token held" }
-                // A linked host's token is the program's own, not the tab's:
-                // there is nothing stored to forget.
-                if !linked_token {
-                    button {
-                        onclick: move |_| {
-                            held.set(None);
-                            spawn(async move { token::forget().await });
-                        },
-                        "forget"
-                    }
+        nav { class: "kw-nav", aria_label: "pages",
+            span { class: "kw-nav-title", "koine" }
+            for tab in Tab::ALL {
+                Link {
+                    key: "{tab.label()}",
+                    to: tab.route(),
+                    class: if tab == current { "kw-tab kw-tab-active" } else { "kw-tab" },
+                    TabIcon { tab }
+                    span { "{tab.label()}" }
                 }
-            } else {
-                span { "read-only: no token" }
-                TokenField {}
             }
-            if let Some(error) = refusal.read().as_ref() {
-                span { class: "kw-refusal", "{error.code}: {error.message}" }
+        }
+    }
+}
+
+/// The tab's icon, drawn inline: four squares, a window with a divider,
+/// three slider lines, a pair of server boxes.
+#[component]
+fn TabIcon(tab: Tab) -> Element {
+    rsx! {
+        svg {
+            view_box: "0 0 24 24",
+            width: "24",
+            height: "24",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "1.8",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            "aria-hidden": "true",
+            "focusable": "false",
+            match tab {
+                Tab::Surfaces => rsx! {
+                    rect { x: "3", y: "3", width: "7.5", height: "7.5", rx: "1.8" }
+                    rect { x: "13.5", y: "3", width: "7.5", height: "7.5", rx: "1.8" }
+                    rect { x: "3", y: "13.5", width: "7.5", height: "7.5", rx: "1.8" }
+                    rect { x: "13.5", y: "13.5", width: "7.5", height: "7.5", rx: "1.8" }
+                },
+                Tab::Layout => rsx! {
+                    rect { x: "3", y: "4", width: "18", height: "16", rx: "2.5" }
+                    path { d: "M3 8.5h18M10 8.5V20" }
+                },
+                Tab::Style => rsx! {
+                    path { d: "M4 7h16M4 12h16M4 17h16" }
+                    circle { cx: "9", cy: "7", r: "2.2", fill: "var(--koine-bg-bar)" }
+                    circle { cx: "15", cy: "12", r: "2.2", fill: "var(--koine-bg-bar)" }
+                    circle { cx: "7", cy: "17", r: "2.2", fill: "var(--koine-bg-bar)" }
+                },
+                Tab::Host => rsx! {
+                    rect { x: "3", y: "4", width: "18", height: "6.5", rx: "2" }
+                    rect { x: "3", y: "13.5", width: "18", height: "6.5", rx: "2" }
+                    path { d: "M7 7.25h.01M7 16.75h.01", stroke_width: "2.4" }
+                },
             }
+        }
+    }
+}
+
+/// The last refusal, when there is one: a full-width banner under the
+/// toolbar (a desktop) or above the tab bar (a phone). Drawn only while
+/// `session.refusal` is `Some`; the origin and the token are on `/host`.
+#[component]
+fn RefusalBanner() -> Element {
+    let session = use_context::<Session>();
+    let refusal = session.refusal;
+    rsx! {
+        if let Some(error) = refusal.read().as_ref() {
+            div { class: "kw-banner kw-refusal", role: "status", "{error.code}: {error.message}" }
         }
     }
 }
@@ -298,7 +465,8 @@ const LIST_POLL_MS: u32 = 3_000;
 /// What the home page says when the app has no surfaces.
 pub const NO_SURFACES: &str = "No surfaces yet. On the demo, the tour seeds five at launch.";
 
-/// `/`: the app's surfaces, and the way to the other pages.
+/// `/`: the app's surfaces, as a grouped list; the nav is the way to the
+/// other pages.
 ///
 /// The list is fetched on mount and every [`LIST_POLL_MS`] while the tab is
 /// visible (the layout page's loop, with the same flag). The first answer,
@@ -360,21 +528,14 @@ fn Home() -> Element {
                                 strong { "{surface.title()}" }
                                 if let Some(description) = surface.description() {
                                     small { "{description}" }
-                                } else {
-                                    small { "{surface.id}" }
+                                } else if !surface.tags.is_empty() {
+                                    small { "{surface.tags.join(\", \")}" }
                                 }
                             }
                         }
                     }
                 }
             },
-        }
-        p {
-            Link { to: Route::LayoutPage {}, "layout" }
-            " · "
-            Link { to: Route::StylePage {}, "style" }
-            " · "
-            Link { to: Route::HostPage {}, "host" }
         }
     }
 }

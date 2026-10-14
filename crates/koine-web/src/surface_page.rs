@@ -336,11 +336,28 @@ pub fn SurfaceView(id: String, #[props(default)] embedded: bool) -> Element {
     });
     let sheet = use_memo(move || session.style.read().sheet().clone());
     let loaded = live.tree.read().is_some();
+    // The surface's name, for the title: the list carries it and the render
+    // does not. One fetch; a renamed surface shows its new name on the next visit.
+    let title_id = id.clone();
+    let name = use_resource(move || {
+        let id = title_id.clone();
+        async move {
+            api::list()
+                .await
+                .ok()
+                .and_then(|list| list.surfaces.into_iter().find(|s| s.id == id))
+                .map(|s| s.title().to_string())
+                .filter(|t| !t.is_empty())
+        }
+    });
+    let name = move || name.read().clone().flatten();
     rsx! {
         if !embedded {
-            p { class: "kw-note",
+            p { class: "kw-note kw-crumb",
                 Link { to: Route::Home {}, "surfaces" }
-                " / {id}"
+            }
+            if let Some(name) = name() {
+                h1 { "{name}" }
             }
         }
         div {

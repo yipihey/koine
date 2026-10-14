@@ -14,8 +14,7 @@
   },
   "root": {
     "column": [
-      { "text": "# Signal explorer" },
-      { "text": "Two sliders feed `series` (a noisy sine wave), its values feed `histogram`, and the histogram's `plot` payload is drawn. Every value on this page is a verb's answer; the page itself computes nothing." },
+      { "text": "Two sliders feed series (a noisy sine wave), its values feed histogram, and the histogram's plot payload is drawn. Every value on this page is a verb's answer; the page itself computes nothing." },
       { "row": [
         { "id": "freq-slider",
           "field": { "slider": { "min": 0.5, "max": 8, "step": 0.5 } },
