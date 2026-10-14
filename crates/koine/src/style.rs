@@ -289,11 +289,15 @@ pub enum StyleError {
     UnknownFrontend { frontend: String },
     #[error("{frontend} has no slot '{slot}'")]
     UnknownSlot { frontend: String, slot: String },
-    #[error("slot '{slot}' is {kind}, and {reason}")]
+    /// A value of the wrong kind. The message is a sentence naming the
+    /// slot, what it takes and the choices (`button takes a colour token:
+    /// automatic, accent, …`), never the value that was refused: quoting it
+    /// produced `'"red"'` when the value was itself quoted (A-D6).
+    #[error("{slot} takes {expected}")]
     InvalidValue {
         slot: String,
         kind: &'static str,
-        reason: String,
+        expected: String,
     },
 }
 
@@ -465,13 +469,18 @@ impl StyleBook {
     }
 }
 
-/// A surface with one text field per slot and a Reset button beside it.
-/// The field's id is the slot name. The button's id is `reset:<slot>`.
-/// [`editor_state`] is the state argument that shows the current sheet.
+/// A surface with one field per slot and a Reset button beside it. The
+/// field's kind follows the slot's (plan-koine-affordances A-D6): a colour
+/// or font slot is a `select` over [`COLOR_TOKENS`] or [`FONT_TOKENS`] (the
+/// option is the token string, which is what the `change` carries), a
+/// spacing slot a `number` from 0 to [`SPACING_MAX`] in steps of 1, and a
+/// line slot free text. The field's id is the slot name. The button's id is
+/// `reset:<slot>`. [`editor_state`] is the state argument that shows the
+/// current sheet.
 pub fn editor_spec(frontend: &str) -> Result<SurfaceSpec, StyleError> {
     let mut rows = Vec::new();
     for slot in slots(frontend)? {
-        let field = Node::leaf(NodeKind::Field(FieldKind::Text(serde_json::json!({}))))
+        let field = Node::leaf(NodeKind::Field(field_kind(slot.kind)))
             .with_id(slot.name)
             .with_label(format!("{} ({})", slot.name, slot.kind.name()))
             .with_bind(format!("state.{}", slot.name));
@@ -493,13 +502,32 @@ pub fn editor_spec(frontend: &str) -> Result<SurfaceSpec, StyleError> {
     })
 }
 
+/// The field a slot of `kind` is edited with (see [`editor_spec`]).
+fn field_kind(kind: ValueKind) -> FieldKind {
+    match kind {
+        ValueKind::Color => FieldKind::Select(serde_json::json!({ "options": COLOR_TOKENS })),
+        ValueKind::Font => FieldKind::Select(serde_json::json!({ "options": FONT_TOKENS })),
+        ValueKind::Spacing => {
+            FieldKind::Number(serde_json::json!({ "min": 0, "max": SPACING_MAX, "step": 1 }))
+        }
+        ValueKind::Line => FieldKind::Text(serde_json::json!({})),
+    }
+}
+
 /// State that resolves [`editor_spec`] to the values in `sheet`. Dotted slot
 /// names (`status.error`) are nested objects, which is how a `state.` bind
-/// walks them.
+/// walks them. A spacing slot's value is a JSON number, what its `number`
+/// field shows and sends; every other value is its string.
 pub fn editor_state(sheet: &StyleSheet) -> Value {
     let mut root = Map::new();
     for (slot, value) in sheet.values() {
-        insert_dotted(&mut root, slot, Value::String(value.clone()));
+        let spacing =
+            declaration(&sheet.frontend, slot).is_ok_and(|decl| decl.kind == ValueKind::Spacing);
+        let shown = match value.parse::<u32>() {
+            Ok(n) if spacing => Value::from(n),
+            _ => Value::String(value.clone()),
+        };
+        insert_dotted(&mut root, slot, shown);
     }
     Value::Object(root)
 }
@@ -508,20 +536,24 @@ pub fn editor_state(sheet: &StyleSheet) -> Value {
 /// `reset:<slot>` resets it. Any other event leaves the sheet and returns
 /// `Ok(false)`. A value of the wrong kind is [`StyleError`] and leaves the
 /// previous value.
+///
+/// A spacing slot takes what its `number` field sends, a JSON number, or a
+/// numeric string (`" 12 "`, `"12.0"`), stored as the integer's decimal
+/// string (`"12"`); every other slot takes a string.
 pub fn editor_apply(host: &mut StyleHost, event: &Event) -> Result<bool, StyleError> {
     match event.kind {
         EventKind::Change => {
-            if host.slots().iter().all(|slot| slot.name != event.widget) {
+            let Some(slot) = host.slots().iter().find(|slot| slot.name == event.widget) else {
                 return Ok(false);
-            }
-            let Value::String(raw) = &event.value else {
-                return Err(invalid(
-                    &event.widget,
-                    declaration(host.frontend(), &event.widget)?.kind,
-                    "a change value must be a string",
-                ));
             };
-            host.set(&event.widget, raw)?;
+            let raw = match (slot.kind, &event.value) {
+                (ValueKind::Spacing, value) => spacing_of(value)
+                    .map(|n| n.to_string())
+                    .ok_or_else(|| invalid(slot.name, slot.kind))?,
+                (_, Value::String(raw)) => raw.clone(),
+                (kind, _) => return Err(invalid(slot.name, kind)),
+            };
+            host.set(&event.widget, &raw)?;
             Ok(true)
         }
         EventKind::Click => {
@@ -558,62 +590,86 @@ fn declaration<'a>(frontend: &str, slot: &str) -> Result<&'a Slot, StyleError> {
         })
 }
 
-fn check_value(slot: &str, kind: ValueKind, raw: &str) -> Result<(), StyleError> {
-    match kind {
-        ValueKind::Color => {
-            if !COLOR_TOKENS.contains(&raw) {
-                return Err(invalid(slot, kind, format!("'{raw}' is not a color token")));
-            }
-        }
-        ValueKind::Font => {
-            if !FONT_TOKENS.contains(&raw) {
-                return Err(invalid(slot, kind, format!("'{raw}' is not a font token")));
-            }
-        }
-        ValueKind::Spacing => {
-            let canonical = raw.len() == 1 || !raw.starts_with('0');
-            let parsed = raw.parse::<u32>().ok();
-            if !canonical || parsed.is_none_or(|n| n > SPACING_MAX) {
-                return Err(invalid(
-                    slot,
-                    kind,
-                    format!("'{raw}' is not an integer from 0 to {SPACING_MAX}"),
-                ));
-            }
-        }
-        ValueKind::Line => check_line(slot, raw)?,
-    }
-    Ok(())
+/// A spacing value as a `number` field or an agent sends it: a whole JSON
+/// number, or a string spelling one, from 0 to [`SPACING_MAX`].
+fn spacing_of(value: &Value) -> Option<u32> {
+    let number = match value {
+        Value::Number(n) => n.as_f64()?,
+        Value::String(s) => s.trim().parse::<f64>().ok()?,
+        _ => return None,
+    };
+    let whole = number.is_finite() && number.fract() == 0.0;
+    (whole && (0.0..=f64::from(SPACING_MAX)).contains(&number)).then_some(number as u32)
 }
 
+fn check_value(slot: &str, kind: ValueKind, raw: &str) -> Result<(), StyleError> {
+    let fits = match kind {
+        ValueKind::Color => COLOR_TOKENS.contains(&raw),
+        ValueKind::Font => FONT_TOKENS.contains(&raw),
+        ValueKind::Spacing => {
+            let canonical = raw.len() == 1 || !raw.starts_with('0');
+            canonical && raw.parse::<u32>().is_ok_and(|n| n <= SPACING_MAX)
+        }
+        ValueKind::Line => return check_line(slot, raw),
+    };
+    if fits {
+        Ok(())
+    } else {
+        Err(invalid(slot, kind))
+    }
+}
+
+/// A line slot's value: not blank, and every `{…}` closed and naming one of
+/// [`PLACEHOLDERS`].
 fn check_line(slot: &str, raw: &str) -> Result<(), StyleError> {
     if raw.trim().is_empty() {
-        return Err(invalid(slot, ValueKind::Line, "it is empty"));
+        return Err(line_invalid(slot, "this one is empty"));
     }
     let mut rest = raw;
     while let Some(start) = rest.find('{') {
         let after = &rest[start + 1..];
         let Some(end) = after.find('}') else {
-            return Err(invalid(slot, ValueKind::Line, "it has an unclosed '{'"));
+            return Err(line_invalid(slot, "this one opens a '{' it never closes"));
         };
-        let name = &after[..end];
-        if !PLACEHOLDERS.contains(&name) {
-            return Err(invalid(
-                slot,
-                ValueKind::Line,
-                format!("'{{{name}}}' names an unknown placeholder"),
-            ));
+        if !PLACEHOLDERS.contains(&&after[..end]) {
+            return Err(line_invalid(slot, "this one names another"));
         }
         rest = &after[end + 1..];
     }
     Ok(())
 }
 
-fn invalid(slot: &str, kind: ValueKind, reason: impl Into<String>) -> StyleError {
+/// What a slot of `kind` takes, as the end of a sentence that begins with
+/// the slot's name.
+fn expected(kind: ValueKind) -> String {
+    match kind {
+        ValueKind::Color => format!("a colour token: {}", COLOR_TOKENS.join(", ")),
+        ValueKind::Font => format!("a font token: {}", FONT_TOKENS.join(", ")),
+        ValueKind::Spacing => format!("a whole number from 0 to {SPACING_MAX}"),
+        ValueKind::Line => format!(
+            "a line of text whose placeholders are {}",
+            PLACEHOLDERS
+                .iter()
+                .map(|p| format!("{{{p}}}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+fn invalid(slot: &str, kind: ValueKind) -> StyleError {
     StyleError::InvalidValue {
         slot: slot.to_string(),
         kind: kind.name(),
-        reason: reason.into(),
+        expected: expected(kind),
+    }
+}
+
+fn line_invalid(slot: &str, why: &str) -> StyleError {
+    StyleError::InvalidValue {
+        slot: slot.to_string(),
+        kind: ValueKind::Line.name(),
+        expected: format!("{}, and {why}", expected(ValueKind::Line)),
     }
 }
 
@@ -806,6 +862,126 @@ mod tests {
         )
         .unwrap();
         assert_eq!(host.sheet().value("button"), "automatic");
+    }
+
+    #[test]
+    fn a_fields_kind_follows_the_slots_kind() {
+        for frontend in FRONTENDS {
+            let spec = editor_spec(frontend).unwrap();
+            let state = editor_state(&StyleSheet::default_for(frontend).unwrap());
+            let tree = resolve(
+                &spec,
+                &state,
+                &serde_json::json!({}),
+                &serde_json::json!({}),
+            );
+            for slot in slots(frontend).unwrap() {
+                let RenderKind::Field { field, value, .. } =
+                    &find(&tree.root, slot.name).expect(slot.name).node
+                else {
+                    panic!("{frontend} {} is not a field", slot.name)
+                };
+                let want = match slot.kind {
+                    ValueKind::Color => {
+                        serde_json::json!({ "select": { "options": COLOR_TOKENS } })
+                    }
+                    ValueKind::Font => serde_json::json!({ "select": { "options": FONT_TOKENS } }),
+                    ValueKind::Spacing => serde_json::json!({
+                        "number": { "min": 0, "max": SPACING_MAX, "step": 1 }
+                    }),
+                    ValueKind::Line => serde_json::json!({ "text": {} }),
+                };
+                assert_eq!(field, &want, "{frontend} {}", slot.name);
+                let shown = match slot.kind {
+                    ValueKind::Spacing => {
+                        serde_json::json!(slot.default_value.parse::<u32>().unwrap())
+                    }
+                    _ => serde_json::json!(slot.default_value),
+                };
+                assert_eq!(value, &shown, "{frontend} {}", slot.name);
+            }
+        }
+    }
+
+    #[test]
+    fn a_number_change_sets_a_spacing_slot_as_its_decimal_string() {
+        let mut host = StyleHost::new("swift").unwrap();
+        let change = |value: Value| Event {
+            widget: "column".into(),
+            kind: EventKind::Change,
+            value,
+        };
+        assert!(editor_apply(&mut host, &change(serde_json::json!(12))).unwrap());
+        assert_eq!(host.sheet().value("column"), "12");
+        editor_apply(&mut host, &change(serde_json::json!(" 16 "))).unwrap();
+        assert_eq!(host.sheet().value("column"), "16");
+        editor_apply(&mut host, &change(serde_json::json!(4.0))).unwrap();
+        assert_eq!(host.sheet().value("column"), "4");
+        for bad in [
+            serde_json::json!(-1),
+            serde_json::json!(2.5),
+            serde_json::json!(SPACING_MAX + 1),
+            serde_json::json!("wide"),
+            Value::Null,
+        ] {
+            let error = editor_apply(&mut host, &change(bad.clone())).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!("column takes a whole number from 0 to {SPACING_MAX}"),
+                "{bad}"
+            );
+        }
+        assert_eq!(host.sheet().value("column"), "4");
+    }
+
+    #[test]
+    fn a_refusal_is_a_sentence_naming_slot_kind_and_choices() {
+        let mut swift = StyleHost::new("swift").unwrap();
+        let error = swift.set("button", "\"red\"").unwrap_err().to_string();
+        assert_eq!(
+            error,
+            "button takes a colour token: automatic, accent, primary, secondary, error, \
+             warning, info"
+        );
+        assert!(!error.contains("red") && !error.contains('\''), "{error}");
+        let number = editor_apply(
+            &mut swift,
+            &Event {
+                widget: "button".into(),
+                kind: EventKind::Change,
+                value: serde_json::json!(3),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(number.to_string(), error);
+
+        let tui = StyleHost::new("tui").unwrap();
+        let line = |raw: &str| tui.clone().set("text", raw).unwrap_err().to_string();
+        let takes = "text takes a line of text whose placeholders are {columns}, {label}, \
+                     {level}, {message}, {text}, {title}, {value}";
+        assert_eq!(line("  "), format!("{takes}, and this one is empty"));
+        assert_eq!(
+            line("{label"),
+            format!("{takes}, and this one opens a '{{' it never closes")
+        );
+        assert_eq!(
+            line("{nope}"),
+            format!("{takes}, and this one names another")
+        );
+        if let Some(font) = slots("web")
+            .unwrap()
+            .iter()
+            .find(|s| s.kind == ValueKind::Font)
+        {
+            let mut web = StyleHost::new("web").unwrap();
+            assert_eq!(
+                web.set(font.name, "Comic Sans").unwrap_err().to_string(),
+                format!(
+                    "{} takes a font token: automatic, body, title, mono",
+                    font.name
+                )
+            );
+        }
     }
 
     #[test]

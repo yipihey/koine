@@ -1,9 +1,9 @@
  column
    row
->    field "2"
+>    field 2
      button Reset
    row
-     field "2"
+     field 2
      button Reset
    row
      field "text {text}"

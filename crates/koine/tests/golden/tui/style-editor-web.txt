@@ -1,12 +1,9 @@
  column
    row
->    field "8"
+>    field 8
      button Reset
    row
-     field "8"
-     button Reset
-   row
-     field "automatic"
+     field 8
      button Reset
    row
      field "automatic"
@@ -18,10 +15,13 @@
      field "automatic"
      button Reset
    row
-     field "0"
+     field "automatic"
      button Reset
    row
-     field "0"
+     field 0
+     button Reset
+   row
+     field 0
      button Reset
    row
      field "error"
