@@ -35,14 +35,18 @@ fn main() {
     );
 
     // The tour (docs/plan-koine-tour.md): the five surfaces and the notes,
-    // seeded once, then the concierge on its own thread, speaking the same
-    // verbs an agent off the phone would.
-    let report = surface_demo_service::tour::seed_blocking();
+    // seeded once (a surface whose spec changed since the last release is
+    // replaced, A-D8), three of them side by side in the layout once (A-D4),
+    // then the concierge on its own thread, speaking the same verbs an agent
+    // off the phone would.
+    let report = surface_demo_service::tour::seed_with_layout_blocking(APP_ID, None);
     eprintln!(
-        "koine-demo-mobile: tour {} created, {} existing, {} notes seeded",
+        "koine-demo-mobile: tour {} created, {} updated, {} existing, {} notes seeded, {} tiles laid out",
         report.created.len(),
+        report.updated.len(),
         report.existing.len(),
-        report.notes_seeded
+        report.notes_seeded,
+        report.layout.len()
     );
     for error in &report.errors {
         eprintln!("koine-demo-mobile: tour: {error}");

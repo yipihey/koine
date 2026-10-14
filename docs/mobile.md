@@ -38,7 +38,7 @@ empty and every part of the grammar is one tap away:
 |---|---|
 | Signal explorer | drag the sliders: a verb-driven plot and histogram redraw |
 | Live job | tap Start: a background job's lines arrive while you watch |
-| Notes | an outline: tap a row's "…" to add a child, rename, delete; drag to move; "Add note" at the bottom |
+| Notes | collections of notes: tap a note to edit its body and Save it; drag a note into another collection; a row's "…" adds a note there, renames or deletes; "Add collection" and "Add note" at the bottom |
 | Map of this app | a graph of the linked verbs, the kinds they read and write, and the surfaces; tap a node |
 | Concierge | type "a sine wave at 5 Hz", "show the notes", "the map", "start a live job" or "help", tap Ask: the agent answers by making or showing a surface (Home lists it; Layout shows the pane) |
 
@@ -46,8 +46,11 @@ The concierge is `surface_demo_service::concierge`: it waits on its surface
 (`surface_wait`), reads the question, and answers through the same public
 verbs an agent off the phone would call (`surface_create`, `surface_show`,
 `surface_state_set`, the demo's `series` and `tick`). The seeding is
-`surface_demo_service::tour::seed`, idempotent, from the spec files under
-`crates/surface-demo-service/surfaces/`; `koine-host` does the same through
+`surface_demo_service::tour::seed_with_layout`, idempotent, from the spec
+files under `crates/surface-demo-service/surfaces/`: a surface whose spec
+changed since the last release is replaced in place (its `tour-spec:` tag
+differs), and the Layout tab shows Signal explorer, Notes and Live job side
+by side the first time; `koine-host` does the same through
 `koine_host::cli::main_with`, so `cargo run -p koine-host` is the same demo
 on a laptop.
 

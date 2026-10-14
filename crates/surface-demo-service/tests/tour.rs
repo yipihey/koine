@@ -139,7 +139,7 @@ fn seeding_is_idempotent_and_every_surface_renders_without_a_placeholder() {
         .iter()
         .filter_map(|n| n["id"].as_str())
         .collect();
-    for (key, _, _) in tour::SEED_NOTES {
+    for (key, _, _, _) in tour::SEED_NOTES {
         assert!(keys.contains(key), "seed note {key} missing from {keys:?}");
     }
 
@@ -214,7 +214,7 @@ fn seeding_is_idempotent_and_every_surface_renders_without_a_placeholder() {
         walk(&rendered["tree"], &mut out);
         out
     };
-    for (_, _, title) in tour::SEED_NOTES {
+    for (_, _, title, _) in tour::SEED_NOTES {
         assert!(
             labels.contains(&title.to_string()),
             "{title} not drawn: {labels:?}"
@@ -358,4 +358,290 @@ fn the_notes_rows_declaration_matches_its_output_schema() {
     assert_eq!(verb.row_schema_check(), Ok(()));
     let rows = verb.rows.expect("rows(…) declared");
     assert_eq!(rows.id, "id");
+}
+
+/// The stored row of the tour surface named `name`: `(id, tags, spec)`.
+fn stored(name: &str) -> (String, Vec<String>, Value) {
+    let list = call("impress-surface-service_surface-list", json!({}));
+    let row = list["surfaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| {
+            s["name"] == json!(name)
+                && s["tags"]
+                    .as_array()
+                    .is_some_and(|t| t.contains(&json!(tour::TAG)))
+        })
+        .unwrap_or_else(|| panic!("no tour surface {name}"))
+        .clone();
+    let id = row["id"].as_str().unwrap().to_string();
+    let got = call("impress-surface-service_surface-get", json!({ "id": id }));
+    let tags = row["tags"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|t| t.as_str().map(str::to_string))
+        .collect();
+    (id, tags, got["spec"].clone())
+}
+
+/// Overwrite a surface row's `tags` the way a 0.3.0 seed left them.
+fn set_tags(id: &str, tags: &[&str]) {
+    use impress_item::{FieldMutation, Value as ItemValue};
+    let (store, _) = koine_store::process::acquire_or_stand_in();
+    store
+        .update(
+            id.parse().unwrap(),
+            vec![FieldMutation::SetPayload(
+                "tags".into(),
+                ItemValue::Array(
+                    tags.iter()
+                        .map(|t| ItemValue::String(t.to_string()))
+                        .collect(),
+                ),
+            )],
+        )
+        .unwrap();
+}
+
+/// A-D8: a stored tour surface whose spec differs from the file's (here, an
+/// older text and no content tag, as 0.3.0 left it) is replaced in place
+/// once, keeping its id; the next seed finds it current. A surface without
+/// the tour tag is never touched.
+#[test]
+fn seeding_replaces_a_changed_spec_once_then_is_stable() {
+    let _turn = host();
+    let first = tour::seed_blocking();
+    assert!(first.ok(), "{:?}", first.errors);
+    let settled = tour::seed_blocking();
+    assert!(settled.ok(), "{:?}", settled.errors);
+    assert!(
+        settled.updated.is_empty(),
+        "same spec: {:?}",
+        settled.updated
+    );
+    assert!(settled.created.is_empty());
+
+    let name = tour::SIGNAL_EXPLORER_NAME;
+    let (id, tags, spec) = stored(name);
+    let current =
+        tour::spec_tag(tour::specs().iter().find(|(n, _)| *n == name).unwrap().1).unwrap();
+    assert!(tags.contains(&current), "{tags:?} carries {current}");
+
+    // Last release's spec: another description, and only the `tour` tag.
+    let mut old = spec.clone();
+    old["root"]["column"][0]["text"] = json!("An older description of this surface.");
+    let replaced = call(
+        "impress-surface-service_surface-update",
+        json!({ "id": id, "spec": old }),
+    );
+    assert_eq!(replaced["ok"], json!(true), "{replaced}");
+    set_tags(&id, &[tour::TAG]);
+    // Someone's own surface with the same name: no tour tag, never touched.
+    let mine = call(
+        "impress-surface-service_surface-create",
+        json!({ "spec": old, "name": name }),
+    );
+    assert_eq!(mine["ok"], json!(true), "{mine}");
+    let mine_id = mine["id"].as_str().unwrap().to_string();
+
+    let again = tour::seed_blocking();
+    assert!(again.ok(), "{:?}", again.errors);
+    assert_eq!(again.updated, vec![(name.to_string(), id.clone())]);
+    assert!(again.created.is_empty(), "{:?}", again.created);
+    let (same_id, tags, spec) = stored(name);
+    assert_eq!(same_id, id, "replaced in place");
+    assert_eq!(
+        tags,
+        vec![tour::TAG.to_string(), current.clone()],
+        "the content tag is refreshed"
+    );
+    assert_ne!(
+        spec["root"]["column"][0]["text"],
+        json!("An older description of this surface."),
+        "the file's spec is back"
+    );
+    let untouched = call(
+        "impress-surface-service_surface-get",
+        json!({ "id": mine_id }),
+    );
+    assert_eq!(
+        untouched["spec"]["root"]["column"][0]["text"],
+        json!("An older description of this surface.")
+    );
+    assert_eq!(untouched["revision"], mine["revision"]);
+
+    let stable = tour::seed_blocking();
+    assert!(stable.ok(), "{:?}", stable.errors);
+    assert!(
+        stable.updated.is_empty(),
+        "then stable: {:?}",
+        stable.updated
+    );
+    call(
+        "impress-surface-service_surface-delete",
+        json!({ "id": mine_id }),
+    );
+}
+
+/// A-D9: a body is written and read back; a note added with a note as its
+/// parent lands beside it, in the same collection.
+#[test]
+fn a_note_has_a_body_and_a_note_added_under_a_note_lands_beside_it() {
+    let _turn = host();
+    let collection = call(
+        "surface-demo-service_note-add",
+        json!({ "title": format!("Collection {}", uuid_like()), "parent": null }),
+    );
+    let collection_key = collection["note"]["id"].as_str().unwrap().to_string();
+    assert_eq!(collection["note"]["body"], json!(""));
+    let note = call(
+        "surface-demo-service_note-add",
+        json!({ "title": "A note", "parent": collection_key }),
+    );
+    let note_record = note["note"]["record"].as_str().unwrap().to_string();
+    assert_eq!(note["note"]["parent"], json!(collection_key));
+
+    let written = call(
+        "surface-demo-service_note-write",
+        json!({ "id": note_record, "body": "First line.\nSecond line." }),
+    );
+    assert_eq!(
+        written["note"]["body"],
+        json!("First line.\nSecond line."),
+        "{written}"
+    );
+    let got = call(
+        "surface-demo-service_note-get",
+        json!({ "id": note_record }),
+    );
+    assert_eq!(
+        got["note"]["body"],
+        json!("First line.\nSecond line."),
+        "{got}"
+    );
+    assert_eq!(got["note"]["title"], json!("A note"));
+    let listed = call("surface-demo-service_notes", json!({}));
+    assert!(listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|n| n["record"] == json!(note_record)
+            && n["body"] == json!("First line.\nSecond line.")));
+
+    let beside = call(
+        "surface-demo-service_note-add",
+        json!({ "title": "Beside", "parent": note_record }),
+    );
+    assert_eq!(beside["note"]["parent"], json!(collection_key), "{beside}");
+
+    let missing = call(
+        "surface-demo-service_note-write",
+        json!({ "id": "no-such-note", "body": "x" }),
+    );
+    assert_eq!(missing["error"]["code"], json!("not-found"), "{missing}");
+    let missing = call(
+        "surface-demo-service_note-get",
+        json!({ "id": "no-such-note" }),
+    );
+    assert_eq!(missing["error"]["code"], json!("not-found"), "{missing}");
+
+    call(
+        "surface-demo-service_note-delete",
+        json!({ "id": collection_key }),
+    );
+}
+
+/// The Notes surface drives the verbs: selecting a row loads its body into
+/// the editor, Save writes it, and the render shows it.
+#[test]
+fn the_notes_surface_selects_writes_and_shows_a_body() {
+    let _turn = host();
+    let seeded = tour::seed_blocking();
+    assert!(seeded.ok(), "{:?}", seeded.errors);
+    let id = seeded.id_of(tour::NOTES_NAME).unwrap().to_string();
+    let host_name = format!("notes-{}", uuid_like());
+    let ideas = notes::record_id("ideas").to_string();
+    let dispatch = |widget: &str, kind: &str, value: Value| {
+        let answer = call(
+            "impress-surface-service_surface-dispatch",
+            json!({ "id": id, "host": host_name,
+                    "event": { "widget": widget, "kind": kind, "value": value } }),
+        );
+        assert_eq!(answer["ok"], json!(true), "{widget} {kind}: {answer}");
+        answer
+    };
+    let state = |path: &str| {
+        let got = call(
+            "impress-surface-service_surface-state-get",
+            json!({ "id": id, "host": host_name }),
+        );
+        got["state"].pointer(path).cloned().unwrap_or(Value::Null)
+    };
+    dispatch("outline", "select", json!([ideas]));
+    assert_eq!(state("/selected"), json!(ideas));
+    let seeded_body = tour::SEED_NOTES
+        .iter()
+        .find(|(k, _, _, _)| *k == "ideas")
+        .unwrap()
+        .3;
+    assert_eq!(state("/body"), json!(seeded_body));
+
+    let text = format!("Rewritten {}", uuid_like());
+    dispatch("body", "change", json!(text));
+    dispatch("save-btn", "click", Value::Null);
+    let got = call("surface-demo-service_note-get", json!({ "id": "ideas" }));
+    assert_eq!(got["note"]["body"], json!(text));
+    let rendered = call(
+        "impress-surface-service_surface-render",
+        json!({ "id": id, "host": host_name }),
+    );
+    assert!(
+        rendered["tree"].to_string().contains(&text),
+        "the editor shows the written body"
+    );
+    // Put the seeded body back for the other cases.
+    call(
+        "surface-demo-service_note-write",
+        json!({ "id": "ideas", "body": seeded_body }),
+    );
+}
+
+/// A-D4: the demo's layout shows three surface tiles side by side, once.
+#[test]
+fn seeding_the_layout_shows_three_surfaces_once() {
+    let _turn = host();
+    let app = format!("tour-layout-{}", uuid_like());
+    let first = tour::seed_with_layout_blocking(&app, Some("tour-test"));
+    assert!(first.ok(), "{:?}", first.errors);
+    let names: Vec<&str> = first.layout.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names, tour::LAYOUT.map(|(n, _)| n).to_vec());
+
+    let tree = call(
+        "layout-service_get-layout",
+        json!({ "app_id": app, "device": "tour-test" }),
+    );
+    let tiles = tree["layout"]["tiles"].as_object().unwrap();
+    let surfaces: BTreeSet<String> = tiles
+        .values()
+        .filter(|t| t["pane"]["view_kind"] == json!("surface"))
+        .filter_map(|t| t["pane"]["query"]["scope"]["id"]["id"].as_str())
+        .map(str::to_string)
+        .collect();
+    let wanted: BTreeSet<String> = tour::LAYOUT
+        .iter()
+        .map(|(n, _)| first.id_of(n).unwrap().to_string())
+        .collect();
+    assert_eq!(surfaces, wanted);
+    let split = tiles
+        .values()
+        .find_map(|t| t["container"]["linear"].as_object())
+        .expect("a split");
+    assert_eq!(split["dir"], json!("horizontal"));
+    assert_eq!(split["shares"], json!([1.0, 1.0, 1.0]));
+
+    let again = tour::seed_with_layout_blocking(&app, Some("tour-test"));
+    assert!(again.ok(), "{:?}", again.errors);
+    assert!(again.layout.is_empty(), "once: {:?}", again.layout);
 }

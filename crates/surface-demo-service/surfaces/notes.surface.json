@@ -1,7 +1,7 @@
 {
   "surface": "1.0",
   "name": "Notes",
-  "state": { "open": [], "new_title": "" },
+  "state": { "open": [], "selected": null, "body": "", "loaded": null, "new_title": "" },
   "sources": {
     "notes": {
       "query": {
@@ -17,13 +17,20 @@
   },
   "root": {
     "column": [
-      { "text": "An outline over note records: rename a row, drag it under another, delete it, add one — each is a note-* verb, and the tree only reports what you did." },
+      { "text": "Collections of notes: select a note to edit its body and save it with `note-write`, drag it into another collection, or rename and delete it from its row menu." },
       { "id": "outline",
         "tree": {
           "rows": "{{source.notes}}",
           "parent_field": "parent",
           "label_field": "title",
           "bind": "state.open",
+          "on_select": [
+            { "set": { "path": "state.selected", "value": "{{event.value.0}}" } },
+            { "call": { "verb": "surface-demo-service_note-get",
+                        "args": { "id": "{{event.value.0}}" },
+                        "into": "state.loaded" } },
+            { "set": { "path": "state.body", "value": "{{state.loaded.note.body}}" } }
+          ],
           "on_rename": [
             { "call": { "verb": "surface-demo-service_note-rename",
                         "args": { "id": "{{event.value.id}}", "title": "{{event.value.label}}" } } },
@@ -32,6 +39,7 @@
           "on_delete": [
             { "call": { "verb": "surface-demo-service_note-delete",
                         "args": { "id": "{{item}}" }, "each": "event.value" } },
+            { "set": { "path": "state.selected", "value": null } },
             { "refresh": { "source": "notes" } }
           ],
           "on_move": [
@@ -41,27 +49,41 @@
             { "refresh": { "source": "notes" } }
           ],
           "actions": [
-            { "label": "Add child",
+            { "label": "Add note here",
               "on_click": [
                 { "call": { "verb": "surface-demo-service_note-add",
                             "args": { "title": "New note", "parent": "{{event.value.id}}" } } },
                 { "refresh": { "source": "notes" } }
-              ] },
-            { "label": "Delete",
-              "on_click": [
-                { "call": { "verb": "surface-demo-service_note-delete",
-                            "args": { "id": "{{event.value.id}}" } } },
-                { "refresh": { "source": "notes" } }
               ] }
           ]
         } },
+      { "id": "editor",
+        "when": { "path": "state.selected" },
+        "column": [
+          { "id": "body", "field": { "text": {} }, "label": "Body", "bind": "state.body" },
+          { "id": "save-btn",
+            "button": { "label": "Save",
+                        "on_click": [
+                          { "call": { "verb": "surface-demo-service_note-write",
+                                      "args": { "id": "{{state.selected}}", "body": "{{state.body}}" } } },
+                          { "refresh": { "source": "notes" } }
+                        ] } }
+        ] },
       { "row": [
-        { "id": "new-title", "field": { "text": {} }, "label": "New note", "bind": "state.new_title" },
+        { "id": "new-title", "field": { "text": {} }, "label": "Name", "bind": "state.new_title" },
+        { "id": "add-collection-btn",
+          "button": { "label": "Add collection",
+                      "on_click": [
+                        { "call": { "verb": "surface-demo-service_note-add",
+                                    "args": { "title": "{{state.new_title}}", "parent": null } } },
+                        { "set": { "path": "state.new_title", "value": "" } },
+                        { "refresh": { "source": "notes" } }
+                      ] } },
         { "id": "add-btn",
           "button": { "label": "Add note",
                       "on_click": [
                         { "call": { "verb": "surface-demo-service_note-add",
-                                    "args": { "title": "{{state.new_title}}", "parent": null } } },
+                                    "args": { "title": "{{state.new_title}}", "parent": "{{state.selected}}" } } },
                         { "set": { "path": "state.new_title", "value": "" } },
                         { "refresh": { "source": "notes" } }
                       ] } }

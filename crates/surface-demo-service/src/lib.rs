@@ -19,7 +19,8 @@
 //! (a form's Run, Tier A) both are no-ops and it just sleeps and answers.
 //!
 //! The tour (plan-koine-tour T-D2) adds the rest: [`notes`](SurfaceDemoService::notes)
-//! and `note_add`/`note_rename`/`note_move`/`note_delete` over `note` records
+//! and `note_get`/`note_add`/`note_rename`/`note_write`/`note_move`/`note_delete`
+//! over `note` records (collections of notes with a body, A-D9)
 //! in the process store (`crate::notes`, which also says why the schema ref
 //! is spelled `note`), and [`inventory`](SurfaceDemoService::inventory), the
 //! map of this app for a `graph` node (`crate::inventory`). The tour's five
@@ -167,6 +168,10 @@ pub struct NoteRow {
     pub parent: Option<String>,
     /// The record uuid (what a `tree` over the `note` kind shows as `id`).
     pub record: String,
+    /// The note's text; empty when never written (and in a record written
+    /// before notes had a body).
+    #[serde(default)]
+    pub body: String,
 }
 
 impl From<notes::Note> for NoteRow {
@@ -176,11 +181,13 @@ impl From<notes::Note> for NoteRow {
             title: note.title,
             parent: note.parent,
             record: note.record.to_string(),
+            body: note.body,
         }
     }
 }
 
-/// Result of `note_add`, `note_rename` and `note_move`: the note as it now is.
+/// Result of `note_get`, `note_add`, `note_rename`, `note_write` and
+/// `note_move`: the note as it now is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct NoteResult {
     /// The note, after the change. `None` when `error` is set.
@@ -277,7 +284,7 @@ pub trait SurfaceDemoService: Send + Sync + 'static {
     async fn tick(&self, n: u32, every_ms: u64) -> TickResult;
 
     /// Every note in the store, oldest first: rows of the kind `note`
-    /// (`crate::notes`), each `{id, title, parent, record}` where `id` and
+    /// (`crate::notes`), each `{id, title, parent, record, body}` where `id` and
     /// `parent` are keys and `record` the record uuid. The result is the
     /// array itself (what `rows(…)` asks of a verb's shape); with no store,
     /// or a store that cannot be read (logged as a warning), it is empty.
@@ -289,8 +296,19 @@ pub trait SurfaceDemoService: Send + Sync + 'static {
     #[impress_example(name = "default", args = r#"{}"#)]
     async fn notes(&self) -> Vec<NoteRow>;
 
+    /// One note, body included, by key or record uuid: what the Notes
+    /// surface loads into its editor when a row is selected (a `select`
+    /// event carries only the id). Refuses an unknown note (`not-found`).
+    #[impress_method(
+        effects(reads = [any("the demo's `note` records (crate::notes), not a canonical ref")])
+    )]
+    #[impress_example(name = "default", args = r#"{"id": "research"}"#)]
+    async fn note_get(&self, id: String) -> NoteResult;
+
     /// Add a note titled `title` under `parent` (a note's key or record
-    /// uuid; absent or null for a root). Refuses an empty title
+    /// uuid; absent or null for a root, i.e. a new collection). A `parent`
+    /// that is itself a note under a collection files the new note beside
+    /// it, in that collection (`crate::notes`). Refuses an empty title
     /// (`invalid-argument`), an unknown parent (`not-found`), and a process
     /// with no real store (`store-unavailable`).
     #[impress_method(
@@ -308,6 +326,18 @@ pub trait SurfaceDemoService: Send + Sync + 'static {
     )]
     #[impress_example(name = "default", args = r#"{"id": "research", "title": "Research"}"#)]
     async fn note_rename(&self, id: String, title: String) -> NoteResult;
+
+    /// Replace note `id`'s body (a key or a record uuid) with `body`, any
+    /// text, empty included. Refuses an unknown note.
+    #[impress_method(
+        safety = mutating,
+        effects(writes = [any("the demo's `note` records (crate::notes), not a canonical ref")])
+    )]
+    #[impress_example(
+        name = "default",
+        args = r#"{"id": "ideas", "body": "Try the histogram with 40 bins."}"#
+    )]
+    async fn note_write(&self, id: String, body: String) -> NoteResult;
 
     /// Move note `id` under `parent` (absent or null: to the root). Refuses
     /// an unknown note or parent (`not-found`) and a move under itself or
@@ -413,8 +443,16 @@ impl SurfaceDemoService for DefaultSurfaceDemoService {
         }
     }
 
+    async fn note_get(&self, id: String) -> NoteResult {
+        NoteResult::of(notes::read(&id))
+    }
+
     async fn note_add(&self, title: String, parent: Option<String>) -> NoteResult {
-        NoteResult::of(notes::add(parent.as_deref(), &title, None))
+        NoteResult::of(notes::add(parent.as_deref(), &title, "", None))
+    }
+
+    async fn note_write(&self, id: String, body: String) -> NoteResult {
+        NoteResult::of(notes::write(&id, &body))
     }
 
     async fn note_rename(&self, id: String, title: String) -> NoteResult {
@@ -541,9 +579,15 @@ impress_service_impl! {
             every_ms: u64
         ) -> TickResult,
         /// Every note in the store, oldest first: rows of the kind `note`,
-        /// each `{id, title, parent, record}` (keys, and the record uuid).
+        /// each `{id, title, parent, record, body}` (keys, the record uuid, the text).
         notes() -> Vec<NoteRow>,
-        /// Add a note under `parent` (a key or record uuid; null for a root).
+        /// One note, body included.
+        note_get(
+            /// The note's key or record uuid.
+            id: String
+        ) -> NoteResult,
+        /// Add a note under `parent` (a key or record uuid; null for a root);
+        /// a parent that is a note files the new one beside it.
         note_add(
             /// The note's title; must not be empty.
             title: String,
@@ -556,6 +600,13 @@ impress_service_impl! {
             id: String,
             /// The new title; must not be empty.
             title: String
+        ) -> NoteResult,
+        /// Replace a note's body.
+        note_write(
+            /// The note's key or record uuid.
+            id: String,
+            /// The new body; any text, empty included.
+            body: String
         ) -> NoteResult,
         /// Move a note under another, or to the root.
         note_move(

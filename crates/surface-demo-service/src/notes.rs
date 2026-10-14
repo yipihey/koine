@@ -1,6 +1,18 @@
 //! The tour's note records (plan-koine-tour T-D2): what the `notes`,
-//! `note_add`, `note_rename`, `note_move` and `note_delete` verbs read and
-//! write, through the process store (`koine_store::process`).
+//! `note_get`, `note_add`, `note_rename`, `note_write`, `note_move` and
+//! `note_delete` verbs read and write, through the process store
+//! (`koine_store::process`).
+//!
+//! # Collections of notes (plan-koine-affordances A-D9)
+//!
+//! A root note is a **collection**; a note under it is a **note** with a
+//! `body` (a collection may have one too). The record shape does not
+//! change: a body is one more payload field, and a record written before it
+//! existed reads as an empty body. [`add`] keeps the two levels without the
+//! surface having to choose: a `parent` that is itself a note (it has a
+//! parent) files the new note **beside** it, under that note's parent, so
+//! "Add note" with a note selected adds to the note's collection.
+//! [`reparent`] does not flatten: a note dragged onto a note nests under it.
 //!
 //! # Kind and schema ref
 //!
@@ -71,6 +83,8 @@ pub struct Note {
     pub title: String,
     /// The parent's key, `None` for a root.
     pub parent: Option<String>,
+    /// The note's text; empty when never written.
+    pub body: String,
 }
 
 /// Something a note operation refused: a kebab-case code and a message.
@@ -131,6 +145,7 @@ fn note_of(item: &Item) -> Note {
         record: item.id,
         title: text(&item.payload, "title").unwrap_or_default(),
         parent: text(&item.payload, "parent"),
+        body: text(&item.payload, "body").unwrap_or_default(),
     }
 }
 
@@ -182,6 +197,12 @@ pub fn list() -> Result<Vec<Note>, NoteError> {
     Ok(all_items(store.as_ref())?.iter().map(note_of).collect())
 }
 
+/// One note, by key or record uuid. Refuses an unknown note.
+pub fn read(id: &str) -> Result<Note, NoteError> {
+    let store = store(false)?;
+    get(store.as_ref(), resolve_id(id)).map(|item| note_of(&item))
+}
+
 /// How many notes there are.
 pub fn count() -> Result<usize, NoteError> {
     let store = store(false)?;
@@ -204,17 +225,31 @@ fn parent_of(store: &dyn AttributedStore, parent: Option<&str>) -> Result<Option
     }
 }
 
-/// Add a note titled `title` under `parent` (a key or a record uuid; `None`
-/// for a root), keyed `key` or a fresh key. Refuses an empty title
-/// (`invalid-argument`), a missing parent (`not-found`) and a key already
-/// taken (`conflict`).
-pub fn add(parent: Option<&str>, title: &str, key: Option<&str>) -> Result<Note, NoteError> {
+/// Add a note titled `title` with `body` under `parent` (a key or a record
+/// uuid; `None` for a root, a new collection), keyed `key` or a fresh key.
+/// A `parent` that is itself under another note is not nested into: the new
+/// note goes beside it, under its parent (see the module docs). Refuses an
+/// empty title (`invalid-argument`), a missing parent (`not-found`) and a
+/// key already taken (`conflict`).
+pub fn add(
+    parent: Option<&str>,
+    title: &str,
+    body: &str,
+    key: Option<&str>,
+) -> Result<Note, NoteError> {
     let title = title.trim();
     if title.is_empty() {
         return Err(NoteError::new("invalid-argument", "a note needs a title"));
     }
     let store = store(true)?;
-    let parent = parent_of(store.as_ref(), parent)?;
+    let parent = match parent_of(store.as_ref(), parent)? {
+        // A note, not a collection: file the new one beside it.
+        Some(note) => match note.parent {
+            Some(collection) => Some(get(store.as_ref(), collection)?),
+            None => Some(note),
+        },
+        None => None,
+    };
     let key = key
         .map(|k| k.trim().to_owned())
         .filter(|k| !k.is_empty())
@@ -229,6 +264,7 @@ pub fn add(parent: Option<&str>, title: &str, key: Option<&str>) -> Result<Note,
     let mut payload = BTreeMap::new();
     payload.insert("id".to_owned(), Value::String(key.clone()));
     payload.insert("title".to_owned(), Value::String(title.to_owned()));
+    payload.insert("body".to_owned(), Value::String(body.to_owned()));
     payload.insert(
         "parent".to_owned(),
         match &parent {
@@ -285,6 +321,26 @@ pub fn rename(id: &str, title: &str) -> Result<Note, NoteError> {
         .map_err(NoteError::store)?;
     item.payload
         .insert("title".into(), Value::String(title.to_owned()));
+    Ok(note_of(&item))
+}
+
+/// Replace a note's body (any text, empty included). Refuses an unknown
+/// note.
+pub fn write(id: &str, body: &str) -> Result<Note, NoteError> {
+    let store = store(true)?;
+    let record = resolve_id(id);
+    let mut item = get(store.as_ref(), record)?;
+    store
+        .update(
+            record,
+            vec![FieldMutation::SetPayload(
+                "body".into(),
+                Value::String(body.to_owned()),
+            )],
+        )
+        .map_err(NoteError::store)?;
+    item.payload
+        .insert("body".into(), Value::String(body.to_owned()));
     Ok(note_of(&item))
 }
 

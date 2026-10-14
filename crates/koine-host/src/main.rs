@@ -18,16 +18,24 @@ fn main() -> ExitCode {
     koine_host::ensure_linked();
     std::hint::black_box(surface_demo_service::DefaultSurfaceDemoService::new as *const ());
     // The demo host is the tour (docs/plan-koine-tour.md): once bound, seed
-    // the tour's surfaces and notes if the store lacks them, and run the
-    // concierge on the host's runtime until the host stops.
+    // the tour's surfaces and notes if the store lacks them (replacing a
+    // surface whose spec changed, A-D8), show three of them side by side in
+    // the window's layout once (A-D4), and run the concierge on the host's
+    // runtime until the host stops.
     let mut concierge = None;
     koine_host::cli::main_with("koine-demo", |cli, served, handle| {
-        let report = handle.block_on(surface_demo_service::tour::seed());
+        let report = handle.block_on(surface_demo_service::tour::seed_with_layout(
+            &cli.config.app_id,
+            Some(&cli.config.device),
+        ));
         println!(
-            "  tour: {} surfaces created, {} existing, {} notes seeded",
+            "  tour: {} surfaces created, {} updated, {} existing, {} notes seeded, \
+             {} tiles laid out",
             report.created.len(),
+            report.updated.len(),
             report.existing.len(),
-            report.notes_seeded
+            report.notes_seeded,
+            report.layout.len()
         );
         for error in &report.errors {
             eprintln!("  tour: {error}");
