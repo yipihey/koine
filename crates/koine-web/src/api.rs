@@ -71,6 +71,11 @@ pub struct RenderResult {
     /// placeholders it draws already carry the reason.
     #[serde(default)]
     pub source_errors: Vec<Value>,
+    /// The state row's revision this tree was resolved against (absent on
+    /// the spec's initial state): the page drops a tree older than the one
+    /// it shows.
+    #[serde(default)]
+    pub state_revision: Option<u64>,
 }
 
 impl RenderResult {
@@ -95,6 +100,9 @@ pub struct DispatchResult {
     pub effects: Vec<Value>,
     #[serde(default)]
     pub effects_failed: u32,
+    /// As [`RenderResult::state_revision`].
+    #[serde(default)]
+    pub state_revision: Option<u64>,
 }
 
 impl DispatchResult {
@@ -558,13 +566,15 @@ pub async fn list() -> Result<SurfaceListResult, ApiError> {
 }
 
 /// One surface's tree. A refusal, or an answer with no tree, is the `Err`.
-pub async fn render(id: &str) -> Result<RenderTree, ApiError> {
+pub async fn render(id: &str) -> Result<(RenderTree, Option<u64>), ApiError> {
     let result = parse_render(&get(&render_url(&origin(), id)).await?)?;
     if let Some(refusal) = result.refusal() {
         return Err(refusal);
     }
+    let revision = result.state_revision;
     result
         .tree
+        .map(|tree| (tree, revision))
         .ok_or_else(|| ApiError::new("bad-response", "render answered ok with no tree"))
 }
 
@@ -746,6 +756,7 @@ mod tests {
         });
         let result = parse_render(&body).unwrap();
         assert!(result.refusal().is_none());
+        assert_eq!(result.state_revision, Some(9));
         assert_eq!(result.tree.unwrap().focus_order, vec!["go".to_string()]);
     }
 

@@ -145,7 +145,7 @@ note by its grip, rename and delete from the row menu, add a collection
 and a note into it, write a note's body, see a refused verb's reason,
 pick a colour token, reorder a layout tile, stack two tiles as tabs.
 
-Running it found four defects that every screenshot had hidden, all now
+Running it found five defects that every screenshot had hidden, all now
 fixed, which is the case for A-D5 in one paragraph:
 
 - **A field's text went to another field.** A column's children were
@@ -166,6 +166,13 @@ fixed, which is the case for A-D5 in one paragraph:
   refusal, including the one a click had just caused. A refusal now
   records whether a background read or an action produced it, and a read
   clears only a read's.
+
+- **A background render could step the page back.** The wait loop's
+  render, asked for before an event landed and answered after it, drew the
+  state from before that event (CI caught a body editor reset under the
+  finger typing in it). The page now drops a render answered while it is
+  sending events, and any tree whose state revision is older than the one
+  shown.
 
 Also: with a mouse the row's "…" appears on hover and on the active row
 (it was never shown), so the menu is visible on every pointer (A-D2).

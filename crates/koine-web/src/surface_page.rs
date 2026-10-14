@@ -54,6 +54,12 @@ struct Live {
     /// handler reads the text just typed (docs/plan-koine-affordances.md).
     outbox: Signal<VecDeque<Event>>,
     sending: Signal<bool>,
+    /// The state revision of the tree shown. A background render can be
+    /// answered after an event's answer and carry the state from before it;
+    /// such a tree is older than this and is dropped, so the page never
+    /// steps back (a field the event revealed does not vanish under the
+    /// finger typing in it).
+    shown_revision: Signal<u64>,
     session: Session,
     /// Whether `h` and `l` mean a layout verb here. A surface that fills a
     /// page says yes; one inside a layout pane says no, and the key bubbles to
@@ -77,11 +83,27 @@ impl Live {
         }
     }
 
-    /// Render again and show it.
+    /// Show `tree` when it is not older than the one shown.
+    fn apply_at(mut self, tree: RenderTree, revision: Option<u64>) {
+        let revision = revision.unwrap_or(0);
+        if revision < *self.shown_revision.peek() {
+            return;
+        }
+        if revision != *self.shown_revision.peek() {
+            self.shown_revision.set(revision);
+        }
+        self.apply_tree(tree);
+    }
+
+    /// Render again and show it. While events are being sent their answers
+    /// are the newer trees, so a background render answered meanwhile is
+    /// not shown.
     async fn refresh(self) -> Result<(), ApiError> {
         let id = self.id.peek().clone();
-        let tree = api::render(&id).await?;
-        self.apply_tree(tree);
+        let (tree, revision) = api::render(&id).await?;
+        if !*self.sending.peek() {
+            self.apply_at(tree, revision);
+        }
         self.session.clear_read();
         Ok(())
     }
@@ -159,7 +181,7 @@ impl Live {
                 match api::dispatch(&id, &event, token.as_ref()).await {
                     Ok(result) => {
                         if let Some(tree) = result.tree.clone() {
-                            self.apply_tree(tree);
+                            self.apply_at(tree, result.state_revision);
                         }
                         match result.refusal() {
                             Some(refusal) => self.session.refuse(refusal),
@@ -299,6 +321,7 @@ pub fn SurfaceView(id: String, #[props(default)] embedded: bool) -> Element {
         clipboard: use_signal(|| None),
         outbox: use_signal(VecDeque::new),
         sending: use_signal(|| false),
+        shown_revision: use_signal(|| 0),
         session,
         layout_keys: !embedded,
     };
