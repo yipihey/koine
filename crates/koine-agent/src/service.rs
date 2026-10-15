@@ -44,8 +44,9 @@ pub trait AgentService: Send + Sync + 'static {
     /// Leave a request for an agent: `prompt` in the person's words, with
     /// what they are pointing at attached (unless `with_context` is false):
     /// the layout's focus and selection, and, given `surface_id`, the surface
-    /// they were looking at (its name, spec and current state). Refuses an
-    /// empty prompt.
+    /// they were looking at (its name, spec and current state). `app_id`
+    /// names whose layout that is (an impress app passes its own); this
+    /// host's when absent. Refuses an empty prompt.
     #[impress_method(
         safety = mutating,
         effects(
@@ -63,6 +64,7 @@ pub trait AgentService: Send + Sync + 'static {
         prompt: String,
         with_context: Option<bool>,
         surface_id: Option<String>,
+        app_id: Option<String>,
     ) -> RequestResult;
 
     /// Hand a call to an agent: a `diagnose` request whose context is the
@@ -248,6 +250,7 @@ impl AgentService for DefaultAgentService {
         prompt: String,
         with_context: Option<bool>,
         surface_id: Option<String>,
+        app_id: Option<String>,
     ) -> RequestResult {
         let prompt = prompt.trim();
         if prompt.is_empty() {
@@ -257,7 +260,10 @@ impl AgentService for DefaultAgentService {
             ));
         }
         let pointing = if with_context.unwrap_or(true) {
-            serde_json::to_value(context::pointing(&crate::app().app_id, None).await)
+            let app_id = app_id
+                .filter(|a| !a.trim().is_empty())
+                .unwrap_or_else(|| crate::app().app_id);
+            serde_json::to_value(context::pointing(app_id.trim(), None).await)
                 .unwrap_or(Value::Null)
         } else {
             Value::Null
@@ -532,7 +538,9 @@ impress_service_impl! {
             /// Attach what the person is pointing at (default true).
             with_context: Option<bool>,
             /// The surface the person was looking at, attached as context.
-            surface_id: Option<String>
+            surface_id: Option<String>,
+            /// The app whose layout (focus, selection) is the context; this host's when absent.
+            app_id: Option<String>
         ) -> RequestResult,
         /// Hand a logged call to an agent.
         diagnose(

@@ -163,6 +163,17 @@ fn a_request_moves_from_ask_to_answer_and_its_surface_can_be_shown() {
         "desk-test"
     );
 
+    // An impress app names its own layout as the context.
+    let other = verb(
+        "agent-service_ask",
+        json!({"prompt": "and here?", "app_id": "imbib"}),
+    );
+    assert_eq!(other["request"]["context"]["pointing"]["app_id"], "imbib");
+    verb(
+        "agent-service_decline",
+        json!({"id": other["request"]["id"], "reason": "test"}),
+    );
+
     let next = verb("agent-service_next", json!({"timeout_ms": 0}));
     assert_eq!(next["request"]["id"], id);
     let claimed = call::call_as(
