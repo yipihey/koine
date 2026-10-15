@@ -42,12 +42,20 @@ pub trait PackageService: Send + Sync + 'static {
     /// the one `inspect` answered (`digest-mismatch` otherwise, and nothing
     /// is written). Each surface is created, upgraded when the person's copy
     /// is the old shipped one, or kept with the new one pending when the
-    /// person changed it. Refuses a package with an invalid surface.
+    /// person changed it. Each workflow is stored `proposed` (a person
+    /// enables it), and its AI task categories are listed. Refuses a package
+    /// with an invalid surface or workflow.
     #[impress_method(
         safety = mutating,
         effects(
-            reads = ["impress/ui/surface@1.0.0"],
-            writes = ["impress/ui/surface@1.0.0", any("koine/shipped@1.0.0"), any("koine/package@1.0.0")],
+            reads = ["impress/ui/surface@1.0.0", "impress/workflow@1.0.0"],
+            writes = [
+                "impress/ui/surface@1.0.0",
+                "impress/workflow@1.0.0",
+                any("koine/shipped@1.0.0"),
+                any("koine/package@1.0.0"),
+                any("koine/ai-category@1.0.0")
+            ],
             reach = [fs]
         )
     )]
@@ -58,12 +66,19 @@ pub trait PackageService: Send + Sync + 'static {
     )]
     async fn install(&self, path: String, digest: String) -> InstallResult;
 
-    /// Remove an installed package: the surfaces it shipped that are as
-    /// shipped are deleted; those the person changed are kept (without a
-    /// baseline). Refuses a package that is not installed.
+    /// Remove an installed package: the surfaces and workflows it shipped
+    /// that are as shipped are deleted; those the person changed are kept
+    /// (surfaces without a baseline); its AI task categories go. Refuses a
+    /// package that is not installed.
     #[impress_method(
         safety = destructive,
-        effects(writes = ["impress/ui/surface@1.0.0", any("koine/shipped@1.0.0"), any("koine/package@1.0.0")])
+        effects(writes = [
+            "impress/ui/surface@1.0.0",
+            "impress/workflow@1.0.0",
+            any("koine/shipped@1.0.0"),
+            any("koine/package@1.0.0"),
+            any("koine/ai-category@1.0.0")
+        ])
     )]
     #[impress_example(
         name = "missing",
@@ -315,6 +330,16 @@ impl PackageService for DefaultPackageService {
                         outcome: outcome.word().into(),
                     })
                     .collect(),
+                workflows: installed
+                    .workflows
+                    .into_iter()
+                    .map(|w| InstallWorkflowRow {
+                        name: w.name,
+                        workflow_id: w.workflow_id,
+                        outcome: w.outcome,
+                    })
+                    .collect(),
+                ai_categories: installed.ai_categories,
                 ..Default::default()
             },
             Err(e) => refuse!(InstallResult, e),
@@ -323,10 +348,12 @@ impl PackageService for DefaultPackageService {
 
     async fn remove(&self, name: String) -> RemoveResult {
         match package::remove(name.trim()).await {
-            Ok((deleted, kept)) => RemoveResult {
+            Ok(removed) => RemoveResult {
                 ok: true,
-                deleted,
-                kept,
+                deleted: removed.deleted,
+                kept: removed.kept,
+                workflows_deleted: removed.workflows_deleted,
+                workflows_kept: removed.workflows_kept,
                 ..Default::default()
             },
             Err(e) => refuse!(RemoveResult, e),

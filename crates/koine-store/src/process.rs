@@ -20,6 +20,9 @@
 //!   directory backends are; a host registers its own).
 //! * [`set_subtree_resolver`] / [`subtree_resolver`]: the same registry for
 //!   how a collection's descendants are found. The default is `RootOnly`.
+//! * [`set_workspace`] / [`workspace`]: the directory this process keeps its
+//!   own state in beside the store (docs/plan-koine-ai-tasks.md AI-D3) — the
+//!   AI preferences, a package cache. A host sets it; nothing guesses it.
 //! * [`install_blobs`] / [`blobs`]: the blob view of the store (plan-koine-live
 //!   L-D6). Installing it also fills `impress_service_core`'s blob slot, so a
 //!   verb that takes a `BlobRef` reads its bytes through [`BlobStore`].
@@ -194,6 +197,20 @@ pub fn acquire_or_stand_in() -> (Arc<dyn AttributedStore>, bool) {
 /// The store of this call or process; see [`acquire`].
 pub fn current() -> Option<Arc<dyn AttributedStore>> {
     acquire().map(|(store, _)| store)
+}
+
+static WORKSPACE: RwLock<Option<std::path::PathBuf>> = RwLock::new(None);
+
+/// Name the directory this process keeps its state in (koine-host: its
+/// workspace; impress: the directory of the shared store file). A later call
+/// replaces the earlier one.
+pub fn set_workspace(dir: impl Into<std::path::PathBuf>) {
+    *WORKSPACE.write().unwrap_or_else(|e| e.into_inner()) = Some(dir.into());
+}
+
+/// The directory [`set_workspace`] named, or `None` when no host named one.
+pub fn workspace() -> Option<std::path::PathBuf> {
+    WORKSPACE.read().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 static BLOBS: RwLock<Option<Arc<dyn BlobStore>>> = RwLock::new(None);

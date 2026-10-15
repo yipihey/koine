@@ -67,6 +67,7 @@ pub mod materialize;
 mod routes;
 pub mod runner;
 pub mod secrets;
+pub mod tasks;
 pub mod window;
 
 use std::net::{IpAddr, SocketAddr};
@@ -127,6 +128,18 @@ pub struct Config {
     /// Package registries to add at start (`--registry`, P-D5); one already
     /// known is left as it is, one that cannot be read is logged.
     pub registries: Vec<String>,
+    /// Run the task scheduler over the store (`--tasks`,
+    /// docs/plan-koine-ai-tasks.md Q-D5): `task-service_enqueue` work runs
+    /// here. One host per store.
+    pub tasks: bool,
+    /// The scheduler's pass interval.
+    pub task_poll: std::time::Duration,
+    /// How long after start the first pass waits (an app sets its 90 s).
+    pub task_start_delay: std::time::Duration,
+    /// Run the model executors and the desk agent (`--ai`, AI-D5); implies
+    /// [`Self::tasks`]. The model is the device's choice in
+    /// `<workspace>/ai/preferences.json` (`impress-ai-service_select-model`).
+    pub ai: bool,
 }
 
 impl Config {
@@ -150,6 +163,10 @@ impl Config {
             app_version: env!("CARGO_PKG_VERSION").to_string(),
             kit: true,
             registries: Vec::new(),
+            tasks: false,
+            task_poll: std::time::Duration::from_secs(2),
+            task_start_delay: std::time::Duration::ZERO,
+            ai: false,
         }
     }
 
@@ -195,6 +212,7 @@ pub struct Served {
     runner: Arc<JobRunner>,
     state: Arc<HostState>,
     feed: Option<feed::FeedHandle>,
+    tasks: Option<tasks::Running>,
     stop: Option<oneshot::Sender<()>>,
     task: Option<JoinHandle<()>>,
 }
@@ -252,6 +270,9 @@ impl Served {
         }
         self.state.close_network();
         self.feed.take();
+        if let Some(mut tasks) = self.tasks.take() {
+            tasks.stop();
+        }
         self.runner.cancel_all();
         let _ = std::fs::remove_file(&self.token_path);
     }
@@ -281,6 +302,10 @@ pub(crate) struct HostState {
     pub runner: Arc<JobRunner>,
     pub mcp: Arc<HostConfig>,
     pub secrets: Arc<dyn SecretSource>,
+    /// Whether this host runs the task scheduler, and the model executors
+    /// and desk agent (Q-D5, AI-D5).
+    pub tasks: bool,
+    pub ai: bool,
 }
 
 /// Open the store, install the process seams, write the loopback token and
@@ -316,6 +341,8 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
     })?;
 
     koine_store::process::install(store.clone());
+    // AI-D3: the workspace beside the store (the AI preferences, blobs).
+    koine_store::process::set_workspace(&config.workspace);
     if let Some(blobs) = opened.blobs.clone() {
         koine_store::process::install_blobs(blobs);
     }
@@ -384,6 +411,20 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
             }
         }
     }
+    // Q-D5, AI-D5: the scheduler, and with AI the model executors and the
+    // desk agent.
+    let running_tasks = (config.tasks || config.ai).then(|| {
+        tasks::start(
+            tasks::TaskRuntime {
+                app_id: config.app_id.clone(),
+                workspace: config.workspace.clone(),
+                poll: config.task_poll,
+                start_delay: config.task_start_delay,
+                ai: config.ai,
+            },
+            store.clone(),
+        )
+    });
     let skill = koine_agent::skill::render(&koine_agent::app());
     let feed = feed::start(
         store,
@@ -438,6 +479,8 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
             tool_file_params: Vec::new(),
         }),
         secrets: secret_source,
+        tasks: config.tasks || config.ai,
+        ai: config.ai,
     });
 
     let app = app(state.clone()).into_make_service_with_connect_info::<SocketAddr>();
@@ -458,6 +501,7 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
         runner,
         state,
         feed: Some(feed),
+        tasks: running_tasks,
         stop: Some(stop),
         task: Some(task),
     })
@@ -532,8 +576,8 @@ fn check_network_config(config: &Config) -> Result<(), HostError> {
     Ok(())
 }
 
-/// Reference the two runtime crates and the kit's three (the notebook, the
-/// agent desk, packages) so the linker keeps their `#[impress_service]`
+/// Reference the two runtime crates, the kit's three (the notebook, the
+/// agent desk, packages), the task verbs and the AI verbs so the linker keeps their `#[impress_service]`
 /// registrations: an unreferenced crate that only
 /// contains `inventory::submit!` statics is dropped from the final binary.
 /// Call this from `main` (and from any test that expects their verbs).
@@ -547,6 +591,8 @@ pub fn ensure_linked() {
     koine_notebook::ensure_linked();
     koine_agent::ensure_linked();
     koine_packages::ensure_linked();
+    koine_tasks::ensure_linked();
+    koine_ai::ensure_linked();
 }
 
 #[cfg(test)]

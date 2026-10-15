@@ -1,0 +1,62 @@
+[package]
+name = "koine-ai"
+description = "Provenance-first AI over the item graph: providers, the model registry, conversations over the store port, the task executors, the desk agent and the AI verbs (docs/plan-koine-ai-tasks.md)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+base64 = "0.22"
+chrono = { workspace = true }
+dirs = { workspace = true }
+futures-util = "0.3"
+html-escape = "0.2"
+impress-item = { workspace = true }
+impress-fs-lock = { workspace = true }
+koine-store-dir = { workspace = true }
+regex = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = "0.1"
+uuid = { workspace = true, features = ["v4", "v5", "serde"] }
+url = { workspace = true }
+# The task rows a queued turn is; `executor` adds the runtime.
+koine-tasks = { workspace = true }
+# `service`: the AI verbs and the inventory tool adapter.
+impress-service-core = { workspace = true, optional = true }
+impress-service-macros = { workspace = true, optional = true }
+koine-store = { workspace = true, optional = true }
+# `schema`: `JsonSchema` on the DTOs a verb boundary carries.
+schemars = { workspace = true, optional = true }
+# `legacy-sqlite`: the error variant impress's LocalModels import converts into.
+rusqlite = { version = "0.32", default-features = false, optional = true }
+koine-workspace-hack.workspace = true
+
+[features]
+default = []
+executor = ["koine-tasks/runtime", "service"]
+service = [
+    "schema",
+    "dep:impress-service-core",
+    "dep:impress-service-macros",
+    "dep:koine-store",
+]
+schema = ["dep:schemars"]
+legacy-sqlite = ["dep:rusqlite"]
+
+[dev-dependencies]
+mockito = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "test-util"] }
+koine-store-memory = { workspace = true }
+# The desk verbs the desk agent's test calls.
+koine-agent = { workspace = true }
+
+[lints]
+workspace = true

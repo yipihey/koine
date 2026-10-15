@@ -56,6 +56,11 @@ OPTIONS:
                              directory or URL holding one); may be repeated
     --no-kit                 do not install the kit's surfaces (Notebook, Agent desk,
                              Packages) at start
+    --tasks                  run the task scheduler: work filed with
+                             task-service_enqueue runs here (one host per store)
+    --ai                     also run the model executors and the desk agent (implies
+                             --tasks); the model is the device's choice
+                             (impress-ai-service_select-model)
     --check                  start, print the URL and verb count, stop, exit 0
     -h, --help               this text
 
@@ -162,6 +167,8 @@ pub fn parse_with_env(
     let mut window = false;
     let mut registries: Vec<String> = Vec::new();
     let mut kit = true;
+    let mut tasks = false;
+    let mut ai = false;
     while let Some(flag) = args.next() {
         let (flag, inline) = match flag.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => {
@@ -202,6 +209,8 @@ pub fn parse_with_env(
             "--check" => check = true,
             "--registry" => registries.push(value("--registry")?),
             "--no-kit" => kit = false,
+            "--tasks" => tasks = true,
+            "--ai" => ai = true,
             "--window" => window = true,
             other => return Err(format!("unknown option {other} (see --help)")),
         }
@@ -226,6 +235,8 @@ pub fn parse_with_env(
     config.keychain = keychain;
     config.registries = registries;
     config.kit = kit;
+    config.tasks = tasks || ai;
+    config.ai = ai;
     Ok(Some(Cli {
         config,
         check,

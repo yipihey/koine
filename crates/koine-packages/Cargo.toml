@@ -14,6 +14,8 @@ koine-store = { workspace = true }
 # A spec is compared in the form the surface store keeps it: parsed as a
 # SurfaceSpec and serialized again.
 impress-surface = { workspace = true }
+# Workflows a package ships (docs/plan-koine-ai-tasks.md P-D9).
+impress-workflow = { workspace = true }
 # The kit's surfaces (plan-koine-research-os B-D4).
 koine-notebook = { workspace = true }
 koine-agent = { workspace = true }
@@ -30,6 +32,8 @@ tracing = { workspace = true }
 koine-workspace-hack.workspace = true
 
 [dev-dependencies]
+# The categories a package declares, read the way the AI kernel reads them.
+koine-ai = { workspace = true }
 impress-pane-query = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 koine-store-memory = { workspace = true }

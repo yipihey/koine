@@ -154,6 +154,7 @@ macro_rules! __cases {
                 guarded_write_that_fails_writes_nothing,
                 guarded_batch_applies_every_operation_under_one_batch,
                 guarded_batch_is_all_or_nothing,
+                operation_batch_is_one_batch_and_all_or_nothing,
                 guarded_batch_refuses_an_empty_batch,
                 guarded_writes_lose_no_update_under_contention,
                 // the clock

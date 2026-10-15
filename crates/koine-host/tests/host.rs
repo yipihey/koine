@@ -2215,3 +2215,88 @@ async fn a_package_from_the_example_registry_installs_and_renders() {
     assert!(errors.is_empty(), "{errors:?}");
     host.served.shutdown().await;
 }
+
+// ------------------------------------------------------- tasks and AI (Q-D5)
+
+/// A host started with `--tasks` runs what `task-service_enqueue` files, as
+/// its agent, and keeps the answer; a host without it reports no scheduler.
+#[tokio::test]
+async fn a_host_with_tasks_runs_an_enqueued_verb_task() {
+    let _turn = TURN.lock().await;
+    let host = start_with("memory:", "task-app", |config| {
+        config.tasks = true;
+        config.task_poll = std::time::Duration::from_millis(50);
+    })
+    .await;
+    let (_, status) = host.get_json("/api/status").await;
+    assert_eq!(status["tasks"], json!({ "scheduler": true, "ai": false }));
+
+    let (code, filed) = host
+        .post(
+            "/api/verb/task-service_enqueue",
+            json!({
+                "verb": "surface-demo-service_note-add",
+                "args": { "title": "Filed as a task" },
+            }),
+        )
+        .await;
+    assert_eq!(code, 200, "{filed}");
+    assert_eq!(filed["task"]["filed_by"], "agent:http", "{filed}");
+    let id = filed["task"]["id"].as_str().unwrap().to_string();
+
+    let mut task = Value::Null;
+    for _ in 0..100 {
+        let (_, shown) = host
+            .post("/api/verb/task-service_show", json!({ "id": id }))
+            .await;
+        task = shown["task"].clone();
+        if task["state"] == "done" || task["state"] == "failed" {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(task["state"], "done", "{task}");
+    assert_eq!(task["assigned_to"], "task-app:tasks", "{task}");
+    assert_eq!(task["result"]["note"]["title"], "Filed as a task", "{task}");
+    host.served.shutdown().await;
+
+    let plain = start("memory:", "plain-app").await;
+    let (_, status) = plain.get_json("/api/status").await;
+    assert_eq!(status["tasks"], json!({ "scheduler": false, "ai": false }));
+    plain.served.shutdown().await;
+}
+
+/// `--ai` runs the scheduler too, and the AI verbs keep their preferences in
+/// this host's workspace (AI-D3).
+#[tokio::test]
+async fn a_host_with_ai_keeps_its_model_choice_in_its_workspace() {
+    let _turn = TURN.lock().await;
+    let host = start_with("memory:", "ai-app", |config| {
+        config.ai = true;
+    })
+    .await;
+    let (_, status) = host.get_json("/api/status").await;
+    assert_eq!(status["tasks"], json!({ "scheduler": true, "ai": true }));
+
+    let (_, providers) = host
+        .post("/api/verb/impress-ai-service_list-providers", json!({}))
+        .await;
+    assert!(
+        providers["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == "anthropic"),
+        "{providers}"
+    );
+    let (_, preferences) = host
+        .post("/api/verb/impress-ai-service_ai-preferences", json!({}))
+        .await;
+    let path = preferences["path"].as_str().unwrap();
+    assert!(
+        path.starts_with(&host.workspace.path().display().to_string())
+            && path.ends_with("ai/preferences.json"),
+        "{path}"
+    );
+    host.served.shutdown().await;
+}

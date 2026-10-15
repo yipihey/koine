@@ -159,6 +159,15 @@ impl AttributedStore for RecordingStore {
         self.inner.logical_clock_of(id)
     }
 
+    fn apply_operation_batch(&self, specs: Vec<OperationSpec>) -> Result<Vec<ItemId>, StoreError> {
+        let targets: Vec<ItemId> = specs.iter().map(|spec| spec.target_id).collect();
+        let written = self.inner.apply_operation_batch(specs)?;
+        for target in targets {
+            context::note_update(target.to_string());
+        }
+        Ok(written)
+    }
+
     fn operations_for(
         &self,
         target: ItemId,

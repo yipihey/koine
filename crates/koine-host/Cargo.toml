@@ -41,6 +41,9 @@ koine-mcp-host = { workspace = true }
 koine-notebook = { workspace = true }
 koine-agent = { workspace = true }
 koine-packages = { workspace = true }
+# Tasks and AI (docs/plan-koine-ai-tasks.md Q-D5, AI-D5).
+koine-tasks = { workspace = true, features = ["runtime"] }
+koine-ai = { workspace = true, features = ["executor"] }
 # The demo verbs the binary links (the library itself names no domain).
 surface-demo-service = { workspace = true }
 koine-window = { workspace = true }

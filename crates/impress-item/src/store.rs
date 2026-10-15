@@ -192,6 +192,42 @@ pub trait AttributedStore: ItemStore {
     /// The row's `logical_clock`, or `None` when the row does not exist.
     fn logical_clock_of(&self, id: ItemId) -> Result<Option<u64>, StoreError>;
 
+    /// Apply several operations as one batch: all of them or none
+    /// (docs/plan-koine-ai-tasks.md Q-D4). Answers the operation ids, in
+    /// order. An empty batch writes nothing.
+    ///
+    /// The default handles one target as a clock-guarded batch
+    /// ([`apply_operations_if_clock`](Self::apply_operations_if_clock)),
+    /// reading the clock again when another writer moved the row first.
+    /// Specs naming several targets are applied in order, one at a time:
+    /// a backend that can hold them in one transaction overrides this.
+    /// SQLite does.
+    fn apply_operation_batch(&self, specs: Vec<OperationSpec>) -> Result<Vec<ItemId>, StoreError> {
+        let Some(first) = specs.first().map(|spec| spec.target_id) else {
+            return Ok(Vec::new());
+        };
+        if specs.iter().any(|spec| spec.target_id != first) {
+            return specs
+                .into_iter()
+                .map(|spec| self.apply_operation(spec))
+                .collect();
+        }
+        const ATTEMPTS: usize = 8;
+        for _ in 0..ATTEMPTS {
+            let clock = self
+                .logical_clock_of(first)?
+                .ok_or(StoreError::NotFound(first))?;
+            match self.apply_operations_if_clock(specs.clone(), first, clock)? {
+                GuardedBatch::Applied { operation_ids, .. } => return Ok(operation_ids),
+                GuardedBatch::Moved { clock: None } => return Err(StoreError::NotFound(first)),
+                GuardedBatch::Moved { .. } => continue,
+            }
+        }
+        Err(StoreError::Storage(format!(
+            "apply_operation_batch: {first} moved under {ATTEMPTS} attempts"
+        )))
+    }
+
     /// The operation rows (schema `core/operation`) that targeted `target`,
     /// oldest first: ordered by `logical_clock` ascending, as the oracle's
     /// `SqliteItemStore::operations_for` does, so `limit` keeps the *first*

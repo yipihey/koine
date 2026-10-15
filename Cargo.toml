@@ -32,6 +32,8 @@ members = [
     "crates/koine-notebook",
     "crates/koine-agent",
     "crates/koine-packages",
+    "crates/koine-tasks",
+    "crates/koine-ai",
     "crates/koine-host",
     "crates/koine-window",
     "crates/koine-demo-mobile",
@@ -138,6 +140,11 @@ koine-host = { path = "crates/koine-host" }
 koine-notebook = { path = "crates/koine-notebook" }
 koine-agent = { path = "crates/koine-agent" }
 koine-packages = { path = "crates/koine-packages" }
+# The task kernel (docs/plan-koine-ai-tasks.md). `runtime` is opt-in per
+# member: a workspace dependency cannot turn a default feature off.
+koine-tasks = { path = "crates/koine-tasks", default-features = false }
+# The AI kernel (docs/plan-koine-ai-tasks.md AI-D1); features are opt-in per member.
+koine-ai = { path = "crates/koine-ai", default-features = false }
 # Package digests (plan-koine-research-os P-D1).
 sha2 = "0.10"
 koine-window = { path = "crates/koine-window" }

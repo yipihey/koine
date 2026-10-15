@@ -75,6 +75,12 @@ pub struct ReviewResult {
     pub surfaces: Vec<ReviewSurface>,
     #[serde(default)]
     pub skills: Vec<String>,
+    /// The workflows it ships, each installed `proposed` (P-D9).
+    #[serde(default)]
+    pub workflows: Vec<ReviewWorkflow>,
+    /// The AI task categories it declares.
+    #[serde(default)]
+    pub ai_categories: Vec<CategoryRow>,
     #[serde(default)]
     pub verbs: Vec<ReviewVerb>,
     /// Verbs it needs that this host does not link.
@@ -102,6 +108,49 @@ pub struct InstallRow {
     pub outcome: String,
 }
 
+/// One workflow a package ships, as the review shows it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ReviewWorkflow {
+    pub name: String,
+    pub file: String,
+    pub valid: bool,
+    #[serde(default)]
+    pub problems: Vec<String>,
+    /// The verbs its steps call.
+    #[serde(default)]
+    pub verbs: Vec<String>,
+    /// What starts it.
+    #[serde(default)]
+    pub trigger: serde_json::Value,
+    /// `propose`, `keep (unchanged)`, `keep yours`, `propose the new one`,
+    /// `leave deleted` or `refuse`.
+    pub would: String,
+}
+
+/// An AI task category a package declares.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct CategoryRow {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub apps: Vec<String>,
+}
+
+/// What installing did to one workflow.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct InstallWorkflowRow {
+    pub name: String,
+    pub workflow_id: String,
+    /// `proposed`, `unchanged`, `kept yours` or `left deleted`.
+    pub outcome: String,
+}
+
 /// `install`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct InstallResult {
@@ -114,6 +163,12 @@ pub struct InstallResult {
     pub digest: String,
     #[serde(default)]
     pub surfaces: Vec<InstallRow>,
+    /// Its workflows, each `proposed` until a person enables it (P-D9).
+    #[serde(default)]
+    pub workflows: Vec<InstallWorkflowRow>,
+    /// The AI task categories it declared.
+    #[serde(default)]
+    pub ai_categories: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -130,6 +185,12 @@ pub struct RemoveResult {
     /// Surfaces kept (the person changed them); they no longer have a baseline.
     #[serde(default)]
     pub kept: Vec<String>,
+    /// Workflows deleted (they were as shipped).
+    #[serde(default)]
+    pub workflows_deleted: Vec<String>,
+    /// Workflows kept (the person edited them).
+    #[serde(default)]
+    pub workflows_kept: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

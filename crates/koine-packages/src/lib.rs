@@ -8,8 +8,11 @@
 //! [`package`] reads a package directory, answers the review a person reads
 //! before installing, and installs exactly what was reviewed (its digest).
 //! [`kit`] is the package every host ships: the Notebook, the Agent desk and
-//! the Packages surface.
+//! the Packages surface. [`contents`] is what a package carries besides
+//! surfaces and skills: workflows and AI task categories
+//! (docs/plan-koine-ai-tasks.md P-D9).
 
+pub mod contents;
 pub mod digest;
 pub mod dto;
 pub mod kit;

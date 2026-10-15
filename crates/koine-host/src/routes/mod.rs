@@ -184,6 +184,7 @@ async fn status(State(state): State<Shared>) -> Response {
             },
             "verbs": call::descriptors().count(),
             "jobs_running": state.runner.running(),
+            "tasks": { "scheduler": state.tasks, "ai": state.ai },
             "secrets": {
                 "declared": declared,
                 "missing": missing,

@@ -1,0 +1,48 @@
+[package]
+name = "koine-tasks"
+description = "The task kernel over the store port: states, the queue, jobs, executors, the scheduler, spawn rules, and verbs as tasks (docs/plan-koine-ai-tasks.md)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-item = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true, features = ["v5"] }
+thiserror = { workspace = true }
+# `runtime`: executors, the scheduler, spawn rules, the verb executor and the
+# task verbs. Without it the crate is the state machine, the store port and
+# jobs, all synchronous: what a store crate (impress-core) needs.
+async-trait = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["time"], optional = true }
+impress-service-core = { workspace = true, optional = true }
+impress-service-macros = { workspace = true, optional = true }
+koine-store = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+schemars = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[features]
+default = ["runtime"]
+runtime = [
+    "dep:async-trait",
+    "dep:tokio",
+    "dep:impress-service-core",
+    "dep:impress-service-macros",
+    "dep:koine-store",
+    "dep:serde",
+    "dep:schemars",
+]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+# A verb whose answer names its caller, for the verb-task tests.
+koine-agent = { workspace = true }
+koine-store-memory = { workspace = true }
+koine-store-dir = { workspace = true }
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

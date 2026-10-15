@@ -497,6 +497,52 @@ pub fn guarded_batch_is_all_or_nothing(store: &dyn AttributedStore) {
     );
 }
 
+/// `apply_operation_batch` on one row writes every operation under one batch
+/// id, in order, and a batch that fails part-way writes none of it. An empty
+/// batch writes nothing. Several rows are each written.
+pub fn operation_batch_is_one_batch_and_all_or_nothing(store: &dyn AttributedStore) {
+    let id = insert(store, "test", "Target");
+    let ids = store
+        .apply_operation_batch(vec![
+            set(id, "title", text("one")),
+            set(id, "n", Value::Int(1)),
+        ])
+        .unwrap();
+    assert_eq!(ids.len(), 2);
+    let ops: Vec<_> = ids
+        .iter()
+        .map(|op| store.get(*op).unwrap().expect("each operation is a row"))
+        .collect();
+    assert!(
+        ops[0].batch_id.is_some() && ops[0].batch_id == ops[1].batch_id,
+        "one batch id on all of them"
+    );
+    let row = store.get(id).unwrap().unwrap();
+    assert_eq!(row.payload.get("title"), Some(&text("one")));
+    assert_eq!(row.payload.get("n"), Some(&Value::Int(1)));
+
+    let clock = store.logical_clock_of(id).unwrap();
+    let missing = uuid::Uuid::new_v4();
+    assert!(store
+        .apply_operation_batch(vec![set(missing, "title", text("x"))])
+        .is_err());
+    assert_eq!(store.logical_clock_of(id).unwrap(), clock);
+    assert!(store.apply_operation_batch(Vec::new()).unwrap().is_empty());
+
+    let other = insert(store, "test", "Other");
+    let both = store
+        .apply_operation_batch(vec![
+            set(id, "a", Value::Int(1)),
+            set(other, "b", Value::Int(2)),
+        ])
+        .unwrap();
+    assert_eq!(both.len(), 2);
+    assert_eq!(
+        store.get(other).unwrap().unwrap().payload.get("b"),
+        Some(&Value::Int(2))
+    );
+}
+
 /// An empty guarded batch is refused: it would report a write that never
 /// happened.
 pub fn guarded_batch_refuses_an_empty_batch(store: &dyn AttributedStore) {

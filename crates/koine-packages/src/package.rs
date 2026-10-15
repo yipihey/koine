@@ -13,6 +13,7 @@ use impress_service_core::{SafetyClass, VerbDescriptor};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::contents::{self, CategoryEntry, WorkflowEntry, WorkflowOutcome};
 use crate::digest::sha256;
 use crate::shipped::{self, Outcome, ShippedError};
 
@@ -69,6 +70,24 @@ pub struct Manifest {
     pub skills: Vec<SkillEntry>,
     #[serde(default)]
     pub requires: Requires,
+    /// Workflows it ships (P-D9), installed `proposed`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workflows: Vec<WorkflowEntry>,
+    /// AI task categories it declares (P-D9).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ai_categories: Vec<CategoryEntry>,
+}
+
+impl Manifest {
+    /// Every file the manifest names: surfaces, skills, workflows.
+    pub fn named_files(&self) -> Vec<&String> {
+        self.surfaces
+            .iter()
+            .map(|s| &s.file)
+            .chain(self.skills.iter().map(|s| &s.file))
+            .chain(self.workflows.iter().map(|w| &w.file))
+            .collect()
+    }
 }
 
 /// A package read whole: the manifest's bytes, the manifest, and every file
@@ -145,12 +164,28 @@ impl Package {
                 ));
             }
         }
-        let named: Vec<&String> = manifest
-            .surfaces
-            .iter()
-            .map(|s| &s.file)
-            .chain(manifest.skills.iter().map(|s| &s.file))
-            .collect();
+        let mut workflows = BTreeSet::new();
+        for workflow in &manifest.workflows {
+            if !workflows.insert(workflow.name.clone()) {
+                return Err(fail(
+                    "invalid-argument",
+                    format!("{MANIFEST}: two workflows are named '{}'", workflow.name),
+                ));
+            }
+        }
+        let mut categories = BTreeSet::new();
+        for category in &manifest.ai_categories {
+            if let Some(problem) = contents::category_errors(category).into_iter().next() {
+                return Err(fail("invalid-argument", format!("{MANIFEST}: {problem}")));
+            }
+            if !categories.insert(category.id.clone()) {
+                return Err(fail(
+                    "invalid-argument",
+                    format!("{MANIFEST}: two categories have the id '{}'", category.id),
+                ));
+            }
+        }
+        let named = manifest.named_files();
         for file in &named {
             checked(file)?;
             if !files.contains_key(file.as_str()) {
@@ -179,12 +214,7 @@ impl Package {
         let manifest: Manifest = serde_json::from_slice(&manifest_bytes)
             .map_err(|e| fail("invalid-argument", format!("{MANIFEST}: {e}")))?;
         let mut files = BTreeMap::new();
-        for file in manifest
-            .surfaces
-            .iter()
-            .map(|s| &s.file)
-            .chain(manifest.skills.iter().map(|s| &s.file))
-        {
+        for file in manifest.named_files() {
             checked(file)?;
             let path = dir.join(file);
             // A symlink inside the package must not reach outside it.
@@ -270,13 +300,7 @@ impl Package {
         }
         let package = Self::from_parts(manifest.as_bytes().to_vec(), files, source)?;
         // Only what the manifest names counts toward the digest.
-        let named: BTreeSet<&String> = package
-            .manifest
-            .surfaces
-            .iter()
-            .map(|s| &s.file)
-            .chain(package.manifest.skills.iter().map(|s| &s.file))
-            .collect();
+        let named: BTreeSet<&String> = package.manifest.named_files().into_iter().collect();
         if let Some(extra) = package.files.keys().find(|p| !named.contains(p)) {
             return Err(fail(
                 "invalid-argument",
@@ -316,6 +340,14 @@ impl Package {
         let bytes = &self.files[&entry.file];
         serde_json::from_slice(bytes)
             .map_err(|e| fail("invalid-spec", format!("{}: not JSON: {e}", entry.file)))
+    }
+
+    /// One shipped workflow.
+    pub fn workflow_spec(
+        &self,
+        entry: &WorkflowEntry,
+    ) -> Result<impress_workflow::WorkflowSpec, ShippedError> {
+        contents::parse_workflow(&entry.file, &self.files[&entry.file])
     }
 
     /// One shipped skill's text.
@@ -391,6 +423,21 @@ pub async fn review(package: &Package) -> Value {
             "problems": errors, "verbs": verbs, "would": would,
         }));
     }
+    let store = shipped::store(false).ok();
+    let baselines = workflow_baselines(&manifest.name);
+    let mut workflows = Vec::new();
+    for entry in &manifest.workflows {
+        let (row, valid, verbs) = contents::review_workflow(
+            store.as_deref(),
+            &manifest.name,
+            entry,
+            &package.files[&entry.file],
+            baselines.get(&entry.name).map(String::as_str),
+        );
+        all_valid &= valid;
+        called.extend(verbs);
+        workflows.push(row);
+    }
     let mut secrets: BTreeSet<String> = manifest.requires.secrets.iter().cloned().collect();
     let verbs: Vec<Value> = called
         .iter()
@@ -421,6 +468,8 @@ pub async fn review(package: &Package) -> Value {
         "valid": all_valid,
         "surfaces": surfaces,
         "skills": manifest.skills.iter().map(|s| s.name.clone()).collect::<Vec<_>>(),
+        "workflows": workflows,
+        "ai_categories": manifest.ai_categories,
         "verbs": verbs,
         "missing_verbs": missing_verbs,
         "missing_secrets": missing_secrets,
@@ -455,6 +504,39 @@ pub struct Installed {
     pub digest: String,
     /// `(surface name, surface id, outcome)`.
     pub surfaces: Vec<(String, String, Outcome)>,
+    /// What happened to each workflow (P-D9).
+    pub workflows: Vec<WorkflowOutcome>,
+    /// The AI task categories it declares.
+    pub ai_categories: Vec<String>,
+}
+
+/// What [`remove`] did.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Removed {
+    /// Surfaces deleted (as shipped) and kept (the person changed them).
+    pub deleted: Vec<String>,
+    pub kept: Vec<String>,
+    /// Workflows deleted (as shipped) and kept (the person edited them).
+    pub workflows_deleted: Vec<String>,
+    pub workflows_kept: Vec<String>,
+}
+
+/// The workflow digests the installed `package`'s record holds, by name.
+pub fn workflow_baselines(package: &str) -> BTreeMap<String, String> {
+    installed()
+        .unwrap_or_default()
+        .iter()
+        .find(|record| record.get("name").and_then(Value::as_str) == Some(package))
+        .and_then(|record| record.get("workflows").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|w| {
+            Some((
+                w.get("name")?.as_str()?.to_string(),
+                w.get("digest")?.as_str()?.to_string(),
+            ))
+        })
+        .collect()
 }
 
 fn package_id(name: &str) -> ItemId {
@@ -483,17 +565,39 @@ pub async fn install(package: &Package) -> Result<Installed, ShippedError> {
         }
         specs.push((entry, spec));
     }
+    let mut workflows = Vec::new();
+    for entry in &manifest.workflows {
+        let spec = package.workflow_spec(entry)?;
+        if let Some(problem) = contents::workflow_errors(&spec).into_iter().next() {
+            return Err(fail(
+                "invalid-spec",
+                format!("workflow {} ({}): {problem}", entry.name, entry.file),
+            ));
+        }
+        workflows.push((entry.name.clone(), spec));
+    }
+    let baselines = workflow_baselines(&manifest.name);
     let mut surfaces = Vec::new();
     for (entry, spec) in specs {
         let (outcome, id) =
             shipped::install(&manifest.name, &manifest.version, &entry.name, &spec).await?;
         surfaces.push((entry.name.clone(), id, outcome));
     }
+    let store = shipped::store(true)?;
+    let workflows =
+        contents::install_workflows(store.as_ref(), &manifest.name, &workflows, &baselines)?;
+    contents::install_categories(store.as_ref(), &manifest.name, &manifest.ai_categories)?;
     let installed = Installed {
         name: manifest.name.clone(),
         version: manifest.version.clone(),
         digest: package.digest(),
         surfaces,
+        workflows,
+        ai_categories: manifest
+            .ai_categories
+            .iter()
+            .map(|c| c.id.clone())
+            .collect(),
     };
     record(package, &installed)?;
     Ok(installed)
@@ -516,6 +620,10 @@ fn record(package: &Package, installed: &Installed) -> Result<(), ShippedError> 
             .map(|s| json!({"name": s.name, "text": package.skill_text(s)}))
             .collect::<Vec<_>>(),
         "requires": manifest.requires,
+        "workflows": installed.workflows.iter()
+            .map(|w| json!({"name": w.name, "workflow_id": w.workflow_id, "digest": w.digest}))
+            .collect::<Vec<_>>(),
+        "ai_categories": installed.ai_categories,
     });
     let fields: BTreeMap<String, ItemValue> = payload
         .as_object()
@@ -589,10 +697,10 @@ pub fn installed() -> Result<Vec<serde_json::Map<String, Value>>, ShippedError> 
         .collect())
 }
 
-/// Remove `name`: its pristine surfaces are deleted; those the person
-/// changed are kept, without a baseline (P-D3). Answers `(deleted, kept)`
-/// surface ids.
-pub async fn remove(name: &str) -> Result<(Vec<String>, Vec<String>), ShippedError> {
+/// Remove `name`: its pristine surfaces and workflows are deleted; those the
+/// person changed are kept, surfaces without a baseline (P-D3, P-D9). Its
+/// AI task categories are removed.
+pub async fn remove(name: &str) -> Result<Removed, ShippedError> {
     let store = shipped::store(true)?;
     let id = package_id(name);
     if store
@@ -602,23 +710,31 @@ pub async fn remove(name: &str) -> Result<(Vec<String>, Vec<String>), ShippedErr
     {
         return Err(fail("not-found", format!("no package {name} is installed")));
     }
-    let mut deleted = Vec::new();
-    let mut kept = Vec::new();
+    let mut removed = Removed::default();
+    for (workflow, digest) in workflow_baselines(name) {
+        let id = contents::workflow_id(name, &workflow).to_string();
+        match contents::remove_workflow_if_pristine(store.as_ref(), name, &workflow, &digest)? {
+            Some(true) => removed.workflows_deleted.push(id),
+            Some(false) => removed.workflows_kept.push(id),
+            None => {}
+        }
+    }
+    contents::remove_categories(store.as_ref(), name)?;
     for baseline in shipped::list(Some(name))? {
         match shipped::status(&baseline).await? {
             shipped::Status::Pristine => {
                 shipped::delete(&baseline.surface_id).await?;
-                deleted.push(baseline.surface_id.clone());
+                removed.deleted.push(baseline.surface_id.clone());
             }
             shipped::Status::Missing => {}
-            _ => kept.push(baseline.surface_id.clone()),
+            _ => removed.kept.push(baseline.surface_id.clone()),
         }
         shipped::forget(&baseline)?;
     }
     store
         .delete(id)
         .map_err(|e| fail("store-error", e.to_string()))?;
-    Ok((deleted, kept))
+    Ok(removed)
 }
 
 /// The skills of every installed package, `(name, text)`.

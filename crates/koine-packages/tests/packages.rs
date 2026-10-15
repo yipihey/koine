@@ -548,3 +548,173 @@ fn the_example_registry_matches_its_sources() {
         }
     }
 }
+
+// ------------------------------------------- workflows and categories (P-D9)
+
+fn workflow(steps_verb: &str) -> Value {
+    json!({
+        "wire_version": 1, "name": "Nightly list", "description": "List the packages",
+        "state": "enabled", "author": {"kind": "human"},
+        "trigger": {"schedule": {"every": "24h"}},
+        "steps": [{"call": {"verb": steps_verb, "args": {}}}]
+    })
+}
+
+/// Write a package `lab` at `version` shipping one workflow and one category.
+fn write_lab(dir: &Path, version: &str, steps_verb: &str) {
+    std::fs::create_dir_all(dir.join("workflows")).unwrap();
+    std::fs::write(
+        dir.join("koine-package.json"),
+        serde_json::to_vec_pretty(&json!({
+            "package": "1.0", "name": "lab", "version": version,
+            "workflows": [{"name": "Nightly list", "file": "workflows/nightly.workflow.json"}],
+            "ai_categories": [{"id": "research.lab-notes", "name": "Lab notes",
+                               "parent": "research", "apps": ["notes"]}]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("workflows/nightly.workflow.json"),
+        serde_json::to_vec(&workflow(steps_verb)).unwrap(),
+    )
+    .unwrap();
+}
+
+fn store() -> Arc<dyn AttributedStore> {
+    koine_store::process::current().unwrap()
+}
+
+fn workflow_row(id: &str) -> Option<impress_item::Item> {
+    store().get(id.parse().unwrap()).unwrap()
+}
+
+fn set_field(id: &str, field: &str, value: Value) {
+    store()
+        .update(
+            id.parse().unwrap(),
+            vec![impress_item::FieldMutation::SetPayload(
+                field.into(),
+                serde_json::from_value(value).unwrap(),
+            )],
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_packages_workflows_install_proposed_and_its_categories_list() {
+    let _turn = fresh();
+    let dir = tempfile::tempdir().unwrap();
+    write_lab(dir.path(), "0.1.0", "package-service_list");
+    let path = dir.path().display().to_string();
+
+    let review = verb("package-service_inspect", json!({"path": path}));
+    assert_eq!(review["valid"], true, "{review}");
+    let flow = &review["workflows"][0];
+    assert_eq!(flow["would"], "propose", "{review}");
+    assert_eq!(flow["verbs"], json!(["package-service_list"]));
+    assert_eq!(review["ai_categories"][0]["id"], "research.lab-notes");
+
+    let installed = install(dir.path());
+    let row = &installed["workflows"][0];
+    assert_eq!(row["outcome"], "proposed", "{installed}");
+    let id = row["workflow_id"].as_str().unwrap().to_string();
+    let stored = workflow_row(&id).expect("the workflow row");
+    assert_eq!(stored.schema, impress_item::schema::refs::IMPRESS_WORKFLOW);
+    assert!(
+        matches!(stored.payload.get("state"), Some(impress_item::Value::String(s)) if s == "proposed"),
+        "a package's workflow waits for a person, whatever its file says"
+    );
+    assert_eq!(installed["ai_categories"], json!(["research.lab-notes"]));
+    let categories = koine_ai::categories::all_in(store().as_ref());
+    let lab = categories
+        .iter()
+        .find(|c| c.id == "research.lab-notes")
+        .expect("listed beside the built-in table");
+    assert_eq!(lab.package.as_deref(), Some("lab"));
+
+    // The person enables it; the same version again changes nothing.
+    set_field(&id, "state", json!("enabled"));
+    let again = install(dir.path());
+    assert_eq!(again["workflows"][0]["outcome"], "unchanged", "{again}");
+    assert!(matches!(
+        workflow_row(&id).unwrap().payload.get("state"),
+        Some(impress_item::Value::String(s)) if s == "enabled"
+    ));
+
+    // New content is proposed again, even though it was enabled.
+    write_lab(dir.path(), "0.2.0", "package-service_registries");
+    let upgraded = install(dir.path());
+    assert_eq!(
+        upgraded["workflows"][0]["outcome"], "proposed",
+        "{upgraded}"
+    );
+    assert!(matches!(
+        workflow_row(&id).unwrap().payload.get("state"),
+        Some(impress_item::Value::String(s)) if s == "proposed"
+    ));
+
+    // A workflow the person edited is kept on upgrade and on remove.
+    set_field(&id, "description", json!("mine now"));
+    write_lab(dir.path(), "0.3.0", "package-service_list");
+    let review = verb("package-service_inspect", json!({"path": path}));
+    assert_eq!(review["workflows"][0]["would"], "keep yours", "{review}");
+    let kept = install(dir.path());
+    assert_eq!(kept["workflows"][0]["outcome"], "kept yours", "{kept}");
+    let removed = verb("package-service_remove", json!({"name": "lab"}));
+    assert_eq!(removed["workflows_kept"], json!([id]), "{removed}");
+    assert!(workflow_row(&id).is_some());
+    assert!(koine_ai::categories::installed_in(store().as_ref()).is_empty());
+}
+
+#[test]
+fn a_pristine_workflow_goes_with_its_package_and_a_broken_one_is_refused() {
+    let _turn = fresh();
+    let dir = tempfile::tempdir().unwrap();
+    write_lab(dir.path(), "0.1.0", "package-service_list");
+    let installed = install(dir.path());
+    let id = installed["workflows"][0]["workflow_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let removed = verb("package-service_remove", json!({"name": "lab"}));
+    assert_eq!(removed["workflows_deleted"], json!([id]), "{removed}");
+    assert!(workflow_row(&id).is_none());
+
+    // A workflow that publishes (it has no pane) does not install.
+    let broken = tempfile::tempdir().unwrap();
+    write_lab(broken.path(), "0.1.0", "package-service_list");
+    let mut spec = workflow("package-service_list");
+    spec["steps"] = json!([{"publish": {}}]);
+    std::fs::write(
+        broken.path().join("workflows/nightly.workflow.json"),
+        serde_json::to_vec(&spec).unwrap(),
+    )
+    .unwrap();
+    let path = broken.path().display().to_string();
+    let review = verb("package-service_inspect", json!({"path": path}));
+    assert_eq!(review["valid"], false, "{review}");
+    assert_eq!(review["workflows"][0]["would"], "refuse");
+    let refused = verb(
+        "package-service_install",
+        json!({"path": path, "digest": review["digest"]}),
+    );
+    assert_eq!(refused["code"], "invalid-spec", "{refused}");
+
+    // A category whose id is not under its parent is refused at read.
+    let odd = tempfile::tempdir().unwrap();
+    std::fs::write(
+        odd.path().join("koine-package.json"),
+        serde_json::to_vec(&json!({
+            "package": "1.0", "name": "odd", "version": "0.1.0",
+            "ai_categories": [{"id": "lab-notes", "name": "Lab", "parent": "research"}]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let review = verb(
+        "package-service_inspect",
+        json!({"path": odd.path().display().to_string()}),
+    );
+    assert_eq!(review["code"], "invalid-argument", "{review}");
+}

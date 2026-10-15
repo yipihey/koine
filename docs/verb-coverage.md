@@ -24,6 +24,8 @@ There is no second list.
 | `notebook-service` | koine-notebook | 10 |
 | `agent-service` | koine-agent | 11 |
 | `package-service` | koine-packages | 15 |
+| `task-service` | koine-tasks | 5 |
+| `impress-ai-service` | koine-ai | 16 |
 <!-- verb-coverage:end -->
 
 `impress-settings` has no `impress_service_impl!` block in this repository,
