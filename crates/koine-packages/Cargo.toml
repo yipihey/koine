@@ -11,6 +11,12 @@ impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
 impress-item = { workspace = true }
 koine-store = { workspace = true }
+# A spec is compared in the form the surface store keeps it: parsed as a
+# SurfaceSpec and serialized again.
+impress-surface = { workspace = true }
+# The kit's surfaces (plan-koine-research-os B-D4).
+koine-notebook = { workspace = true }
+koine-agent = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 schemars = { workspace = true }
@@ -22,9 +28,9 @@ tracing = { workspace = true }
 koine-workspace-hack.workspace = true
 
 [dev-dependencies]
+impress-pane-query = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 koine-store-memory = { workspace = true }
-impress-surface = { workspace = true }
 impress-surface-service = { workspace = true }
 tempfile = { workspace = true }
 
