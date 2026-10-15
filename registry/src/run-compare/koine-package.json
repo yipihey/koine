@@ -1,0 +1,16 @@
+{
+  "package": "1.0",
+  "name": "run-compare",
+  "version": "0.1.0",
+  "description": "Compare two runs of the lab notebook step by step: which step of a verb got slower, and by how much.",
+  "surfaces": [
+    { "name": "Run compare", "file": "surfaces/run-compare.surface.json" }
+  ],
+  "skills": [
+    { "name": "run-compare", "file": "SKILL.md" }
+  ],
+  "requires": {
+    "verbs": ["notebook-service_runs", "notebook-service_compare"],
+    "secrets": []
+  }
+}

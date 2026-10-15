@@ -1,121 +1,498 @@
 {
   "surface": "1.0",
   "name": "Packages",
-  "state": { "path": "", "review": null, "installed": null, "picked": null, "diff": null, "done": null },
+  "state": {
+    "path": "",
+    "review": null,
+    "installed": null,
+    "picked": null,
+    "diff": null,
+    "done": null,
+    "registry_url": "",
+    "query": "",
+    "registry_added": null
+  },
   "sources": {
-    "packages": { "verb": "package-service_list", "args": {} },
-    "shipped": { "verb": "package-service_shipped-status", "args": {} }
+    "packages": {
+      "verb": "package-service_list",
+      "args": {}
+    },
+    "shipped": {
+      "verb": "package-service_shipped-status",
+      "args": {}
+    },
+    "registries": {
+      "verb": "package-service_registries",
+      "args": {}
+    },
+    "found": {
+      "verb": "package-service_search",
+      "args": {
+        "query": "{{state.query}}"
+      }
+    }
   },
   "root": {
     "column": [
-      { "id": "intro",
-        "text": "Surfaces a package ships are yours to change. Each keeps the shipped version beside it: see what you changed, put the shipped one back, or take a newer one when it arrives. A package is reviewed before it is installed, and what is installed is exactly what you reviewed." },
-      { "id": "installed-table", "label": "Installed packages",
-        "table": { "rows": "{{source.packages.packages}}",
-                   "columns": ["name", "version", "surfaces", "source", "installed_at"] } },
-      { "id": "shipped-table", "label": "Shipped surfaces",
-        "table": { "rows": "{{source.shipped.rows}}",
-                   "columns": ["name", "package", "version", "status", "pending_version"],
-                   "id_field": "surface_id",
-                   "on_select": [
-                     { "set": { "path": "state.picked", "value": "{{event.value.0}}" } },
-                     { "set": { "path": "state.done", "value": null } },
-                     { "call": { "verb": "package-service_shipped-diff",
-                                 "args": { "id": "{{event.value.0}}" },
-                                 "into": "state.diff" } }
-                   ] } },
-      { "id": "picked",
-        "when": { "path": "state.picked" },
+      {
+        "id": "intro",
+        "text": "Surfaces a package ships are yours to change. Each keeps the shipped version beside it: see what you changed, put the shipped one back, or take a newer one when it arrives. A package is reviewed before it is installed, and what is installed is exactly what you reviewed."
+      },
+      {
+        "id": "installed-table",
+        "label": "Installed packages",
+        "table": {
+          "rows": "{{source.packages.packages}}",
+          "columns": [
+            "name",
+            "version",
+            "surfaces",
+            "source",
+            "installed_at"
+          ]
+        }
+      },
+      {
+        "id": "shipped-table",
+        "label": "Shipped surfaces",
+        "table": {
+          "rows": "{{source.shipped.rows}}",
+          "columns": [
+            "name",
+            "package",
+            "version",
+            "status",
+            "pending_version"
+          ],
+          "id_field": "surface_id",
+          "on_select": [
+            {
+              "set": {
+                "path": "state.picked",
+                "value": "{{event.value.0}}"
+              }
+            },
+            {
+              "set": {
+                "path": "state.done",
+                "value": null
+              }
+            },
+            {
+              "call": {
+                "verb": "package-service_shipped-diff",
+                "args": {
+                  "id": "{{event.value.0}}"
+                },
+                "into": "state.diff"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "picked",
+        "when": {
+          "path": "state.picked"
+        },
         "column": [
-          { "id": "diff-table", "label": "What you changed",
-            "table": { "rows": "{{state.diff.changes}}", "columns": ["op", "pointer", "shipped", "yours"] } },
-          { "id": "picked-actions",
+          {
+            "id": "diff-table",
+            "label": "What you changed",
+            "table": {
+              "rows": "{{state.diff.changes}}",
+              "columns": [
+                "op",
+                "pointer",
+                "shipped",
+                "yours"
+              ]
+            }
+          },
+          {
+            "id": "picked-actions",
             "row": [
-              { "id": "reset-btn",
-                "button": { "label": "Put the shipped one back",
-                            "on_click": [
-                              { "call": { "verb": "package-service_shipped-reset",
-                                          "args": { "id": "{{state.picked}}" },
-                                          "adverbs": { "reversibly": true },
-                                          "into": "state.done" } },
-                              { "refresh": { "source": "shipped" } },
-                              { "call": { "verb": "package-service_shipped-diff",
-                                          "args": { "id": "{{state.picked}}" },
-                                          "into": "state.diff" } }
-                            ] } },
-              { "id": "take-btn",
-                "button": { "label": "Take the newer shipped one",
-                            "on_click": [
-                              { "call": { "verb": "package-service_shipped-take",
-                                          "args": { "id": "{{state.picked}}" },
-                                          "adverbs": { "reversibly": true },
-                                          "into": "state.done" } },
-                              { "refresh": { "source": "shipped" } }
-                            ] } },
-              { "id": "keep-btn",
-                "button": { "label": "Keep mine",
-                            "on_click": [
-                              { "call": { "verb": "package-service_shipped-keep",
-                                          "args": { "id": "{{state.picked}}" },
-                                          "into": "state.done" } },
-                              { "refresh": { "source": "shipped" } }
-                            ] } }
-            ] },
-          { "id": "done",
-            "status": { "level": "info", "message": "{{state.done.row.name}} is now {{state.done.row.status}}" },
-            "when": { "path": "state.done.row.status" } },
-          { "id": "done-refused",
-            "status": { "level": "warning", "message": "{{state.done.message}}" },
-            "when": { "path": "state.done.ok", "equals": false } }
-        ] },
-      { "id": "install-section",
+              {
+                "id": "reset-btn",
+                "button": {
+                  "label": "Put the shipped one back",
+                  "on_click": [
+                    {
+                      "call": {
+                        "verb": "package-service_shipped-reset",
+                        "args": {
+                          "id": "{{state.picked}}"
+                        },
+                        "adverbs": {
+                          "reversibly": true
+                        },
+                        "into": "state.done"
+                      }
+                    },
+                    {
+                      "refresh": {
+                        "source": "shipped"
+                      }
+                    },
+                    {
+                      "call": {
+                        "verb": "package-service_shipped-diff",
+                        "args": {
+                          "id": "{{state.picked}}"
+                        },
+                        "into": "state.diff"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "take-btn",
+                "button": {
+                  "label": "Take the newer shipped one",
+                  "on_click": [
+                    {
+                      "call": {
+                        "verb": "package-service_shipped-take",
+                        "args": {
+                          "id": "{{state.picked}}"
+                        },
+                        "adverbs": {
+                          "reversibly": true
+                        },
+                        "into": "state.done"
+                      }
+                    },
+                    {
+                      "refresh": {
+                        "source": "shipped"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "keep-btn",
+                "button": {
+                  "label": "Keep mine",
+                  "on_click": [
+                    {
+                      "call": {
+                        "verb": "package-service_shipped-keep",
+                        "args": {
+                          "id": "{{state.picked}}"
+                        },
+                        "into": "state.done"
+                      }
+                    },
+                    {
+                      "refresh": {
+                        "source": "shipped"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "done",
+            "status": {
+              "level": "info",
+              "message": "{{state.done.row.name}} is now {{state.done.row.status}}"
+            },
+            "when": {
+              "path": "state.done.row.status"
+            }
+          },
+          {
+            "id": "done-refused",
+            "status": {
+              "level": "warning",
+              "message": "{{state.done.message}}"
+            },
+            "when": {
+              "path": "state.done.ok",
+              "equals": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "registry-section",
         "section": {
-          "title": "Install a package",
-          "body": { "column": [
-            { "id": "path", "field": { "text": {} }, "label": "Package directory", "bind": "state.path" },
-            { "id": "review-btn",
-              "button": { "label": "Review",
-                          "on_click": [
-                            { "call": { "verb": "package-service_inspect",
-                                        "args": { "path": "{{state.path}}" },
-                                        "into": "state.review" } },
-                            { "set": { "path": "state.installed", "value": null } }
-                          ] } },
-            { "id": "review-refused",
-              "status": { "level": "warning", "message": "{{state.review.message}}" },
-              "when": { "path": "state.review.ok", "equals": false } },
-            { "id": "review",
-              "when": { "path": "state.review.digest" },
-              "column": [
-                { "id": "review-kv",
-                  "kv": { "package": "{{state.review.name}} {{state.review.version}}",
-                          "about": "{{state.review.description}}",
-                          "digest": "{{state.review.digest}}",
-                          "every surface valid": "{{state.review.valid}}",
-                          "missing verbs": "{{state.review.missing_verbs}}",
-                          "missing secrets": "{{state.review.missing_secrets}}" } },
-                { "id": "review-surfaces", "label": "Surfaces",
-                  "table": { "rows": "{{state.review.surfaces}}", "columns": ["name", "valid", "would", "verbs"] } },
-                { "id": "review-verbs", "label": "Verbs it calls",
-                  "table": { "rows": "{{state.review.verbs}}", "columns": ["name", "linked", "safety", "secrets"] } },
-                { "id": "install-btn",
-                  "button": { "label": "Install what I reviewed",
-                              "on_click": [
-                                { "call": { "verb": "package-service_install",
-                                            "args": { "path": "{{state.path}}", "digest": "{{state.review.digest}}" },
-                                            "into": "state.installed" } },
-                                { "refresh": { "source": "packages" } },
-                                { "refresh": { "source": "shipped" } }
-                              ] } }
-              ] },
-            { "id": "installed",
-              "when": { "path": "state.installed.ok", "equals": true },
-              "table": { "rows": "{{state.installed.surfaces}}", "columns": ["name", "outcome", "surface_id"] } },
-            { "id": "install-refused",
-              "status": { "level": "warning", "message": "{{state.installed.message}}" },
-              "when": { "path": "state.installed.ok", "equals": false } }
-          ] }
-        } }
+          "title": "Get packages from a registry",
+          "body": {
+            "column": [
+              {
+                "id": "registries-table",
+                "label": "Registries",
+                "table": {
+                  "rows": "{{source.registries.registries}}",
+                  "columns": [
+                    "name",
+                    "url",
+                    "added_at"
+                  ]
+                }
+              },
+              {
+                "id": "registry-row",
+                "row": [
+                  {
+                    "id": "registry-url",
+                    "field": {
+                      "text": {}
+                    },
+                    "label": "Registry URL or path",
+                    "bind": "state.registry_url"
+                  },
+                  {
+                    "id": "registry-add-btn",
+                    "button": {
+                      "label": "Add registry",
+                      "on_click": [
+                        {
+                          "call": {
+                            "verb": "package-service_registry-add",
+                            "args": {
+                              "url": "{{state.registry_url}}"
+                            },
+                            "into": "state.registry_added"
+                          }
+                        },
+                        {
+                          "refresh": {
+                            "source": "registries"
+                          }
+                        },
+                        {
+                          "refresh": {
+                            "source": "found"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "registry-refused",
+                "status": {
+                  "level": "warning",
+                  "message": "{{state.registry_added.message}}"
+                },
+                "when": {
+                  "path": "state.registry_added.ok",
+                  "equals": false
+                }
+              },
+              {
+                "id": "query",
+                "field": {
+                  "text": {}
+                },
+                "label": "Search",
+                "bind": "state.query"
+              },
+              {
+                "id": "found-table",
+                "label": "Packages (select one to review it)",
+                "table": {
+                  "rows": "{{source.found.rows}}",
+                  "columns": [
+                    "name",
+                    "version",
+                    "state",
+                    "installed",
+                    "registry",
+                    "description"
+                  ],
+                  "id_field": "name",
+                  "on_select": [
+                    {
+                      "call": {
+                        "verb": "package-service_fetch",
+                        "args": {
+                          "name": "{{event.value.0}}"
+                        },
+                        "into": "state.review"
+                      }
+                    },
+                    {
+                      "set": {
+                        "path": "state.installed",
+                        "value": null
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unreadable",
+                "status": {
+                  "level": "warning",
+                  "message": "Unreadable: {{source.found.unreadable}}"
+                },
+                "when": {
+                  "path": "source.found.unreadable.0"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "install-section",
+        "section": {
+          "title": "Review and install (a directory here, or the package selected above)",
+          "body": {
+            "column": [
+              {
+                "id": "path",
+                "field": {
+                  "text": {}
+                },
+                "label": "Package directory",
+                "bind": "state.path"
+              },
+              {
+                "id": "review-btn",
+                "button": {
+                  "label": "Review",
+                  "on_click": [
+                    {
+                      "call": {
+                        "verb": "package-service_inspect",
+                        "args": {
+                          "path": "{{state.path}}"
+                        },
+                        "into": "state.review"
+                      }
+                    },
+                    {
+                      "set": {
+                        "path": "state.installed",
+                        "value": null
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "review-refused",
+                "status": {
+                  "level": "warning",
+                  "message": "{{state.review.message}}"
+                },
+                "when": {
+                  "path": "state.review.ok",
+                  "equals": false
+                }
+              },
+              {
+                "id": "review",
+                "when": {
+                  "path": "state.review.digest"
+                },
+                "column": [
+                  {
+                    "id": "review-kv",
+                    "kv": {
+                      "package": "{{state.review.name}} {{state.review.version}}",
+                      "about": "{{state.review.description}}",
+                      "digest": "{{state.review.digest}}",
+                      "every surface valid": "{{state.review.valid}}",
+                      "missing verbs": "{{state.review.missing_verbs}}",
+                      "missing secrets": "{{state.review.missing_secrets}}"
+                    }
+                  },
+                  {
+                    "id": "review-surfaces",
+                    "label": "Surfaces",
+                    "table": {
+                      "rows": "{{state.review.surfaces}}",
+                      "columns": [
+                        "name",
+                        "valid",
+                        "would",
+                        "verbs"
+                      ]
+                    }
+                  },
+                  {
+                    "id": "review-verbs",
+                    "label": "Verbs it calls",
+                    "table": {
+                      "rows": "{{state.review.verbs}}",
+                      "columns": [
+                        "name",
+                        "linked",
+                        "safety",
+                        "secrets"
+                      ]
+                    }
+                  },
+                  {
+                    "id": "install-btn",
+                    "button": {
+                      "label": "Install what I reviewed",
+                      "on_click": [
+                        {
+                          "call": {
+                            "verb": "package-service_install",
+                            "args": {
+                              "path": "{{state.review.path}}",
+                              "digest": "{{state.review.digest}}"
+                            },
+                            "into": "state.installed"
+                          }
+                        },
+                        {
+                          "refresh": {
+                            "source": "packages"
+                          }
+                        },
+                        {
+                          "refresh": {
+                            "source": "shipped"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "installed",
+                "when": {
+                  "path": "state.installed.ok",
+                  "equals": true
+                },
+                "table": {
+                  "rows": "{{state.installed.surfaces}}",
+                  "columns": [
+                    "name",
+                    "outcome",
+                    "surface_id"
+                  ]
+                }
+              },
+              {
+                "id": "install-refused",
+                "status": {
+                  "level": "warning",
+                  "message": "{{state.installed.message}}"
+                },
+                "when": {
+                  "path": "state.installed.ok",
+                  "equals": false
+                }
+              }
+            ]
+          }
+        }
+      }
     ]
   }
 }

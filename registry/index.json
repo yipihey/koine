@@ -1,0 +1,21 @@
+{
+  "registry": "1.0",
+  "name": "koine-examples",
+  "description": "Example packages for koine hosts: add with package-service_registry-add or --registry.",
+  "packages": [
+    {
+      "name": "run-compare",
+      "version": "0.1.0",
+      "description": "Compare two runs of the lab notebook step by step: which step of a verb got slower, and by how much.",
+      "bundle": "run-compare-0.1.0.koinepkg.json",
+      "digest": "sha256:85704a14cc63de803272e13ce14303a6d566a9762e86740d9cec0cddb8911672",
+      "requires": {
+        "verbs": [
+          "notebook-service_runs",
+          "notebook-service_compare"
+        ],
+        "secrets": []
+      }
+    }
+  ]
+}

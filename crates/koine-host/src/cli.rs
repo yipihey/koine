@@ -52,6 +52,10 @@ OPTIONS:
     --window                 open the page at /ui/ in a window: a native WebView when
                              built with --features window-webview, else the browser;
                              the host stops when the native window closes
+    --registry <url>         add a package registry at start (an index.json, or a
+                             directory or URL holding one); may be repeated
+    --no-kit                 do not install the kit's surfaces (Notebook, Agent desk,
+                             Packages) at start
     --check                  start, print the URL and verb count, stop, exit 0
     -h, --help               this text
 
@@ -63,6 +67,11 @@ SUBCOMMANDS (no server is started):
                              into every agent skill directory that exists
                              (~/.claude/skills, ~/.codex/skills, ~/.agents/skills); a
                              SKILL.md koine did not write is kept unless --force
+    {program} package bundle <dir> [--out <dir>] [--index <index.json>]
+                             [--base-url <url>] [--registry-name <name>]
+                             write the package directory <dir> as one bundle file
+                             into --out (default: .) and, with --index, add it to
+                             that registry index (created when missing)
 ";
 
 #[derive(Debug)]
@@ -151,6 +160,8 @@ pub fn parse_with_env(
     let mut keychain = false;
     let mut check = false;
     let mut window = false;
+    let mut registries: Vec<String> = Vec::new();
+    let mut kit = true;
     while let Some(flag) = args.next() {
         let (flag, inline) = match flag.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => {
@@ -189,6 +200,8 @@ pub fn parse_with_env(
             "--secrets-dir" => secrets_dir = Some(PathBuf::from(value("--secrets-dir")?)),
             "--keychain" => keychain = true,
             "--check" => check = true,
+            "--registry" => registries.push(value("--registry")?),
+            "--no-kit" => kit = false,
             "--window" => window = true,
             other => return Err(format!("unknown option {other} (see --help)")),
         }
@@ -211,6 +224,8 @@ pub fn parse_with_env(
     config.network_bearer = bearer;
     config.secrets_dir = secrets_dir;
     config.keychain = keychain;
+    config.registries = registries;
+    config.kit = kit;
     Ok(Some(Cli {
         config,
         check,
@@ -301,6 +316,69 @@ pub fn skill_command(
     }
 }
 
+/// `<host> package bundle <dir> …` (plan-koine-research-os P-D6): what to
+/// print on success, or the message to fail with.
+pub fn package_command(args: impl IntoIterator<Item = String>) -> Result<String, String> {
+    let mut args = args.into_iter();
+    match args.next().as_deref() {
+        Some("bundle") => {}
+        Some(other) => return Err(format!("package {other}: expected bundle")),
+        None => return Err("package needs bundle (see --help)".into()),
+    }
+    let mut dir: Option<PathBuf> = None;
+    let mut out = PathBuf::from(".");
+    let mut index: Option<PathBuf> = None;
+    let mut base_url: Option<String> = None;
+    let mut registry_name = "koine-registry".to_string();
+    while let Some(arg) = args.next() {
+        let (flag, inline) = match arg.split_once('=') {
+            Some((f, v)) if f.starts_with("--") => (f.to_string(), Some(v.to_string())),
+            _ => (arg, None),
+        };
+        let mut value = |name: &str| {
+            inline
+                .clone()
+                .or_else(|| args.next())
+                .ok_or_else(|| format!("{name} needs a value"))
+        };
+        match flag.as_str() {
+            "--out" => out = PathBuf::from(value("--out")?),
+            "--index" => index = Some(PathBuf::from(value("--index")?)),
+            "--base-url" => base_url = Some(value("--base-url")?),
+            "--registry-name" => registry_name = value("--registry-name")?,
+            other if other.starts_with("--") => {
+                return Err(format!("package bundle: unknown option {other}"))
+            }
+            _ if dir.is_none() => dir = Some(PathBuf::from(flag)),
+            extra => {
+                return Err(format!(
+                    "package bundle: one directory only, not also {extra}"
+                ))
+            }
+        }
+    }
+    let dir = dir.ok_or("package bundle needs the package directory")?;
+    let published = koine_packages::registry::publish(
+        &dir,
+        &out,
+        index.as_deref(),
+        base_url.as_deref(),
+        &registry_name,
+    )
+    .map_err(|e| format!("{} ({})", e.message, e.code))?;
+    let mut text = format!(
+        "wrote {}\n  {} {} {}\n",
+        published.bundle.display(),
+        published.entry.name,
+        published.entry.version,
+        published.entry.digest
+    );
+    if let Some(index) = published.index {
+        text.push_str(&format!("  listed in {}\n", index.display()));
+    }
+    Ok(text)
+}
+
 /// Everything a host binary's `main` does: logging, the flags, [`serve`], the
 /// banner, then wait for Ctrl-C (or return at once for `--check`). `app_id` is
 /// the default for `--app-id`. Builds its own tokio runtime, so the caller's
@@ -347,6 +425,18 @@ pub fn main_with(
                 .map(|n| n.to_string_lossy().into_owned())
         })
         .unwrap_or_else(|| "koine-host".into());
+    if std::env::args().nth(1).as_deref() == Some("package") {
+        return match package_command(std::env::args().skip(2)) {
+            Ok(text) => {
+                print!("{text}");
+                ExitCode::SUCCESS
+            }
+            Err(message) => {
+                eprintln!("{program}: {message}");
+                ExitCode::from(2)
+            }
+        };
+    }
     if std::env::args().nth(1).as_deref() == Some("skill") {
         let home = Env::process().home;
         return match skill_command(std::env::args().skip(2), app_id, home.as_deref()) {

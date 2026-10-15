@@ -2166,3 +2166,52 @@ async fn an_edited_kit_surface_survives_a_restart() {
     assert!(timeline["total"].as_u64().unwrap() >= 1, "{timeline}");
     host.served.shutdown().await;
 }
+
+/// P-D5: a host started with `--registry` on the example registry installs
+/// `run-compare` from it, and the package's surface renders over the
+/// notebook's verbs.
+#[tokio::test]
+async fn a_package_from_the_example_registry_installs_and_renders() {
+    let _turn = TURN.lock().await;
+    let registry = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../registry")
+        .canonicalize()
+        .unwrap();
+    let host = start_with("memory:", "registry-app", |config| {
+        config.registries = vec![registry.display().to_string()];
+    })
+    .await;
+    let (_, known) = host
+        .post("/api/verb/package-service_registries", json!({}))
+        .await;
+    assert_eq!(known["registries"][0]["name"], "koine-examples", "{known}");
+    let (_, review) = host
+        .post(
+            "/api/verb/package-service_fetch",
+            json!({ "name": "run-compare" }),
+        )
+        .await;
+    assert_eq!(review["ok"], true, "{review}");
+    assert_eq!(review["missing_verbs"], json!([]), "{review}");
+    // The bundle is kept under the host's workspace.
+    assert!(review["path"]
+        .as_str()
+        .unwrap()
+        .starts_with(&host.workspace.path().display().to_string()));
+    let (_, installed) = host
+        .post(
+            "/api/verb/package-service_install",
+            json!({ "path": review["path"], "digest": review["digest"] }),
+        )
+        .await;
+    assert_eq!(installed["ok"], true, "{installed}");
+    let id = installed["surfaces"][0]["surface_id"].as_str().unwrap();
+    let (status, rendered) = host.get_json(&format!("/api/surface/{id}/render")).await;
+    assert_eq!(status, 200, "{rendered}");
+    let errors = rendered["source_errors"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(errors.is_empty(), "{errors:?}");
+    host.served.shutdown().await;
+}

@@ -14,6 +14,7 @@ pub mod digest;
 pub mod dto;
 pub mod kit;
 pub mod package;
+pub mod registry;
 pub mod service;
 pub mod shipped;
 

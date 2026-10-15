@@ -124,6 +124,9 @@ pub struct Config {
     /// Install the kit package at start: the Notebook, Agent desk and
     /// Packages surfaces (plan-koine-research-os B-D4).
     pub kit: bool,
+    /// Package registries to add at start (`--registry`, P-D5); one already
+    /// known is left as it is, one that cannot be read is logged.
+    pub registries: Vec<String>,
 }
 
 impl Config {
@@ -146,6 +149,7 @@ impl Config {
             keychain: false,
             app_version: env!("CARGO_PKG_VERSION").to_string(),
             kit: true,
+            registries: Vec::new(),
         }
     }
 
@@ -347,6 +351,17 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
     let rearmed = runner.rearm_routines();
     if rearmed > 0 {
         tracing::info!(target: "koine-host", "re-armed {rearmed} routine(s)");
+    }
+    // P-D5: fetched bundles are kept under the workspace; registries named
+    // on the command line are added.
+    koine_packages::registry::set_cache_dir(config.workspace.join("packages"));
+    for url in &config.registries {
+        match koine_packages::registry::add(url).await {
+            Ok((known, index)) => tracing::info!(target: "koine-host",
+                "registry {} ({}): {} package version(s)", known.name, known.url, index.packages.len()),
+            Err(error) => tracing::warn!(target: "koine-host",
+                "registry {url} not added: {}", error.message),
+        }
     }
     // B-D4: the kit's surfaces, three-way against the person's copies.
     if config.kit {

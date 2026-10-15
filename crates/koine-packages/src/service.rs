@@ -11,6 +11,7 @@ use serde_json::Value;
 
 use crate::dto::*;
 use crate::package::{self, Package};
+use crate::registry;
 use crate::shipped::{self, Baseline, ShippedError};
 
 /// Characters of a value a diff row shows.
@@ -131,6 +132,64 @@ pub trait PackageService: Send + Sync + 'static {
         expect = r#"{"ok": false, "code": "not-found"}"#
     )]
     async fn shipped_keep(&self, id: String) -> ShippedResult;
+
+    /// The package registries this host knows: where `search` and `fetch`
+    /// look (P-D5).
+    #[impress_method(effects(reads = [any("koine/registry@1.0.0")]))]
+    #[impress_example(name = "default", args = r#"{}"#, expect = r#"{"ok": true}"#)]
+    async fn registries(&self) -> RegistriesResult;
+
+    /// Add a package registry: an `index.json` (or a directory holding one)
+    /// at an `https://`, `http://` or `file://` URL or a path. Its index is
+    /// read and checked first; a registry that cannot be read is refused.
+    #[impress_method(
+        safety = mutating,
+        effects(writes = [any("koine/registry@1.0.0")], reach = [network, fs])
+    )]
+    #[impress_example(
+        name = "missing",
+        args = r#"{"url": "/nonexistent/koine-registry"}"#,
+        expect = r#"{"ok": false, "code": "not-found"}"#
+    )]
+    async fn registry_add(&self, url: String) -> RegistriesResult;
+
+    /// Forget a registry (by URL or name). Packages installed from it stay.
+    #[impress_method(
+        safety = mutating,
+        effects(writes = [any("koine/registry@1.0.0")])
+    )]
+    #[impress_example(
+        name = "missing",
+        args = r#"{"url": "no-such-registry"}"#,
+        expect = r#"{"ok": false, "code": "not-found"}"#
+    )]
+    async fn registry_remove(&self, url: String) -> RegistriesResult;
+
+    /// Every package version the known registries list whose name or
+    /// description contains `query` (all when absent), newest first per name,
+    /// with the version installed now and whether this one would install,
+    /// update or is older. Registries that cannot be read are listed in
+    /// `unreadable`, not refused.
+    #[impress_method(effects(reads = [any("koine/registry@1.0.0"), any("koine/package@1.0.0")], reach = [network, fs]))]
+    #[impress_example(name = "default", args = r#"{}"#, expect = r#"{"ok": true}"#)]
+    async fn search(&self, query: Option<String>) -> SearchResult;
+
+    /// Download a package from a registry (`version` absent: the newest) and
+    /// review it: the bundle must be the package the index pins (its digest,
+    /// name and version; `digest-mismatch` otherwise), and the answer is the
+    /// review `inspect` gives, with `path` and `digest` to pass to `install`.
+    #[impress_method(effects(reads = [any("koine/registry@1.0.0"), any("koine/shipped@1.0.0")], reach = [network, fs]))]
+    #[impress_example(
+        name = "unknown",
+        args = r#"{"name": "no-such-package"}"#,
+        expect = r#"{"ok": false, "code": "not-found"}"#
+    )]
+    async fn fetch(&self, name: String, version: Option<String>) -> ReviewResult;
+
+    /// The installed packages a known registry has a newer version of.
+    #[impress_method(effects(reads = [any("koine/registry@1.0.0"), any("koine/package@1.0.0")], reach = [network, fs]))]
+    #[impress_example(name = "default", args = r#"{}"#, expect = r#"{"ok": true}"#)]
+    async fn updates(&self) -> SearchResult;
 }
 
 #[derive(Clone, Default)]
@@ -216,21 +275,15 @@ impl PackageService for DefaultPackageService {
     }
 
     async fn inspect(&self, path: String) -> ReviewResult {
-        let package = match Package::load(&path_of(&path)) {
+        let package = match Package::load_path(&path_of(&path)) {
             Ok(package) => package,
             Err(e) => return refuse!(ReviewResult, e),
         };
-        let review = package::review(&package).await;
-        serde_json::from_value(review).unwrap_or_else(|e| {
-            refuse!(
-                ReviewResult,
-                ShippedError::new("internal", format!("the review did not fit its shape: {e}"))
-            )
-        })
+        review_of(&package, path.trim()).await
     }
 
     async fn install(&self, path: String, digest: String) -> InstallResult {
-        let package = match Package::load(&path_of(&path)) {
+        let package = match Package::load_path(&path_of(&path)) {
             Ok(package) => package,
             Err(e) => return refuse!(InstallResult, e),
         };
@@ -332,6 +385,117 @@ impl PackageService for DefaultPackageService {
     async fn shipped_keep(&self, id: String) -> ShippedResult {
         shipped_result(shipped::keep(&id)).await
     }
+
+    async fn registries(&self) -> RegistriesResult {
+        match registry::known() {
+            Ok(known) => RegistriesResult {
+                ok: true,
+                registries: known.iter().map(registry_row).collect(),
+                ..Default::default()
+            },
+            Err(e) => refuse!(RegistriesResult, e),
+        }
+    }
+
+    async fn registry_add(&self, url: String) -> RegistriesResult {
+        match registry::add(&url).await {
+            Ok((_, index)) => RegistriesResult {
+                packages: Some(index.packages.len() as u64),
+                ..self.registries().await
+            },
+            Err(e) => refuse!(RegistriesResult, e),
+        }
+    }
+
+    async fn registry_remove(&self, url: String) -> RegistriesResult {
+        match registry::remove(&url) {
+            Ok(_) => self.registries().await,
+            Err(e) => refuse!(RegistriesResult, e),
+        }
+    }
+
+    async fn search(&self, query: Option<String>) -> SearchResult {
+        match registry::search(query.as_deref().unwrap_or("")).await {
+            Ok((found, unreadable)) => SearchResult {
+                ok: true,
+                rows: found.iter().map(found_row).collect(),
+                unreadable,
+                ..Default::default()
+            },
+            Err(e) => refuse!(SearchResult, e),
+        }
+    }
+
+    async fn fetch(&self, name: String, version: Option<String>) -> ReviewResult {
+        let version = version.filter(|v| !v.trim().is_empty());
+        let found = match registry::pick(&name, version.as_deref()).await {
+            Ok(found) => found,
+            Err(e) => return refuse!(ReviewResult, e),
+        };
+        match registry::fetch(&found).await {
+            Ok((package, path)) => review_of(&package, &path.display().to_string()).await,
+            Err(e) => refuse!(ReviewResult, e),
+        }
+    }
+
+    async fn updates(&self) -> SearchResult {
+        match registry::updates().await {
+            Ok((updates, unreadable)) => SearchResult {
+                ok: true,
+                rows: updates
+                    .iter()
+                    .map(|(_, _, found)| found_row(found))
+                    .collect(),
+                unreadable,
+                ..Default::default()
+            },
+            Err(e) => refuse!(SearchResult, e),
+        }
+    }
+}
+
+/// The review of `package`, kept at `path`.
+async fn review_of(package: &Package, path: &str) -> ReviewResult {
+    let review = package::review(package).await;
+    match serde_json::from_value::<ReviewResult>(review) {
+        Ok(mut review) => {
+            review.path = Some(path.to_string());
+            review
+        }
+        Err(e) => refuse!(
+            ReviewResult,
+            ShippedError::new("internal", format!("the review did not fit its shape: {e}"))
+        ),
+    }
+}
+
+fn registry_row(known: &registry::Known) -> RegistryRow {
+    RegistryRow {
+        url: known.url.clone(),
+        name: known.name.clone(),
+        added_at: known.added_at.clone(),
+    }
+}
+
+fn found_row(found: &registry::Found) -> FoundRow {
+    use std::cmp::Ordering;
+    let state = match &found.installed {
+        None => "install",
+        Some(installed) => match registry::compare_versions(&found.entry.version, installed) {
+            Ordering::Greater => "update",
+            Ordering::Equal => "installed",
+            Ordering::Less => "older",
+        },
+    };
+    FoundRow {
+        name: found.entry.name.clone(),
+        version: found.entry.version.clone(),
+        description: found.entry.description.clone(),
+        registry: found.registry.clone(),
+        digest: found.entry.digest.clone(),
+        installed: found.installed.clone(),
+        state: state.into(),
+    }
 }
 
 impress_service_impl! {
@@ -387,5 +551,31 @@ impress_service_impl! {
             /// The surface's id.
             id: String
         ) -> ShippedResult,
+        /// The package registries this host knows.
+        registries() -> RegistriesResult,
+        /// Add a package registry after reading its index.
+        registry_add(
+            /// The registry: an index.json, or a directory holding one; a URL or a path.
+            url: String
+        ) -> RegistriesResult,
+        /// Forget a registry.
+        registry_remove(
+            /// The registry's URL or name.
+            url: String
+        ) -> RegistriesResult,
+        /// Search the known registries.
+        search(
+            /// Words in a package's name or description; all packages when absent.
+            query: Option<String>
+        ) -> SearchResult,
+        /// Download a package from a registry and review it.
+        fetch(
+            /// The package's name.
+            name: String,
+            /// The version; the newest when absent.
+            version: Option<String>
+        ) -> ReviewResult,
+        /// Installed packages with a newer version in a registry.
+        updates() -> SearchResult,
     ],
 }

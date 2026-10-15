@@ -149,6 +149,16 @@ pub fn render(app: &AppInfo) -> String {
     );
 
     md.push_str(
+        "## Packages\n\n\
+         Surfaces and skills also arrive as packages from registries. \
+         `package-service_search` lists what the known registries offer; \
+         `package-service_fetch {name}` downloads one and answers its review (the verbs \
+         it calls, their safety, what is missing, what installing would change). Show the \
+         person that review: `package-service_install {path, digest}` installs exactly \
+         what was reviewed and nothing else.\n\n",
+    );
+
+    md.push_str(
         "## Making a surface\n\n\
          A surface is a JSON document: `state`, `sources` (a verb call or a query, \
          re-run when the templates in its args change), and a `root` node tree (`column`, \

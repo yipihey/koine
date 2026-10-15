@@ -187,9 +187,51 @@ what is installed.
 
 ### P-D4. Not yet
 
-Signatures (a publisher key beside the digest), a registry to fetch from,
-runtime providers a package starts (`koine-mcp-host::providers`), and
-workflows and layout presets as package contents.
+Signatures (a publisher key beside the digest, so an index is trusted for
+who wrote it and not only for what it says), runtime providers a package
+starts (`koine-mcp-host::providers`), and workflows and layout presets as
+package contents.
+
+### P-D5. A package travels as one file
+
+A bundle, `<name>-<version>.koinepkg.json`, is `{"koinepkg": "1.0",
+"manifest": <the manifest's text>, "files": {<path>: <text>}}`: the exact
+text of the manifest and of every file it names, nothing else (a bundle
+carrying an unnamed file is refused). Its package therefore has the
+directory's digest. `inspect` and `install` take a directory or a bundle.
+
+### P-D6. A registry is an index beside its bundles
+
+`index.json` is `{"registry": "1.0", "name", "description", "packages":
+[{name, version, description, bundle, digest, requires}]}`; `bundle` is
+relative to the index or absolute. It is read over `https://`, `http://`,
+`file://` or as a path, at most 8 MiB, within 30 s. Publishing is
+`<host> package bundle <dir> --out <registry> --index <registry>/index.json`
+(`registry::publish`), which writes the bundle and adds or replaces its
+entry. `registry/` in this repository is one: `run-compare`, a surface over
+the notebook's `compare`, with its source under `registry/src/`; a test
+fails when a source and its published bundle disagree.
+
+### P-D7. The digest is pinned from the index to the install
+
+`package-service_fetch {name, version?}` downloads the bundle, refuses it
+(`digest-mismatch`) unless its digest, name and version are what the index
+lists, keeps it under `<workspace>/packages/`, and answers the same review
+`inspect` does, with `path`. `install {path, digest}` then pins the digest
+the person reviewed. So index, review and install are one digest; a server
+that swaps a bundle under its index is caught at fetch.
+
+### P-D8. Registries are records; reading one never fails the others
+
+The registries a host knows are `koine/registry@1.0.0` items
+(`registry-add`, which reads the index first, `registry-remove`,
+`registries`; `--registry <url>` adds one at start). `search {query?}`
+lists every version across them with what is installed (`install`,
+`installed`, `update`, `older`); `updates` lists the installed packages a
+registry has newer. A registry that cannot be read is named in
+`unreadable`, and the rest still answer. The Packages surface has a
+registry section: add a registry, search, select a package to fetch its
+review, install what was reviewed.
 
 ## Keyboard and palette
 
@@ -221,8 +263,8 @@ a binding with no implementation in impress-apps is a dead affordance
 
 ## Status
 
-Landed 2026-10-15 on branch `research-os`: everything above except P-D4
-and the chords. `koine-agent` (11 verbs), `koine-packages` (9) and
+Landed 2026-10-15 on branch `research-os`: everything above except P-D4.
+`koine-agent` (11 verbs), `koine-packages` (15) and
 `koine-notebook` (10) are linked by every host through
 `koine_host::ensure_linked`; `Config::kit` (default on) installs the kit at
 start and `Config::app_version` stamps the call log and the skill. Each

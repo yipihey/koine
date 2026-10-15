@@ -83,6 +83,10 @@ pub struct ReviewResult {
     /// Secrets its verbs need that are not set.
     #[serde(default)]
     pub missing_secrets: Vec<String>,
+    /// Where the package is now: the directory inspected, or the bundle
+    /// `fetch` kept. Pass it to `install` with `digest`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -192,6 +196,58 @@ pub struct ShippedResult {
     /// Set by the pipeline under `reversibly`: the call that undoes this.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub undo: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// A registry the host knows.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RegistryRow {
+    pub url: String,
+    pub name: String,
+    pub added_at: String,
+}
+
+/// `registries`, `registry-add`, `registry-remove`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct RegistriesResult {
+    pub ok: bool,
+    #[serde(default)]
+    pub registries: Vec<RegistryRow>,
+    /// How many packages the added registry lists (`registry-add`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub packages: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// One package version a registry lists.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct FoundRow {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub registry: String,
+    pub digest: String,
+    /// The version installed now, if any.
+    pub installed: Option<String>,
+    /// `install`, `installed`, `update` (newer than installed) or `older`.
+    pub state: String,
+}
+
+/// `search`, `updates`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct SearchResult {
+    pub ok: bool,
+    #[serde(default)]
+    pub rows: Vec<FoundRow>,
+    /// Registries that could not be read, with why.
+    #[serde(default)]
+    pub unreadable: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

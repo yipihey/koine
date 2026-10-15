@@ -1,0 +1,103 @@
+{
+  "surface": "1.0",
+  "name": "Run compare",
+  "state": {
+    "verb": "",
+    "run_a": null,
+    "run_b": null
+  },
+  "sources": {
+    "runs": {
+      "verb": "notebook-service_runs",
+      "args": {}
+    },
+    "compare": {
+      "verb": "notebook-service_compare",
+      "args": {
+        "verb": "{{state.verb}}",
+        "run_a": "{{state.run_a}}",
+        "run_b": "{{state.run_b}}"
+      }
+    }
+  },
+  "root": {
+    "column": [
+      {
+        "id": "intro",
+        "text": "Pick a verb and two runs: each step the verb took is timed in both, and the ratio says which step got slower. Runs come from the Notebook."
+      },
+      {
+        "id": "verb",
+        "field": {
+          "text": {}
+        },
+        "label": "Verb (its full name)",
+        "bind": "state.verb"
+      },
+      {
+        "id": "runs-a",
+        "label": "Run A (select one)",
+        "table": {
+          "rows": "{{source.runs.runs}}",
+          "columns": [
+            "name",
+            "started_at",
+            "calls",
+            "host"
+          ],
+          "id_field": "id",
+          "on_select": [
+            {
+              "set": {
+                "path": "state.run_a",
+                "value": "{{event.value.0}}"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "runs-b",
+        "label": "Run B (select one)",
+        "table": {
+          "rows": "{{source.runs.runs}}",
+          "columns": [
+            "name",
+            "started_at",
+            "calls",
+            "host"
+          ],
+          "id_field": "id",
+          "on_select": [
+            {
+              "set": {
+                "path": "state.run_b",
+                "value": "{{event.value.0}}"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "compare",
+        "label": "Steps, A against B",
+        "when": {
+          "path": "source.compare.rows.0"
+        },
+        "table": {
+          "rows": "{{source.compare.rows}}",
+          "columns": [
+            "step",
+            "a_count",
+            "a_p50_ms",
+            "b_count",
+            "b_p50_ms",
+            "ratio_p50",
+            "a_self_mean_ms",
+            "b_self_mean_ms"
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -22,6 +22,11 @@ pub const MANIFEST: &str = "koine-package.json";
 pub const PACKAGE: &str = "koine/package@1.0.0";
 /// The manifest format this build reads.
 pub const FORMAT: &str = "1.0";
+/// A package as one file (plan-koine-research-os P-D5): what a registry
+/// serves. `<name>-<version>.koinepkg.json`.
+pub const BUNDLE_SUFFIX: &str = ".koinepkg.json";
+/// The bundle format this build reads.
+pub const BUNDLE_FORMAT: &str = "1.0";
 
 /// A surface the package ships.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -202,6 +207,93 @@ impl Package {
         Self::from_parts(manifest_bytes, files, dir.display().to_string())
     }
 
+    /// A package directory or a bundle file, whichever `path` is.
+    pub fn load_path(path: &Path) -> Result<Self, ShippedError> {
+        if path.is_file() {
+            let bytes = std::fs::read(path)
+                .map_err(|e| fail("not-found", format!("{}: {e}", path.display())))?;
+            Self::from_bundle(&bytes, path.display().to_string())
+        } else {
+            Self::load(path)
+        }
+    }
+
+    /// The package as one JSON file: `{"koinepkg": "1.0", "manifest": <the
+    /// manifest's text>, "files": {<path>: <text>}}`. The manifest and files
+    /// are carried as their exact text, so the bundle's package has the
+    /// directory's digest. Refuses a file that is not UTF-8.
+    pub fn to_bundle(&self) -> Result<Vec<u8>, ShippedError> {
+        let text = |bytes: &[u8], what: &str| {
+            String::from_utf8(bytes.to_vec())
+                .map_err(|_| fail("invalid-argument", format!("{what} is not UTF-8 text")))
+        };
+        let mut files = serde_json::Map::new();
+        for (path, bytes) in &self.files {
+            files.insert(path.clone(), Value::String(text(bytes, path)?));
+        }
+        let bundle = json!({
+            "koinepkg": BUNDLE_FORMAT,
+            "manifest": text(&self.manifest_bytes, MANIFEST)?,
+            "files": files,
+        });
+        Ok(serde_json::to_vec_pretty(&bundle).expect("a bundle serializes"))
+    }
+
+    /// A package from a bundle's bytes.
+    pub fn from_bundle(bytes: &[u8], source: impl Into<String>) -> Result<Self, ShippedError> {
+        let bundle: Value = serde_json::from_slice(bytes)
+            .map_err(|e| fail("invalid-argument", format!("not a package bundle: {e}")))?;
+        if bundle["koinepkg"] != json!(BUNDLE_FORMAT) {
+            return Err(fail(
+                "invalid-argument",
+                format!(
+                    "not a package bundle of format {BUNDLE_FORMAT} (koinepkg is {})",
+                    bundle["koinepkg"]
+                ),
+            ));
+        }
+        let manifest = bundle["manifest"]
+            .as_str()
+            .ok_or_else(|| fail("invalid-argument", "the bundle has no manifest text"))?;
+        let mut files = BTreeMap::new();
+        if let Some(entries) = bundle["files"].as_object() {
+            for (path, text) in entries {
+                checked(path)?;
+                let text = text.as_str().ok_or_else(|| {
+                    fail(
+                        "invalid-argument",
+                        format!("bundle file {path} is not text"),
+                    )
+                })?;
+                files.insert(path.clone(), text.as_bytes().to_vec());
+            }
+        }
+        let package = Self::from_parts(manifest.as_bytes().to_vec(), files, source)?;
+        // Only what the manifest names counts toward the digest.
+        let named: BTreeSet<&String> = package
+            .manifest
+            .surfaces
+            .iter()
+            .map(|s| &s.file)
+            .chain(package.manifest.skills.iter().map(|s| &s.file))
+            .collect();
+        if let Some(extra) = package.files.keys().find(|p| !named.contains(p)) {
+            return Err(fail(
+                "invalid-argument",
+                format!("the bundle carries {extra}, which its manifest does not name"),
+            ));
+        }
+        Ok(package)
+    }
+
+    /// The file name a registry serves this package under.
+    pub fn bundle_name(&self) -> String {
+        format!(
+            "{}-{}{BUNDLE_SUFFIX}",
+            self.manifest.name, self.manifest.version
+        )
+    }
+
     /// SHA-256 over the manifest and every file it names, in path order:
     /// `koine-package.json\0<bytes>\0<path>\0<bytes>\0…` (P-D1).
     pub fn digest(&self) -> String {
@@ -237,8 +329,10 @@ pub fn verbs_called(spec: &Value) -> BTreeSet<String> {
     fn walk(value: &Value, out: &mut BTreeSet<String>) {
         match value {
             Value::Object(map) => {
+                // A verb name is `<service>_<method>`; a `verb` key in a
+                // surface's own state (an empty field, a template) is not.
                 if let Some(Value::String(name)) = map.get("verb") {
-                    if !name.contains("{{") {
+                    if name.contains('_') && !name.contains("{{") && !name.contains(' ') {
                         out.insert(name.clone());
                     }
                 }
