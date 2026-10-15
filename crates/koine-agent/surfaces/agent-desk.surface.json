@@ -1,0 +1,115 @@
+{
+  "surface": "1.0",
+  "name": "Agent desk",
+  "state": {
+    "prompt": "",
+    "view": "",
+    "view_name": "",
+    "status": "all",
+    "picked": null,
+    "filed": null,
+    "shown": null
+  },
+  "sources": {
+    "requests": { "verb": "agent-service_requests", "args": { "status": "{{state.status}}" } }
+  },
+  "root": {
+    "column": [
+      { "id": "intro",
+        "text": "Leave work for whichever agent is connected. A question carries what you are pointing at; a view request carries what an agent needs to build it. Agents pick requests up with `agent-service_next` and answer here." },
+      { "id": "ask-section",
+        "section": {
+          "title": "Ask about what you are looking at",
+          "body": { "column": [
+            { "id": "prompt", "field": { "text": {} }, "label": "Question", "bind": "state.prompt" },
+            { "id": "ask-btn",
+              "button": { "label": "Ask an agent",
+                          "on_click": [
+                            { "call": { "verb": "agent-service_ask",
+                                        "args": { "prompt": "{{state.prompt}}" },
+                                        "into": "state.filed" } },
+                            { "set": { "path": "state.prompt", "value": "" } },
+                            { "refresh": { "source": "requests" } }
+                          ] } }
+          ] }
+        } },
+      { "id": "make-section",
+        "section": {
+          "title": "Make a view",
+          "body": { "column": [
+            { "id": "starters",
+              "row": [
+                { "id": "starter-table",
+                  "button": { "label": "A table of …",
+                              "on_click": [ { "set": { "path": "state.view", "value": "A table of my records of kind … with columns …, sorted by …" } } ] } },
+                { "id": "starter-plot",
+                  "button": { "label": "A plot of …",
+                              "on_click": [ { "set": { "path": "state.view", "value": "A plot of … against … from the verb …, with a slider for …" } } ] } },
+                { "id": "starter-form",
+                  "button": { "label": "A form for …",
+                              "on_click": [ { "set": { "path": "state.view", "value": "A form that calls … with fields for … and shows the answer" } } ] } },
+                { "id": "starter-dashboard",
+                  "button": { "label": "A dashboard of …",
+                              "on_click": [ { "set": { "path": "state.view", "value": "A dashboard of the running jobs and the slowest steps of my last run" } } ] } }
+              ] },
+            { "id": "view", "field": { "text": {} }, "label": "Describe the view", "bind": "state.view" },
+            { "id": "view-name", "field": { "text": {} }, "label": "Name", "bind": "state.view_name" },
+            { "id": "make-btn",
+              "button": { "label": "Ask an agent to build it",
+                          "on_click": [
+                            { "call": { "verb": "agent-service_make-surface",
+                                        "args": { "description": "{{state.view}}", "name": "{{state.view_name}}" },
+                                        "into": "state.filed" } },
+                            { "set": { "path": "state.view", "value": "" } },
+                            { "set": { "path": "state.view_name", "value": "" } },
+                            { "refresh": { "source": "requests" } }
+                          ] } }
+          ] }
+        } },
+      { "id": "filed",
+        "status": { "level": "info", "message": "Filed request {{state.filed.request.id}}: {{state.filed.request.status}}" },
+        "when": { "path": "state.filed.request.id" } },
+      { "id": "filed-refused",
+        "status": { "level": "warning", "message": "{{state.filed.message}}" },
+        "when": { "path": "state.filed.ok", "equals": false } },
+      { "id": "desk-controls",
+        "row": [
+          { "id": "status-filter",
+            "field": { "select": { "options": ["all", "open", "claimed", "answered", "declined"] } },
+            "label": "Show", "bind": "state.status" },
+          { "id": "refresh-btn",
+            "button": { "label": "Refresh", "on_click": [ { "refresh": { "source": "requests" } } ] } }
+        ] },
+      { "id": "open-count", "text": "{{source.requests.open}} open" },
+      { "id": "requests", "label": "Requests",
+        "table": { "rows": "{{source.requests.rows}}",
+                   "columns": ["created_at", "kind", "status", "prompt", "answer", "claimed_by"],
+                   "id_field": "id",
+                   "on_select": [
+                     { "set": { "path": "state.picked", "value": "{{event.value.0}}" } },
+                     { "set": { "path": "state.shown", "value": null } }
+                   ] } },
+      { "id": "picked-actions",
+        "when": { "path": "state.picked" },
+        "row": [
+          { "id": "show-btn",
+            "button": { "label": "Show its surface",
+                        "on_click": [
+                          { "call": { "verb": "agent-service_show",
+                                      "args": { "id": "{{state.picked}}" },
+                                      "into": "state.shown" } }
+                        ] } },
+          { "id": "withdraw-btn",
+            "button": { "label": "Withdraw",
+                        "on_click": [
+                          { "call": { "verb": "agent-service_decline",
+                                      "args": { "id": "{{state.picked}}", "reason": "withdrawn by the person" } } },
+                          { "refresh": { "source": "requests" } }
+                        ] } }
+        ] },
+      { "id": "shown-refused",
+        "status": { "level": "warning", "message": "{{state.shown.message}}" },
+        "when": { "path": "state.shown.ok", "equals": false } }
+    ]
+  }
+}

@@ -1,0 +1,241 @@
+//! The desk's records: `koine/agent-request@1.0.0` items
+//! (plan-koine-research-os G-D).
+//!
+//! A request moves `open` → `claimed` → `answered`, or to `declined` from
+//! `open` or `claimed`. Any caller may move it; the record says who did.
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use chrono::Utc;
+use impress_item::{
+    ActorKind, AttributedStore, FieldMutation, Item, ItemId, ItemQuery, Priority, SchemaRef,
+    SortDescriptor, Value as ItemValue, Visibility,
+};
+use serde_json::{json, Map, Value};
+
+use crate::dto::RequestRow;
+
+/// A request on the desk.
+pub const REQUEST: &str = "koine/agent-request@1.0.0";
+
+/// The kinds of request.
+pub const ASK: &str = "ask";
+pub const DIAGNOSE: &str = "diagnose";
+pub const MAKE_SURFACE: &str = "make-surface";
+
+/// Why a desk operation did not happen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeskError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl DeskError {
+    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+
+    fn store(e: impl std::fmt::Display) -> Self {
+        Self::new("store-error", e.to_string())
+    }
+}
+
+fn schema() -> SchemaRef {
+    SchemaRef::from_stored(REQUEST.to_owned())
+}
+
+/// The store the desk uses: the call's or the process's; a write to a
+/// stand-in is refused.
+pub fn store(for_write: bool) -> Result<Arc<dyn AttributedStore>, DeskError> {
+    let (store, fallback) = koine_store::process::acquire_or_stand_in();
+    if for_write && fallback {
+        return Err(DeskError::new(
+            "store-unavailable",
+            "no store is installed in this process; the desk needs a host (nothing was written)",
+        ));
+    }
+    Ok(store)
+}
+
+fn to_item_value(value: Value) -> ItemValue {
+    serde_json::from_value(value).unwrap_or(ItemValue::Null)
+}
+
+fn payload_json(item: &Item) -> Map<String, Value> {
+    item.payload
+        .iter()
+        .map(|(k, v)| (k.clone(), serde_json::to_value(v).unwrap_or(Value::Null)))
+        .collect()
+}
+
+fn text(p: &Map<String, Value>, field: &str) -> Option<String> {
+    p.get(field)
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// A request item as a row; `with_context` keeps its context.
+pub fn row_of(item: &Item, with_context: bool) -> RequestRow {
+    let p = payload_json(item);
+    RequestRow {
+        id: item.id.to_string(),
+        kind: text(&p, "kind").unwrap_or_else(|| ASK.into()),
+        prompt: text(&p, "prompt").unwrap_or_default(),
+        status: text(&p, "status").unwrap_or_else(|| "open".into()),
+        created_by: item.author.clone(),
+        created_at: item
+            .created
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        claimed_by: text(&p, "claimed_by"),
+        answer: text(&p, "answer"),
+        surface_id: text(&p, "surface_id"),
+        call_id: text(&p, "call_id"),
+        context: if with_context {
+            p.get("context").cloned().unwrap_or(Value::Null)
+        } else {
+            Value::Null
+        },
+    }
+}
+
+/// File a request.
+pub fn file(
+    kind: &str,
+    prompt: &str,
+    context: Value,
+    call_id: Option<&str>,
+    author: String,
+    author_kind: ActorKind,
+) -> Result<RequestRow, DeskError> {
+    let store = store(true)?;
+    let now = Utc::now();
+    let mut payload = BTreeMap::new();
+    payload.insert("kind".to_string(), ItemValue::String(kind.into()));
+    payload.insert("prompt".to_string(), ItemValue::String(prompt.into()));
+    payload.insert("status".to_string(), ItemValue::String("open".into()));
+    payload.insert("context".to_string(), to_item_value(context));
+    if let Some(call_id) = call_id {
+        payload.insert("call_id".to_string(), ItemValue::String(call_id.into()));
+    }
+    let item = Item {
+        id: ItemId::new_v4(),
+        schema: schema(),
+        payload,
+        created: now,
+        modified: now,
+        author,
+        author_kind,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
+        tags: Vec::new(),
+        flag: None,
+        is_read: false,
+        is_starred: false,
+        priority: Priority::Normal,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
+        references: Vec::new(),
+        parent: None,
+    };
+    store.insert(item.clone()).map_err(DeskError::store)?;
+    Ok(row_of(&item, true))
+}
+
+/// Every request, newest first, narrowed to a status.
+pub fn list(status: Option<&str>) -> Result<Vec<Item>, DeskError> {
+    let store = store(false)?;
+    let items = store
+        .query(&ItemQuery {
+            schema: Some(schema()),
+            sort: vec![SortDescriptor {
+                field: "created".into(),
+                ascending: false,
+            }],
+            include_tags: false,
+            include_references: false,
+            ..Default::default()
+        })
+        .map_err(DeskError::store)?;
+    Ok(items
+        .into_iter()
+        .filter(|item| match status {
+            Some(status) => row_of(item, false).status == status,
+            None => true,
+        })
+        .collect())
+}
+
+/// One request.
+pub fn get(id: &str) -> Result<Item, DeskError> {
+    let store = store(false)?;
+    let parsed: ItemId = id
+        .trim()
+        .parse()
+        .map_err(|_| DeskError::new("invalid-argument", format!("{id} is not a request id")))?;
+    match store.get(parsed).map_err(DeskError::store)? {
+        Some(item) if item.schema.as_str() == REQUEST => Ok(item),
+        _ => Err(DeskError::new("not-found", format!("no request {id}"))),
+    }
+}
+
+/// Move a request from one of `from` to `to`, setting `fields`.
+pub fn transition(
+    id: &str,
+    from: &[&str],
+    to: &str,
+    fields: Vec<(&str, Value)>,
+) -> Result<RequestRow, DeskError> {
+    let item = get(id)?;
+    let current = row_of(&item, false).status;
+    if !from.contains(&current.as_str()) {
+        return Err(DeskError::new(
+            "conflict",
+            format!(
+                "request {id} is {current}; it can be made {to} only from {}",
+                from.join(" or ")
+            ),
+        ));
+    }
+    let store = store(true)?;
+    let mut mutations = vec![FieldMutation::SetPayload(
+        "status".into(),
+        ItemValue::String(to.into()),
+    )];
+    for (field, value) in fields {
+        mutations.push(FieldMutation::SetPayload(
+            field.into(),
+            to_item_value(value),
+        ));
+    }
+    mutations.push(FieldMutation::SetPayload(
+        format!("{to}_at"),
+        ItemValue::String(Utc::now().to_rfc3339()),
+    ));
+    store.update(item.id, mutations).map_err(DeskError::store)?;
+    let updated = get(id)?;
+    Ok(row_of(&updated, true))
+}
+
+/// The oldest open request, if any.
+pub fn oldest_open() -> Result<Option<RequestRow>, DeskError> {
+    Ok(list(Some("open"))?.last().map(|item| row_of(item, true)))
+}
+
+/// `{"kind": …}` helper for contexts.
+pub fn tagged(kind: &str, body: Value) -> Value {
+    let mut object = Map::new();
+    object.insert("kind".into(), json!(kind));
+    if let Value::Object(body) = body {
+        object.extend(body);
+    }
+    Value::Object(object)
+}
