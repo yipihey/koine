@@ -829,6 +829,18 @@ fn registry_for(workspace: PathBuf) -> Arc<AiRegistry> {
     registry
 }
 
+/// A process's own answer to "which store and registry do the AI verbs
+/// use", linked in rather than called: a crate submits one with
+/// `inventory::submit!` (impress-apps' `impress-ai-service` submits the shared
+/// SQLite store and its workspace). [`install`] still wins over it; with none
+/// linked the verbs use the process store and workspace.
+pub struct Deployment {
+    pub name: &'static str,
+    pub deploy: fn() -> DefaultImpressAiService,
+}
+
+impress_service_core::inventory::collect!(Deployment);
+
 static INSTALLED: RwLock<Option<DefaultImpressAiService>> = RwLock::new(None);
 
 /// Answer the AI verbs from `ai` and `registry` instead of the process's
@@ -841,6 +853,12 @@ pub fn install(ai: Arc<AiStore>, registry: Arc<AiRegistry>) {
 fn service_instance() -> DefaultImpressAiService {
     if let Some(installed) = INSTALLED.read().unwrap_or_else(|e| e.into_inner()).clone() {
         return installed;
+    }
+    if let Some(deployment) = impress_service_core::inventory::iter::<Deployment>
+        .into_iter()
+        .next()
+    {
+        return (deployment.deploy)();
     }
     DefaultImpressAiService::shared()
 }
