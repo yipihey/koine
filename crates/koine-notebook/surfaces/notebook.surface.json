@@ -51,7 +51,7 @@
         "when": { "path": "source.runs.open" } },
       { "id": "runs-table", "label": "Runs (select one to filter the timeline)",
         "table": { "rows": "{{source.runs.runs}}",
-                   "columns": ["name", "status", "started_at", "calls", "host"],
+                   "columns": ["name", "status", "calls", "started_at", "host"],
                    "id_field": "id",
                    "on_select": [
                      { "set": { "path": "state.run", "value": "{{event.value.0}}" } },
@@ -86,7 +86,7 @@
         ] },
       { "id": "timeline", "label": "Timeline",
         "table": { "rows": "{{source.timeline.rows}}",
-                   "columns": ["started_at", "caller", "verb", "ok", "duration_ms", "self_ms", "steps", "writes", "reads"],
+                   "columns": ["verb", "duration_ms", "self_ms", "steps", "ok", "writes", "reads", "caller", "started_at"],
                    "id_field": "call_id",
                    "on_select": [
                      { "set": { "path": "state.selected", "value": "{{event.value.0}}" } },
@@ -97,7 +97,8 @@
         "when": { "path": "source.entry.call_id" },
         "column": [
           { "id": "entry-summary", "label": "Call", "kv": "{{source.entry.summary}}" },
-          { "id": "entry-plot", "plot": { "spec": "{{source.entry.plot}}" } },
+          { "id": "entry-plot", "when": { "path": "source.entry.steps.1" },
+            "plot": { "spec": "{{source.entry.plot}}" } },
           { "id": "entry-steps", "label": "Steps (total and self time)",
             "table": { "rows": "{{source.entry.steps}}",
                        "columns": ["label", "total_ms", "self_ms", "ok", "code"],

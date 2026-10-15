@@ -621,6 +621,31 @@ pub async fn verb_linked(name: &str) -> Result<bool, ApiError> {
     parse_verb_probe(&get(&verb_probe_url(&origin(), name)).await?)
 }
 
+/// `POST /api/verb/<name>` with `args` as the HTTP caller: the verb's answer.
+/// A refusal (`ok: false`) is the `Err`, so a page shows it like any other.
+pub async fn call_verb(name: &str, args: &Value, token: Option<&Token>) -> Result<Value, ApiError> {
+    let answer = post(&verb_url(&origin(), name), args, token).await?;
+    match answer_refusal(&answer) {
+        Some(refusal) => Err(refusal),
+        None => Ok(answer),
+    }
+}
+
+/// The URL of verb `name` on `origin`.
+pub fn verb_url(origin: &str, name: &str) -> String {
+    format!("{}/api/verb/{}", origin.trim_end_matches('/'), encode(name))
+}
+
+/// The refusal an answer carries: `ok: false` with its `code` and `message`.
+pub fn answer_refusal(answer: &Value) -> Option<ApiError> {
+    (answer.get("ok") == Some(&Value::Bool(false))).then(|| {
+        ApiError::new(
+            answer["code"].as_str().unwrap_or("refused"),
+            answer["message"].as_str().unwrap_or(""),
+        )
+    })
+}
+
 /// The app's window tree. A refusal, or a snapshot that failed, is the `Err`.
 /// There is no wait route for the layout, so the layout page polls this.
 pub async fn layout_tree() -> Result<LayoutTree, ApiError> {

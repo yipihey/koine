@@ -13,6 +13,7 @@
 //! and the page dials that host instead of the window's origin.
 
 mod api;
+mod ask_page;
 mod dom;
 mod host_page;
 mod keys;
@@ -26,6 +27,7 @@ use std::sync::RwLock;
 
 use dioxus::prelude::*;
 
+use crate::ask_page::AskPage;
 use crate::host_page::HostPage;
 use crate::layout_page::LayoutPage;
 use crate::session::Session;
@@ -206,6 +208,8 @@ enum Route {
     StylePage {},
     #[route("/host")]
     HostPage {},
+    #[route("/ask?:about")]
+    AskPage { about: String },
 }
 
 /// Where the page's host is, handed over in-process (M-D2).
@@ -314,6 +318,8 @@ fn App() -> Element {
     // Which tabs the host can serve (A-D4): asked once here, and again by
     // the layout page's poll.
     use_future(move || async move { session.check_layout().await });
+    // The ask tab (G-D5): only on a host that links the desk.
+    use_future(move || async move { session.check_ask().await });
     rsx! {
         style { dangerous_inner_html: koine_dioxus::STYLESHEET }
         style { dangerous_inner_html: PAGE_CSS }
@@ -336,12 +342,13 @@ fn Shell() -> Element {
 enum Tab {
     Surfaces,
     Layout,
+    Ask,
     Style,
     Host,
 }
 
 impl Tab {
-    const ALL: [Tab; 4] = [Tab::Surfaces, Tab::Layout, Tab::Style, Tab::Host];
+    const ALL: [Tab; 5] = [Tab::Surfaces, Tab::Layout, Tab::Ask, Tab::Style, Tab::Host];
 
     fn of(route: &Route) -> Tab {
         match route {
@@ -349,6 +356,7 @@ impl Tab {
             Route::LayoutPage {} => Tab::Layout,
             Route::StylePage {} => Tab::Style,
             Route::HostPage {} => Tab::Host,
+            Route::AskPage { .. } => Tab::Ask,
         }
     }
 
@@ -358,6 +366,9 @@ impl Tab {
             Tab::Layout => Route::LayoutPage {},
             Tab::Style => Route::StylePage {},
             Tab::Host => Route::HostPage {},
+            Tab::Ask => Route::AskPage {
+                about: String::new(),
+            },
         }
     }
 
@@ -373,11 +384,15 @@ impl Tab {
     ///   sheet through `koine::style::editor_apply` and calls no verb, so
     ///   every host can serve it.
     ///
+    /// - "ask" when `ask` (the host links `agent-service_ask`, plan-koine-
+    ///   research-os G-D5), or when it is the page being shown.
+    ///
     /// The routes stay registered whatever the nav shows.
-    fn shown(layout: bool, current: Tab) -> Vec<Tab> {
+    fn shown(layout: bool, ask: bool, current: Tab) -> Vec<Tab> {
         Tab::ALL
             .into_iter()
             .filter(|tab| *tab != Tab::Layout || layout || current == Tab::Layout)
+            .filter(|tab| *tab != Tab::Ask || ask || current == Tab::Ask)
             .collect()
     }
 
@@ -387,6 +402,7 @@ impl Tab {
             Tab::Layout => "layout",
             Tab::Style => "style",
             Tab::Host => "host",
+            Tab::Ask => "ask",
         }
     }
 }
@@ -401,7 +417,7 @@ fn Nav() -> Element {
     let session = use_context::<Session>();
     let route = use_route::<Route>();
     let current = Tab::of(&route);
-    let tabs = Tab::shown(*session.layout_tab.read(), current);
+    let tabs = Tab::shown(*session.layout_tab.read(), *session.ask_tab.read(), current);
     rsx! {
         nav { class: "kw-nav", aria_label: "pages",
             span { class: "kw-nav-title", "koine" }
@@ -450,6 +466,10 @@ fn TabIcon(tab: Tab) -> Element {
                     circle { cx: "9", cy: "7", r: "2.2", fill: "var(--koine-bg-bar)" }
                     circle { cx: "15", cy: "12", r: "2.2", fill: "var(--koine-bg-bar)" }
                     circle { cx: "7", cy: "17", r: "2.2", fill: "var(--koine-bg-bar)" }
+                },
+                Tab::Ask => rsx! {
+                    path { d: "M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4h0A2.5 2.5 0 0 1 4 13.5z" }
+                    path { d: "M9.5 8.2a2.5 2.5 0 1 1 3.4 2.3c-.6.3-.9.8-.9 1.4M12 13.6h.01" }
                 },
                 Tab::Host => rsx! {
                     rect { x: "3", y: "4", width: "18", height: "6.5", rx: "2" }
@@ -586,14 +606,25 @@ mod tests {
     #[test]
     fn the_nav_shows_layout_only_when_the_host_can_serve_it() {
         assert_eq!(
-            Tab::shown(false, Tab::Surfaces),
+            Tab::shown(false, false, Tab::Surfaces),
             vec![Tab::Surfaces, Tab::Style, Tab::Host]
         );
         assert_eq!(
-            Tab::shown(true, Tab::Surfaces),
+            Tab::shown(true, false, Tab::Surfaces),
             vec![Tab::Surfaces, Tab::Layout, Tab::Style, Tab::Host]
         );
+        assert_eq!(
+            Tab::shown(true, true, Tab::Surfaces),
+            vec![Tab::Surfaces, Tab::Layout, Tab::Ask, Tab::Style, Tab::Host]
+        );
         // The page in view keeps its tab (the route is always registered).
-        assert_eq!(Tab::shown(false, Tab::Layout), Tab::ALL.to_vec());
+        assert_eq!(
+            Tab::shown(false, false, Tab::Layout),
+            vec![Tab::Surfaces, Tab::Layout, Tab::Style, Tab::Host]
+        );
+        assert_eq!(
+            Tab::shown(false, false, Tab::Ask),
+            vec![Tab::Surfaces, Tab::Ask, Tab::Style, Tab::Host]
+        );
     }
 }

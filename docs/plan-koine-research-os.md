@@ -233,13 +233,23 @@ registry has newer. A registry that cannot be read is named in
 registry section: add a registry, search, select a package to fetch its
 review, install what was reviewed.
 
-## Keyboard and palette
+### G-D5. Asking from where you are
 
-The impress apps' keymap (`impress-keymap`) is the place for "ask an agent
-about the selection" and "make a surface" chords, as palette commands that
-call `agent-service_ask` and open the Agent desk. They are not added here:
-a binding with no implementation in impress-apps is a dead affordance
-(plan-koine-affordances).
+Asking is a page and a key, not only a surface. The web page has an "ask"
+tab (shown when the host links `agent-service_ask`, as A-D4 shows a tab only
+when the host can serve it): a text area, "Ask" and "Ask for a view", and the
+desk below with each request's status, answer, and "Open the view" for an
+answer that is a surface. `a` on a surface page (`koine::cursor::Key::Ask`,
+the shared key table) opens it with `?about=<surface>`, and while "Include
+the surface I was looking at" is on, `agent-service_ask {prompt,
+surface_id}` attaches that surface as the person sees it: its name, spec and
+current state (`context.viewing`). Three paths, one action (A-D2): the tab
+for a mouse and a finger, `a` for the keyboard; the gesture suite
+(`scripts/tests/gestures`) fires all three and judges each by the desk.
+
+In the impress apps the same action is ⌃⌥⌘A, "Ask an Agent…"
+(`imbib.view.ask_agent`, `imprint.edit.ask_agent` in `impress-keymap`); the
+Swift side and the agent that answers are impress-apps'.
 
 ## Work packages
 

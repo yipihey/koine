@@ -42,18 +42,28 @@ pub trait AgentService: Send + Sync + 'static {
     async fn context(&self, app_id: Option<String>, device: Option<String>) -> ContextResult;
 
     /// Leave a request for an agent: `prompt` in the person's words, with
-    /// what they are pointing at attached (unless `with_context` is false).
-    /// Refuses an empty prompt.
+    /// what they are pointing at attached (unless `with_context` is false):
+    /// the layout's focus and selection, and, given `surface_id`, the surface
+    /// they were looking at (its name, spec and current state). Refuses an
+    /// empty prompt.
     #[impress_method(
         safety = mutating,
-        effects(reads = ["impress/ui/layout@1.0.0"], writes = [any("koine/agent-request@1.0.0")])
+        effects(
+            reads = ["impress/ui/layout@1.0.0", "impress/ui/surface@1.0.0"],
+            writes = [any("koine/agent-request@1.0.0")]
+        )
     )]
     #[impress_example(
         name = "default",
         args = r#"{"prompt": "Which of the selected papers cite each other?", "with_context": false}"#,
         expect = r#"{"ok": true}"#
     )]
-    async fn ask(&self, prompt: String, with_context: Option<bool>) -> RequestResult;
+    async fn ask(
+        &self,
+        prompt: String,
+        with_context: Option<bool>,
+        surface_id: Option<String>,
+    ) -> RequestResult;
 
     /// Hand a call to an agent: a `diagnose` request whose context is the
     /// call's record from the notebook (its steps, its arguments as recorded,
@@ -233,7 +243,12 @@ impl AgentService for DefaultAgentService {
         context::pointing(&app_id, device).await
     }
 
-    async fn ask(&self, prompt: String, with_context: Option<bool>) -> RequestResult {
+    async fn ask(
+        &self,
+        prompt: String,
+        with_context: Option<bool>,
+        surface_id: Option<String>,
+    ) -> RequestResult {
         let prompt = prompt.trim();
         if prompt.is_empty() {
             return refused(DeskError::new(
@@ -247,10 +262,18 @@ impl AgentService for DefaultAgentService {
         } else {
             Value::Null
         };
+        // G-D5: the surface the person was looking at, as they saw it.
+        let viewing = match surface_id.filter(|s| !s.trim().is_empty()) {
+            Some(id) if with_context.unwrap_or(true) => context::viewing(id.trim()).await,
+            _ => Value::Null,
+        };
         file(
             desk::ASK,
             prompt,
-            desk::tagged("pointing", json!({ "pointing": pointing })),
+            desk::tagged(
+                "pointing",
+                json!({ "pointing": pointing, "viewing": viewing }),
+            ),
             None,
         )
     }
@@ -507,7 +530,9 @@ impress_service_impl! {
             /// The request, in the person's words.
             prompt: String,
             /// Attach what the person is pointing at (default true).
-            with_context: Option<bool>
+            with_context: Option<bool>,
+            /// The surface the person was looking at, attached as context.
+            surface_id: Option<String>
         ) -> RequestResult,
         /// Hand a logged call to an agent.
         diagnose(

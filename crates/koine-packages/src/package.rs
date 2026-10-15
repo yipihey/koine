@@ -508,7 +508,7 @@ fn record(package: &Package, installed: &Installed) -> Result<(), ShippedError> 
         "description": manifest.description,
         "digest": installed.digest,
         "source": package.source,
-        "installed_at": Utc::now().to_rfc3339(),
+        "installed_at": Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         "surfaces": installed.surfaces.iter()
             .map(|(name, id, _)| json!({"name": name, "surface_id": id}))
             .collect::<Vec<_>>(),

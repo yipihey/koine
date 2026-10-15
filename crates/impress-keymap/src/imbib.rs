@@ -165,6 +165,16 @@ pub fn bindings() -> Vec<Binding> {
             section: "View",
             chordless: false,
         },
+        // plan-koine-research-os G-D5: the agent desk, with the selection
+        // attached (koine's `agent-service_ask`).
+        Binding {
+            chord: Chord::new("a").ctrl().opt().cmd(),
+            scope: main.clone(),
+            target: Target::Command("imbib.view.ask_agent"),
+            label: "Ask an Agent...",
+            section: "View",
+            chordless: false,
+        },
         Binding {
             chord: Chord::new("1").cmd(),
             scope: main.clone(),

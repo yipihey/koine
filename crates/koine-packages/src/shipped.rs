@@ -281,9 +281,15 @@ pub fn find(id: &str) -> Result<Baseline, ShippedError> {
 }
 
 async fn verb(name: &str, args: Value) -> Result<Value, ShippedError> {
-    let answer = call::call_async(name, args)
-        .await
-        .map_err(|e| ShippedError::new("unavailable", e.to_string()))?;
+    // A shipped surface is written by the package manager, and the call log
+    // says so (not `agent:unknown`).
+    let answer = call::call_async_as(
+        name,
+        impress_service_core::pipeline::CallerIdentity::system("koine-packages"),
+        args,
+    )
+    .await
+    .map_err(|e| ShippedError::new("unavailable", e.to_string()))?;
     Ok(answer)
 }
 

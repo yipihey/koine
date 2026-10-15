@@ -31,6 +31,9 @@ pub struct Session {
     /// ([`Session::check_layout`]) and the layout page's poll re-checks
     /// ([`Session::saw_layout`]).
     pub layout_tab: Signal<bool>,
+    /// Whether the nav shows the ask tab: the host links
+    /// `agent-service_ask` ([`Session::check_ask`]).
+    pub ask_tab: Signal<bool>,
 }
 
 /// What the host answered about its layout.
@@ -80,6 +83,7 @@ impl Session {
             refusal_is_read: Signal::new(false),
             style: Signal::new(StyleHost::new("web").expect("web is a koine frontend")),
             layout_tab: Signal::new(false),
+            ask_tab: Signal::new(false),
         }
     }
 
@@ -104,6 +108,15 @@ impl Session {
             },
         };
         self.saw_layout(answer);
+    }
+
+    /// Whether the host links the desk's ask verb: the ask tab is shown when
+    /// it does, and stays hidden when the probe fails.
+    pub async fn check_ask(mut self) {
+        let linked = matches!(api::verb_linked(crate::ask_page::ASK_VERB).await, Ok(true));
+        if *self.ask_tab.peek() != linked {
+            self.ask_tab.set(linked);
+        }
     }
 
     /// Record a refusal of something the person did.

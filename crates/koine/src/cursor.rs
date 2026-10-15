@@ -78,6 +78,9 @@ pub enum Key {
     Paste,
     /// Paste beside the active row (`P`). The renderer's.
     PasteBeside,
+    /// Ask an agent about what is shown (`a`, plan-koine-research-os G-D5).
+    /// The frontend's: it opens a prompt with the surface as the context.
+    Ask,
 }
 
 /// What the cursor did with a key; see [`Cursor::reply_for`].
@@ -122,6 +125,7 @@ impl Key {
             "x" => Some(Key::Cut),
             "p" => Some(Key::Paste),
             "P" => Some(Key::PasteBeside),
+            "a" => Some(Key::Ask),
             _ => None,
         }
     }
@@ -312,9 +316,13 @@ impl Cursor {
                 self.step(tree, key == Key::Next);
                 Reply::Moved
             }
-            Key::Secondary | Key::Menu | Key::Rename | Key::Cut | Key::Paste | Key::PasteBeside => {
-                Reply::Unhandled
-            }
+            Key::Secondary
+            | Key::Menu
+            | Key::Rename
+            | Key::Cut
+            | Key::Paste
+            | Key::PasteBeside
+            | Key::Ask => Reply::Unhandled,
         }
     }
 
@@ -595,6 +603,7 @@ mod tests {
             ("x", Key::Cut),
             ("p", Key::Paste),
             ("P", Key::PasteBeside),
+            ("a", Key::Ask),
         ] {
             assert_eq!(Key::from_name(name), Some(key), "{name}");
         }

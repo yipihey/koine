@@ -131,6 +131,15 @@ pub fn bindings() -> Vec<Binding> {
             "AI Assistant…",
             "Imprint — Edit",
         ),
+        // plan-koine-research-os G-D5: the agent desk, with the selection
+        // attached (koine's `agent-service_ask`).
+        command(
+            Chord::new("a").ctrl().opt().cmd(),
+            main.clone(),
+            "imprint.edit.ask_agent",
+            "Ask an Agent…",
+            "Imprint — Edit",
+        ),
         command(
             Chord::new("b").opt().cmd(),
             main.clone(),
@@ -423,7 +432,7 @@ mod tests {
                 binding.target.id()
             );
         }
-        assert_eq!(bindings.len(), 60);
+        assert_eq!(bindings.len(), 61);
         assert_eq!(
             bindings
                 .iter()

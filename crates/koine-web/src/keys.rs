@@ -57,6 +57,8 @@ pub enum KeyAction {
     Paste(String, Value),
     /// `P`: move the cut row to just after this one.
     PasteBeside(String, Value),
+    /// `a`: ask an agent about this surface (the ask page, with it attached).
+    Ask,
 }
 
 impl KeyAction {
@@ -103,6 +105,7 @@ pub fn decide(
             Key::Rename | Key::Secondary | Key::Menu | Key::Cut | Key::Paste | Key::PasteBeside => {
                 row_action(tree, cursor, key)
             }
+            Key::Ask => KeyAction::Ask,
             _ => KeyAction::Ignored,
         },
     }
@@ -455,6 +458,16 @@ mod tests {
         assert_eq!(cursor.focused_id(&tree), Some("a"));
         decide(&tree, &mut cursor, "ArrowUp", false, true);
         assert_eq!(cursor.focused_id(&tree), Some("c2"));
+    }
+
+    /// plan-koine-research-os G-D5: `a` asks an agent, wherever the cursor is.
+    #[test]
+    fn a_asks_an_agent_and_moves_nothing() {
+        let tree = tree();
+        let mut cursor = Cursor::new();
+        assert_eq!(decide(&tree, &mut cursor, "a", false, true), KeyAction::Ask);
+        assert!(KeyAction::Ask.claims());
+        assert_eq!(cursor.focused_id(&tree), Some("a"));
     }
 
     #[test]

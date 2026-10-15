@@ -274,6 +274,59 @@ await step("stack a layout tile onto another as tabs", async () => {
   ok ? pass(`stack a layout tile onto another as tabs (${before} -> ${ok})`) : fail("stack a layout tile onto another as tabs", `${before} became ${await layoutOrder()}`);
 });
 
+// ---- ask an agent (docs/plan-koine-research-os.md G-D5): the nav's tab for
+// either pointer, `a` on a surface for the keyboard, and the desk's answer.
+const desk = async () => (await verb("agent-service_requests", {})).rows ?? [];
+const askFrom = async (prompt) => {
+  const box = page.locator("#kw-ask-prompt");
+  await box.waitFor({ timeout: 10000 });
+  await box.fill(prompt);
+  await press(page.locator("#kw-ask-question"));
+  return until(async () => (await desk()).find((r) => r.prompt === prompt));
+};
+
+await step("ask an agent from the nav", async () => {
+  await page.goto(`${origin}/ui/`);
+  const tab = page.locator(".kw-nav a", { hasText: "ask" });
+  await tab.waitFor({ timeout: 10000 });
+  await press(tab);
+  const filed = await askFrom(`what is on this page? (${label})`);
+  filed && filed.status === "open" && filed.kind === "ask"
+    ? pass("ask an agent from the nav")
+    : fail("ask an agent from the nav", `desk: ${JSON.stringify(await desk())}`);
+});
+
+if (!touch) {
+  await step("a on a surface asks about that surface", async () => {
+    await page.goto(`${origin}/ui/surface/${encodeURIComponent(notes)}`);
+    await row("Reading").waitFor({ timeout: 20000 });
+    await page.locator(".kw-surface").focus();
+    await page.keyboard.press("a");
+    await page.waitForURL(/\/ui\/ask\?about=/, { timeout: 5000 });
+    const filed = await askFrom("summarise these notes");
+    const claimed = filed && (await verb("agent-service_claim", { id: filed.id }));
+    const viewing = claimed?.request?.context?.viewing;
+    viewing?.surface_id === notes && viewing?.name === "Notes"
+      ? pass("a on a surface asks about that surface")
+      : fail("a on a surface asks about that surface", JSON.stringify(claimed?.request?.context ?? claimed));
+  });
+}
+
+await step("an answered view opens from the desk", async () => {
+  const prompt = `show me the notes (${label})`;
+  await page.goto(`${origin}/ui/ask`);
+  const filed = await askFrom(prompt);
+  await verb("agent-service_answer", { id: filed.id, text: "Here they are.", surface_id: notes });
+  const item = page.locator(`[data-request="${filed.id}"]`);
+  const link = item.locator("a", { hasText: "Open the view" });
+  await link.waitFor({ timeout: 10000 });
+  await press(link);
+  await page.waitForURL(new RegExp(`/ui/surface/${notes}`), { timeout: 5000 });
+  (await item.count()) >= 0 && page.url().includes(notes)
+    ? pass("an answered view opens from the desk")
+    : fail("an answered view opens from the desk", page.url());
+});
+
 if (errors.length) fail("no page errors", errors.join(" | "));
 await browser.close();
 console.log(`[${label}] ${fails ? `${fails} failed` : "all passed"}`);

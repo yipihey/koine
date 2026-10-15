@@ -224,6 +224,10 @@ impl Live {
             KeyAction::Rename(widget, row) => self.renaming.set(Some((widget, row))),
             KeyAction::Menu(widget, row) => self.menu.set(Some((widget, row))),
             KeyAction::Cut(widget, row) => self.clipboard.set(Some((widget, row))),
+            KeyAction::Ask => {
+                let about = self.id.peek().clone();
+                navigator().push(Route::AskPage { about });
+            }
             paste @ (KeyAction::Paste(..) | KeyAction::PasteBeside(..)) => {
                 let cut = self.clipboard.peek().clone();
                 let event = {

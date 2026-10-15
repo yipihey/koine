@@ -49,6 +49,7 @@ diff tell you what changed.
 | Chord | Action | Scope |
 |---|---|---|
 | ⇧⌘P | Command Palette... | window:imbib |
+| ⌃⌥⌘A | Ask an Agent... | window:imbib |
 | ⌃⌘P | Open PDF on Second Display | window:imbib |
 | ⌥⌘1 | Focus Sidebar | window:imbib |
 | ⌥⌘2 | Focus List | window:imbib |
@@ -174,6 +175,7 @@ diff tell you what changed.
 | ⇧⌘M | Add Comment… | window:imprint |
 | ⇧⌘Y | Symbol Palette… | window:imprint |
 | ⇧⌘A | AI Assistant… | window:imprint |
+| ⌃⌥⌘A | Ask an Agent… | window:imprint |
 | ⌥⌘B | Build Manuscript | window:imprint |
 | ⌘⏎ | Compile to PDF | window:imprint |
 | ⇧⌘F | Search Across Manuscripts… | window:imprint |

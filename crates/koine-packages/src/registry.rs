@@ -252,7 +252,10 @@ pub async fn add(url: &str) -> Result<(Known, Index), ShippedError> {
     let mut payload = std::collections::BTreeMap::new();
     payload.insert("url".to_string(), ItemValue::String(url.to_string()));
     payload.insert("name".to_string(), ItemValue::String(index.name.clone()));
-    payload.insert("added_at".to_string(), ItemValue::String(now.to_rfc3339()));
+    payload.insert(
+        "added_at".to_string(),
+        ItemValue::String(now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+    );
     store
         .insert(Item {
             id,

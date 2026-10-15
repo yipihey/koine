@@ -53,6 +53,7 @@ it. `j` and `k` stop at the ends; `Tab` still leaves the tree.
 | `m` | the row menu |
 | `x` | cut the active row for a move |
 | `p` / `P` | paste the cut rows under / beside the active row (`move`) |
+| `a` | ask an agent about the surface shown (the web page opens `/ask` with it attached; plan-koine-research-os G-D5) |
 
 The web draws the same events from the pointer: a click selects, the
 disclosure triangle toggles, a double-click activates, right-click opens the

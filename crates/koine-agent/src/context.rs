@@ -126,6 +126,34 @@ pub fn focused_pane(answer: &Value) -> (Option<u64>, Value) {
     )
 }
 
+/// The surface `id` as the person sees it: its name, its spec and the state
+/// it holds now (G-D5). `Null` when it cannot be read.
+pub async fn viewing(id: &str) -> Value {
+    let Ok(surface) =
+        call::call_async("impress-surface-service_surface-get", json!({ "id": id })).await
+    else {
+        return Value::Null;
+    };
+    if surface["ok"] != json!(true) {
+        return json!({ "surface_id": id, "error": surface["message"] });
+    }
+    let state = call::call_async(
+        "impress-surface-service_surface-state-get",
+        json!({ "id": id }),
+    )
+    .await
+    .ok()
+    .filter(|s| s["ok"] == json!(true))
+    .map(|s| s["state"].clone())
+    .unwrap_or(Value::Null);
+    json!({
+        "surface_id": id,
+        "name": surface["name"],
+        "spec": surface["spec"],
+        "state": state,
+    })
+}
+
 /// What `app_id`'s person is pointing at on `device`.
 pub async fn pointing(app_id: &str, device: Option<String>) -> ContextResult {
     let mut args = json!({ "app_id": app_id });
