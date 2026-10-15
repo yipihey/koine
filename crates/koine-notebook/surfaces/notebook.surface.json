@@ -1,0 +1,149 @@
+{
+  "surface": "1.0",
+  "name": "Notebook",
+  "state": {
+    "run_name": "",
+    "record_reads": true,
+    "run": null,
+    "selected": null,
+    "note": "",
+    "failed_only": false,
+    "replayed": null,
+    "diagnosed": null,
+    "exported": null
+  },
+  "sources": {
+    "runs": { "verb": "notebook-service_runs", "args": {} },
+    "timeline": {
+      "verb": "notebook-service_timeline",
+      "args": { "run": "{{state.run}}", "failed_only": "{{state.failed_only}}", "limit": 200 }
+    },
+    "entry": {
+      "verb": "notebook-service_entry",
+      "args": { "call_id": "{{state.selected}}" }
+    }
+  },
+  "root": {
+    "column": [
+      { "id": "intro",
+        "text": "Every call this app runs is logged with its steps and timings. Start a run to group what you and your agents do next; select a call to see where its time went, note what you learned, run it again, or hand a failure to an agent." },
+      { "id": "run-controls",
+        "row": [
+          { "id": "run-name", "field": { "text": {} }, "label": "Run name", "bind": "state.run_name" },
+          { "id": "record-reads", "field": { "toggle": {} }, "label": "Record reads", "bind": "state.record_reads" },
+          { "id": "start-run-btn",
+            "button": { "label": "Start run",
+                        "on_click": [
+                          { "call": { "verb": "notebook-service_run-start",
+                                      "args": { "name": "{{state.run_name}}", "record_reads": "{{state.record_reads}}" } } },
+                          { "set": { "path": "state.run_name", "value": "" } },
+                          { "refresh": { "source": "runs" } }
+                        ] } },
+          { "id": "stop-run-btn",
+            "button": { "label": "Stop run",
+                        "on_click": [
+                          { "call": { "verb": "notebook-service_run-stop", "args": {} } },
+                          { "refresh": { "source": "runs" } }
+                        ] } }
+        ] },
+      { "id": "open-run",
+        "status": { "level": "info", "message": "Recording into run {{source.runs.open}}" },
+        "when": { "path": "source.runs.open" } },
+      { "id": "runs-table", "label": "Runs (select one to filter the timeline)",
+        "table": { "rows": "{{source.runs.runs}}",
+                   "columns": ["name", "status", "started_at", "calls", "host"],
+                   "id_field": "id",
+                   "on_select": [
+                     { "set": { "path": "state.run", "value": "{{event.value.0}}" } },
+                     { "set": { "path": "state.exported", "value": null } }
+                   ] } },
+      { "id": "run-actions",
+        "when": { "path": "state.run" },
+        "row": [
+          { "id": "all-runs-btn",
+            "button": { "label": "Show every call",
+                        "on_click": [ { "set": { "path": "state.run", "value": null } } ] } },
+          { "id": "export-btn",
+            "button": { "label": "Export run as Markdown",
+                        "on_click": [
+                          { "call": { "verb": "notebook-service_export",
+                                      "args": { "run": "{{state.run}}" },
+                                      "into": "state.exported" } }
+                        ] } }
+        ] },
+      { "id": "exported", "label": "Export",
+        "code": { "text": "{{state.exported.markdown}}", "language": "markdown" },
+        "when": { "path": "state.exported.markdown" } },
+      { "id": "timeline-controls",
+        "row": [
+          { "id": "failed-only", "field": { "toggle": {} }, "label": "Failed only", "bind": "state.failed_only" },
+          { "id": "refresh-btn",
+            "button": { "label": "Refresh",
+                        "on_click": [
+                          { "refresh": { "source": "timeline" } },
+                          { "refresh": { "source": "runs" } }
+                        ] } }
+        ] },
+      { "id": "timeline", "label": "Timeline",
+        "table": { "rows": "{{source.timeline.rows}}",
+                   "columns": ["started_at", "caller", "verb", "ok", "duration_ms", "self_ms", "steps", "writes", "reads"],
+                   "id_field": "call_id",
+                   "on_select": [
+                     { "set": { "path": "state.selected", "value": "{{event.value.0}}" } },
+                     { "set": { "path": "state.replayed", "value": null } },
+                     { "set": { "path": "state.diagnosed", "value": null } }
+                   ] } },
+      { "id": "entry",
+        "when": { "path": "source.entry.call_id" },
+        "column": [
+          { "id": "entry-summary", "label": "Call", "kv": "{{source.entry.summary}}" },
+          { "id": "entry-plot", "plot": { "spec": "{{source.entry.plot}}" } },
+          { "id": "entry-steps", "label": "Steps (total and self time)",
+            "table": { "rows": "{{source.entry.steps}}",
+                       "columns": ["label", "total_ms", "self_ms", "ok", "code"],
+                       "id_field": "call_id" } },
+          { "id": "entry-notes", "label": "Notes",
+            "table": { "rows": "{{source.entry.notes}}", "columns": ["text", "author", "at"] } },
+          { "id": "note-row",
+            "row": [
+              { "id": "note-field", "field": { "text": {} }, "label": "Note", "bind": "state.note" },
+              { "id": "annotate-btn",
+                "button": { "label": "Add note",
+                            "on_click": [
+                              { "call": { "verb": "notebook-service_annotate",
+                                          "args": { "call_id": "{{state.selected}}", "text": "{{state.note}}" } } },
+                              { "set": { "path": "state.note", "value": "" } },
+                              { "refresh": { "source": "entry" } }
+                            ] } }
+            ] },
+          { "id": "entry-actions",
+            "row": [
+              { "id": "replay-btn",
+                "when": { "path": "source.entry.replayable", "equals": true },
+                "button": { "label": "Replay",
+                            "on_click": [
+                              { "call": { "verb": "notebook-service_replay",
+                                          "args": { "call_id": "{{state.selected}}" },
+                                          "into": "state.replayed" } },
+                              { "refresh": { "source": "timeline" } }
+                            ] } },
+              { "id": "diagnose-btn",
+                "button": { "label": "Ask an agent about this call",
+                            "on_click": [
+                              { "call": { "verb": "agent-service_diagnose",
+                                          "args": { "call_id": "{{state.selected}}" },
+                                          "into": "state.diagnosed" } }
+                            ] } }
+            ] },
+          { "id": "replayed",
+            "status": { "level": "info", "message": "Replayed as {{state.replayed.call_id}}" },
+            "when": { "path": "state.replayed.call_id" } },
+          { "id": "diagnosed",
+            "status": { "level": "info", "message": "Filed for an agent: request {{state.diagnosed.request.id}} (see the Agent desk)" },
+            "when": { "path": "state.diagnosed.request.id" } },
+          { "id": "entry-folded", "label": "Folded stacks (self µs)",
+            "log": "{{source.entry.folded}}" }
+        ] }
+    ]
+  }
+}

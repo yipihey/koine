@@ -638,6 +638,7 @@ fn prepare_inner(
         mutation_ids: context::MutationIds::default(),
         adverbs: adverbs.clone(),
         inverse: context::InverseSlot::default(),
+        notes: context::CallNotes::default(),
     });
     Ok(Ok(Prepared {
         context,
@@ -806,12 +807,31 @@ fn finish_inner(
         ..
     } = prepared;
     let duration = started.elapsed();
+    let duration_us = duration.as_micros() as u64;
     let (ok, code, message_len, result_bytes) = outcome(result);
     span.record("ok", ok);
     span.record("code", code.as_deref().unwrap_or(""));
     span.record("result_bytes", result_bytes);
-    span.record("duration_us", duration.as_micros() as u64);
+    span.record("duration_us", duration_us);
     drop(span);
+
+    // plan-koine-notebook N-D2: this call is a step of the call it ran
+    // inside. `finish` runs after this call's own scope ended, so the
+    // context current here is the enclosing call's, if there is one.
+    let (steps, steps_truncated) = context.notes.steps();
+    if let Some(parent) = context::current() {
+        if parent.call_id != context.call_id {
+            parent.notes.push_step(context::StepRecord::new(
+                context.verb.clone(),
+                context.call_id.clone(),
+                duration_us,
+                ok,
+                code.clone(),
+                steps.clone(),
+                steps_truncated,
+            ));
+        }
+    }
 
     // D-P2: a budget breach is a warning on the `perf` target, the same
     // bridged category `impress-store-ffi::tracing_bridge` forwards to the
@@ -820,7 +840,6 @@ fn finish_inner(
         // The aggregator records integer microseconds from this same
         // duration. Compare at that resolution so its breach_count and the
         // Console warning agree at a sub-millisecond boundary.
-        let duration_us = duration.as_micros() as u64;
         if duration_us > budget_ms.saturating_mul(1_000) {
             tracing::warn!(
                 target: "perf",
@@ -848,6 +867,19 @@ fn finish_inner(
             Err(_) => Default::default(),
         };
         let (inserted_ids, deleted_ids) = context.mutation_ids.snapshot();
+        let (read_ids, reads_truncated) = context.notes.reads();
+        let (updated_ids, _) = context.notes.updates();
+        // The record's own tree, cut at the same depth a step's is.
+        let mut root = context::StepRecord::new(
+            context.verb.clone(),
+            context.call_id.clone(),
+            duration_us,
+            ok,
+            code.clone(),
+            steps,
+            steps_truncated,
+        );
+        root.prune(context::MAX_STEP_DEPTH);
         audit::record(audit::VerbCallRecord {
             call_id: context.call_id.clone(),
             verb: handle_name(verb),
@@ -872,6 +904,13 @@ fn finish_inner(
             requested_name,
             adverbs: adverbs_record,
             undo,
+            duration_us,
+            steps: root.steps,
+            steps_truncated: root.steps_truncated,
+            read_ids,
+            reads_truncated,
+            updated_ids,
+            run: audit::current_run().map(|run| run.id),
         });
     }
 }
@@ -1289,6 +1328,119 @@ pub(crate) mod tests {
         );
         assert_eq!(inner.trace_id, "trace-1");
         assert_eq!(inner.parent_call.as_deref(), answer["outer"].as_str());
+    }
+
+    /// plan-koine-notebook N-D2, N-D3, N-D5: a nested call is a step of the
+    /// record of the call it ran in, with its own time and self time; a read
+    /// noted inside the call is on the record; the open run names it.
+    #[test]
+    fn a_nested_call_is_a_step_of_its_parents_record() {
+        fn read_only(_: Value) -> ServiceFuture {
+            Box::pin(async {
+                context::note_read("rec-in-child".into());
+                Ok(json!({"ok": true}))
+            })
+        }
+        static PEEK: VerbDescriptor = VerbDescriptor {
+            name: "t-service_peek",
+            method: "peek",
+            handler: read_only,
+            strict: false,
+            budget_ms: None,
+            safety: Safety {
+                class: SafetyClass::ReadOnly,
+                idempotent: true,
+            },
+            ..ECHO
+        };
+        fn parent(_: Value) -> ServiceFuture {
+            Box::pin(async {
+                context::note_read("rec-b".into());
+                context::note_read("rec-a".into());
+                context::note_read("rec-a".into());
+                invoke(&ECHO, Call::person(json!({}))).await.unwrap();
+                invoke(&PEEK, Call::person(json!({}))).await.unwrap();
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                Ok(json!({"call": context::current_call_id()}))
+            })
+        }
+        static PARENT: VerbDescriptor = VerbDescriptor {
+            name: "t-service_parent",
+            method: "parent",
+            handler: parent,
+            strict: false,
+            budget_ms: None,
+            ..ECHO
+        };
+        let sink = captured();
+        let answer = invoke_blocking(&PARENT, Call::person(json!({}))).unwrap();
+        let record = record_with_id(&sink, answer["call"].as_str().unwrap());
+        let verbs: Vec<&str> = record.steps.iter().map(|s| s.verb.as_str()).collect();
+        assert_eq!(verbs, ["t-service_echo", "t-service_peek"]);
+        let children: u64 = record.steps.iter().map(|s| s.duration_us).sum();
+        assert!(record.duration_us >= 5_000, "{}", record.duration_us);
+        assert!(record.duration_us >= children);
+        for step in &record.steps {
+            assert!(step.self_us <= step.duration_us);
+            assert!(step.ok);
+        }
+        // The child's read is the child's, not the parent's.
+        assert_eq!(record.read_ids, ["rec-a", "rec-b"]);
+        assert_eq!(record.reads_truncated, 0);
+        let payload = record.payload();
+        assert_eq!(payload["steps"][1]["verb"], "t-service_peek");
+        assert!(payload["duration_us"].as_u64().unwrap() >= 5_000);
+    }
+
+    #[test]
+    fn steps_past_the_bound_are_counted_not_kept() {
+        fn many(_: Value) -> ServiceFuture {
+            Box::pin(async {
+                for _ in 0..(context::MAX_STEPS_PER_LEVEL + 6) {
+                    invoke(&ECHO, Call::person(json!({}))).await.unwrap();
+                }
+                Ok(json!({"call": context::current_call_id()}))
+            })
+        }
+        static MANY: VerbDescriptor = VerbDescriptor {
+            name: "t-service_many",
+            method: "many",
+            handler: many,
+            strict: false,
+            budget_ms: None,
+            ..ECHO
+        };
+        let sink = captured();
+        let answer = invoke_blocking(&MANY, Call::person(json!({}))).unwrap();
+        let record = record_with_id(&sink, answer["call"].as_str().unwrap());
+        assert_eq!(record.steps.len(), context::MAX_STEPS_PER_LEVEL);
+        assert_eq!(record.steps_truncated, 6);
+    }
+
+    #[test]
+    fn a_step_tree_is_cut_at_its_depth_and_the_cut_is_counted() {
+        let leaf = |n: usize| {
+            let mut step = context::StepRecord::new("v", "c", 10, true, None, vec![], 0);
+            for _ in 0..n {
+                step = context::StepRecord::new("v", "c", 10, true, None, vec![step], 0);
+            }
+            step
+        };
+        // Twelve levels under the top; eight are kept.
+        let deep = leaf(12);
+        assert_eq!(deep.flatten().len(), context::MAX_STEP_DEPTH + 1);
+        assert_eq!(context::count_steps(&[deep]), 13);
+    }
+
+    fn record_with_id(sink: &Captured, call_id: &str) -> audit::VerbCallRecord {
+        let found = sink
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|r| r.call_id == call_id)
+            .cloned();
+        found.unwrap_or_else(|| panic!("no audit row for {call_id}"))
     }
 
     #[test]

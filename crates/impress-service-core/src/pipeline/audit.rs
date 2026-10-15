@@ -18,7 +18,7 @@
 //! `IMPRESS_CALL_LOG=all` is set for the session.
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
 use serde_json::{json, Map, Value};
@@ -80,6 +80,21 @@ pub struct VerbCallRecord {
     pub adverbs: Value,
     /// The inverse call a `reversibly` call recorded, `{verb, args}`.
     pub undo: Option<Value>,
+    /// The duration in microseconds, the figure the span carries
+    /// (plan-koine-notebook N-D2).
+    pub duration_us: u64,
+    /// The calls that ran inside this one, as a bounded tree (N-D2).
+    pub steps: Vec<super::context::StepRecord>,
+    /// Steps cut by the bounds.
+    pub steps_truncated: u32,
+    /// Record ids this call read, as far as the store reported them (N-D3).
+    pub read_ids: Vec<String>,
+    /// Reads beyond the kept ids.
+    pub reads_truncated: u64,
+    /// Record ids this call changed in place (N-D3).
+    pub updated_ids: Vec<String>,
+    /// The run that was open when the call finished (N-D5).
+    pub run: Option<String>,
 }
 
 impl VerbCallRecord {
@@ -114,6 +129,16 @@ impl VerbCallRecord {
         if let Some(undo) = &self.undo {
             payload.insert("undo".into(), undo.clone());
         }
+        payload.insert("duration_us".into(), json!(self.duration_us));
+        payload.insert(
+            "steps".into(),
+            serde_json::to_value(&self.steps).unwrap_or(Value::Array(Vec::new())),
+        );
+        payload.insert("steps_truncated".into(), json!(self.steps_truncated));
+        payload.insert("read_ids".into(), json!(self.read_ids));
+        payload.insert("reads_truncated".into(), json!(self.reads_truncated));
+        payload.insert("updated_ids".into(), json!(self.updated_ids));
+        payload.insert("run".into(), json!(self.run));
         payload.insert("wire_version".into(), json!(crate::wire::WIRE_VERSION));
         payload
     }
@@ -128,6 +153,30 @@ pub trait Sink: Send + Sync {
 static SINK: RwLock<Option<Arc<dyn Sink>>> = RwLock::new(None);
 static DROPPED: AtomicU64 = AtomicU64::new(0);
 static LOG_ALL: OnceLock<bool> = OnceLock::new();
+/// `set_log_all`'s override: 0 none (the environment decides), 1 off, 2 on.
+static LOG_ALL_SET: AtomicU8 = AtomicU8::new(0);
+static CURRENT_RUN: RwLock<Option<RunTag>> = RwLock::new(None);
+
+/// The run that is open in this process (plan-koine-notebook N-D5): every
+/// call record finished while it is open names it, and when it records reads
+/// read-only calls are recorded too.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunTag {
+    pub id: String,
+    pub record_reads: bool,
+}
+
+/// Open (`Some`) or close (`None`) the process's run.
+pub fn set_current_run(run: Option<RunTag>) {
+    if let Ok(mut slot) = CURRENT_RUN.write() {
+        *slot = run;
+    }
+}
+
+/// The open run, if any.
+pub fn current_run() -> Option<RunTag> {
+    CURRENT_RUN.read().ok().and_then(|slot| slot.clone())
+}
 
 /// Install (or replace) the process's sink.
 pub fn install(sink: Arc<dyn Sink>) {
@@ -152,9 +201,27 @@ pub fn count_dropped() {
     DROPPED.fetch_add(1, Ordering::Relaxed);
 }
 
-/// Whether read-only calls are recorded too (`IMPRESS_CALL_LOG=all`).
+/// Whether read-only calls are recorded too: [`set_log_all`]'s value when
+/// one was set, else `IMPRESS_CALL_LOG=all`; and always while the open run
+/// records reads (plan-koine-notebook N-D4).
 pub fn log_all() -> bool {
-    *LOG_ALL.get_or_init(|| std::env::var("IMPRESS_CALL_LOG").as_deref() == Ok("all"))
+    let switched = match LOG_ALL_SET.load(Ordering::Relaxed) {
+        1 => false,
+        2 => true,
+        _ => *LOG_ALL.get_or_init(|| std::env::var("IMPRESS_CALL_LOG").as_deref() == Ok("all")),
+    };
+    switched || current_run().is_some_and(|run| run.record_reads)
+}
+
+/// Turn recording of read-only calls on or off for this process; `None`
+/// gives the decision back to `IMPRESS_CALL_LOG`.
+pub fn set_log_all(on: Option<bool>) {
+    let value = match on {
+        None => 0,
+        Some(false) => 1,
+        Some(true) => 2,
+    };
+    LOG_ALL_SET.store(value, Ordering::Relaxed);
 }
 
 /// Hand a record to the sink.
@@ -962,6 +1029,26 @@ mod tests {
         assert!(approx.abs_diff(exact) * 10 < exact, "{approx} vs {exact}");
     }
 
+    /// plan-koine-notebook N-D4, N-D5: recording reads is a switch, and a run
+    /// that records reads turns it on while it is open.
+    #[test]
+    fn recording_reads_is_a_switch_and_a_run_can_hold_it_on() {
+        let from_env = log_all();
+        set_log_all(Some(true));
+        assert!(log_all());
+        set_log_all(Some(false));
+        assert!(!log_all() || current_run().is_some_and(|r| r.record_reads));
+        set_current_run(Some(RunTag {
+            id: "run-1".into(),
+            record_reads: true,
+        }));
+        assert!(log_all());
+        assert_eq!(current_run().unwrap().id, "run-1");
+        set_current_run(None);
+        set_log_all(None);
+        assert_eq!(log_all(), from_env);
+    }
+
     #[test]
     fn without_a_sink_records_are_counted_not_lost_silently() {
         let before = dropped();
@@ -989,6 +1076,13 @@ mod tests {
             requested_name: None,
             adverbs: Value::Null,
             undo: None,
+            duration_us: 0,
+            steps: vec![],
+            steps_truncated: 0,
+            read_ids: vec![],
+            reads_truncated: 0,
+            updated_ids: vec![],
+            run: None,
         });
         assert!(dropped() > before || has_sink());
     }

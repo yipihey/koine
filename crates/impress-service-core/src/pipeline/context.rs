@@ -26,7 +26,7 @@ use std::cell::RefCell;
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::identity::CallerIdentity;
 use crate::adverb::Adverbs;
@@ -88,6 +88,188 @@ impl InverseSlot {
     }
 }
 
+/// Steps kept per level of a step tree; the rest are counted, not kept
+/// (plan-koine-notebook N-D2).
+pub const MAX_STEPS_PER_LEVEL: usize = 64;
+/// Levels kept below a record; deeper steps are counted, not kept.
+pub const MAX_STEP_DEPTH: usize = 8;
+/// Record ids kept in a call's read set; the rest are counted (N-D3).
+pub const MAX_READ_IDS: usize = 256;
+
+/// One call that ran inside another, with the calls that ran inside it: the
+/// step tree a `core/verb-call@1.0.0` record carries (plan-koine-notebook
+/// N-D2). Read-only calls are steps too, so the record of a surface click
+/// shows every verb its actions ran, audited on its own or not.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StepRecord {
+    pub verb: String,
+    pub call_id: String,
+    pub duration_us: u64,
+    /// The duration less the children's, floored at zero: concurrent
+    /// children may overlap.
+    pub self_us: u64,
+    pub ok: bool,
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<StepRecord>,
+    /// Steps under this one that were cut by [`MAX_STEPS_PER_LEVEL`] or
+    /// [`MAX_STEP_DEPTH`].
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub steps_truncated: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+impl StepRecord {
+    /// A finished call as a step: `self_us` from its children's durations.
+    pub fn new(
+        verb: impl Into<String>,
+        call_id: impl Into<String>,
+        duration_us: u64,
+        ok: bool,
+        code: Option<String>,
+        steps: Vec<StepRecord>,
+        steps_truncated: u32,
+    ) -> Self {
+        let children: u64 = steps.iter().map(|s| s.duration_us).sum();
+        let mut step = Self {
+            verb: verb.into(),
+            call_id: call_id.into(),
+            duration_us,
+            self_us: duration_us.saturating_sub(children),
+            ok,
+            code,
+            steps,
+            steps_truncated,
+        };
+        step.prune(MAX_STEP_DEPTH);
+        step
+    }
+
+    /// Keep `depth` levels below this step; count what is cut.
+    pub fn prune(&mut self, depth: usize) {
+        if depth == 0 {
+            self.steps_truncated = self
+                .steps_truncated
+                .saturating_add(count_steps(&self.steps));
+            self.steps.clear();
+            return;
+        }
+        for step in &mut self.steps {
+            step.prune(depth - 1);
+        }
+    }
+
+    /// This step and every step under it, depth first, with its depth
+    /// (0 for this one).
+    pub fn flatten(&self) -> Vec<(usize, &StepRecord)> {
+        let mut out = Vec::new();
+        fn walk<'a>(step: &'a StepRecord, depth: usize, out: &mut Vec<(usize, &'a StepRecord)>) {
+            out.push((depth, step));
+            for child in &step.steps {
+                walk(child, depth + 1, out);
+            }
+        }
+        walk(self, 0, &mut out);
+        out
+    }
+}
+
+/// How many steps a list holds, nested ones included.
+pub fn count_steps(steps: &[StepRecord]) -> u32 {
+    steps
+        .iter()
+        .map(|s| {
+            1u32.saturating_add(count_steps(&s.steps))
+                .saturating_add(s.steps_truncated)
+        })
+        .fold(0u32, u32::saturating_add)
+}
+
+/// What a call learns about itself while it runs, beyond its mutations: the
+/// calls that ran inside it and the records it read (plan-koine-notebook
+/// N-D2, N-D3). Shared by every clone of its context.
+#[derive(Debug, Clone, Default)]
+pub struct CallNotes(Arc<Mutex<NotesInner>>);
+
+#[derive(Debug, Default)]
+struct NotesInner {
+    steps: Vec<StepRecord>,
+    steps_truncated: u32,
+    reads: BTreeSet<String>,
+    reads_truncated: u64,
+    updates: BTreeSet<String>,
+    updates_truncated: u64,
+}
+
+impl CallNotes {
+    fn lock(&self) -> std::sync::MutexGuard<'_, NotesInner> {
+        self.0.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Add a finished nested call; past [`MAX_STEPS_PER_LEVEL`] it is
+    /// counted instead.
+    pub fn push_step(&self, step: StepRecord) {
+        let mut inner = self.lock();
+        if inner.steps.len() < MAX_STEPS_PER_LEVEL {
+            inner.steps.push(step);
+        } else {
+            let cut = 1u32
+                .saturating_add(count_steps(&step.steps))
+                .saturating_add(step.steps_truncated);
+            inner.steps_truncated = inner.steps_truncated.saturating_add(cut);
+        }
+    }
+
+    /// The steps so far, in the order they finished, and how many were cut.
+    pub fn steps(&self) -> (Vec<StepRecord>, u32) {
+        let inner = self.lock();
+        (inner.steps.clone(), inner.steps_truncated)
+    }
+
+    fn note_read(&self, id: String) {
+        let mut inner = self.lock();
+        if inner.reads.contains(&id) {
+            return;
+        }
+        if inner.reads.len() < MAX_READ_IDS {
+            inner.reads.insert(id);
+        } else {
+            inner.reads_truncated += 1;
+        }
+    }
+
+    fn note_update(&self, id: String) {
+        let mut inner = self.lock();
+        if inner.updates.contains(&id) {
+            return;
+        }
+        if inner.updates.len() < MAX_READ_IDS {
+            inner.updates.insert(id);
+        } else {
+            inner.updates_truncated += 1;
+        }
+    }
+
+    /// The ids changed in place (not created or deleted), sorted, and how
+    /// many more were changed but not kept.
+    pub fn updates(&self) -> (Vec<String>, u64) {
+        let inner = self.lock();
+        (
+            inner.updates.iter().cloned().collect(),
+            inner.updates_truncated,
+        )
+    }
+
+    /// The ids read, sorted, and how many more were read but not kept.
+    pub fn reads(&self) -> (Vec<String>, u64) {
+        let inner = self.lock();
+        (inner.reads.iter().cloned().collect(), inner.reads_truncated)
+    }
+}
+
 /// What every call runs under.
 #[derive(Debug, Clone)]
 pub struct CallContext {
@@ -114,6 +296,8 @@ pub struct CallContext {
     pub adverbs: Adverbs,
     /// The inverse call a `reversibly` handler recorded ([`note_inverse`]).
     pub inverse: InverseSlot,
+    /// The steps and reads of this call (plan-koine-notebook N-D2, N-D3).
+    pub notes: CallNotes,
 }
 
 /// Trusted identity and parent metadata crossing a native callback boundary.
@@ -244,6 +428,20 @@ pub fn note_mutation(id: String, created: bool, deleted: bool) {
     let _ = CURRENT.try_with(|context| context.mutation_ids.note(id, created, deleted));
 }
 
+/// Record that the current call read the record `id`, if there is a call
+/// (plan-koine-notebook N-D3). A store wrapper calls this after a read
+/// succeeded (`koine_store::RecordingStore`).
+pub fn note_read(id: String) {
+    let _ = CURRENT.try_with(|context| context.notes.note_read(id));
+}
+
+/// Record that the current call changed the record `id` in place, if there
+/// is a call (plan-koine-notebook N-D3): an update or an attributed
+/// operation, as opposed to a creation or deletion ([`note_mutation`]).
+pub fn note_update(id: String) {
+    let _ = CURRENT.try_with(|context| context.notes.note_update(id));
+}
+
 /// The adverbs of the current call; empty outside a call.
 pub fn current_adverbs() -> Adverbs {
     CURRENT.try_with(|c| c.adverbs.clone()).unwrap_or_default()
@@ -305,6 +503,7 @@ mod tests {
             mutation_ids: MutationIds::default(),
             adverbs: Adverbs::default(),
             inverse: InverseSlot::default(),
+            notes: CallNotes::default(),
         })
     }
 

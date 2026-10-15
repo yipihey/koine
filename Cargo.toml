@@ -29,6 +29,9 @@ members = [
     "crates/koine-store-conformance",
     "crates/koine-store",
     "crates/koine-mcp-host",
+    "crates/koine-notebook",
+    "crates/koine-agent",
+    "crates/koine-packages",
     "crates/koine-host",
     "crates/koine-window",
     "crates/koine-demo-mobile",
@@ -131,6 +134,12 @@ koine-store-conformance = { path = "crates/koine-store-conformance" }
 koine-store = { path = "crates/koine-store" }
 koine-mcp-host = { path = "crates/koine-mcp-host" }
 koine-host = { path = "crates/koine-host" }
+# The research-OS kit every host links (docs/plan-koine-research-os.md).
+koine-notebook = { path = "crates/koine-notebook" }
+koine-agent = { path = "crates/koine-agent" }
+koine-packages = { path = "crates/koine-packages" }
+# Package digests (plan-koine-research-os P-D1).
+sha2 = "0.10"
 koine-window = { path = "crates/koine-window" }
 # `--window` (koine-window): the system-browser fallback, and the optional native window.
 webbrowser = "1"

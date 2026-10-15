@@ -3391,6 +3391,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "koine-agent"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-layout-service",
+ "impress-pane-query",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-surface",
+ "impress-surface-service",
+ "koine-notebook",
+ "koine-store",
+ "koine-store-memory",
+ "koine-workspace-hack",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "koine-demo-mobile"
 version = "0.1.0"
 dependencies = [
@@ -3457,6 +3483,52 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "koine-notebook"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-surface",
+ "koine-plot",
+ "koine-store",
+ "koine-store-memory",
+ "koine-workspace-hack",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "koine-packages"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-surface",
+ "impress-surface-service",
+ "koine-store",
+ "koine-store-memory",
+ "koine-workspace-hack",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

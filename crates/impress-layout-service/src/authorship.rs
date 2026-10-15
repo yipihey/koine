@@ -173,6 +173,7 @@ mod tests {
                 mutation_ids: Default::default(),
                 adverbs: Default::default(),
                 inverse: Default::default(),
+                notes: Default::default(),
             })
         };
         sync_scope(context(CallerIdentity::agent("mcp")), || {

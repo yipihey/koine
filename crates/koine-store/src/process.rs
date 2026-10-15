@@ -358,6 +358,7 @@ mod tests {
             mutation_ids: MutationIds::default(),
             adverbs: Adverbs::default(),
             inverse: InverseSlot::default(),
+            notes: Default::default(),
         };
         let seen = sync_scope(Arc::new(context), acquire).unwrap();
         assert!(!seen.1);

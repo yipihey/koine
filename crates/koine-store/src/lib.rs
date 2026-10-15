@@ -39,6 +39,9 @@
 //! open.
 
 pub mod process;
+pub mod recording;
+
+pub use recording::RecordingStore;
 
 use std::collections::BTreeMap;
 use std::sync::RwLock;
