@@ -36,8 +36,17 @@ pub trait AgentService: Send + Sync + 'static {
     /// query, the surface it shows), what every selection channel carries,
     /// and the verbs that act on the selected kinds. `app_id` defaults to
     /// this host's, `device` to this machine. Answers an empty context, not a
-    /// refusal, when there is no layout.
-    #[impress_method(effects(reads = ["impress/ui/layout@1.0.0"]))]
+    /// refusal, when there is no layout. It reads the layout with
+    /// `layout-service_get-layout`, which stores a device's default layout
+    /// the first time it is read, so this is mutating, and idempotent.
+    #[impress_method(
+        safety = mutating,
+        idempotent = true,
+        effects(
+            reads = ["impress/ui/layout@1.0.0", "impress/ui/preset@1.0.0"],
+            writes = ["impress/ui/layout@1.0.0"]
+        )
+    )]
     #[impress_example(name = "default", args = r#"{}"#, expect = r#"{"ok": true}"#)]
     async fn context(&self, app_id: Option<String>, device: Option<String>) -> ContextResult;
 
@@ -50,8 +59,12 @@ pub trait AgentService: Send + Sync + 'static {
     #[impress_method(
         safety = mutating,
         effects(
-            reads = ["impress/ui/layout@1.0.0", "impress/ui/surface@1.0.0"],
-            writes = [any("koine/agent-request@1.0.0")]
+            reads = [
+                "impress/ui/layout@1.0.0",
+                "impress/ui/preset@1.0.0",
+                "impress/ui/surface@1.0.0"
+            ],
+            writes = ["impress/ui/layout@1.0.0", any("koine/agent-request@1.0.0")]
         )
     )]
     #[impress_example(
@@ -70,7 +83,9 @@ pub trait AgentService: Send + Sync + 'static {
     /// Hand a call to an agent: a `diagnose` request whose context is the
     /// call's record from the notebook (its steps, its arguments as recorded,
     /// its outcome), the verb's description, safety and input schema, and
-    /// `prompt` if given. Refuses a call the notebook has no record of.
+    /// `prompt` if given. Refuses a call the notebook has no record of
+    /// (`not-found`), and answers `unavailable` in a host that links no
+    /// notebook.
     #[impress_method(
         safety = mutating,
         effects(reads = ["core/verb-call@1.0.0"], writes = [any("koine/agent-request@1.0.0")])
@@ -78,7 +93,7 @@ pub trait AgentService: Send + Sync + 'static {
     #[impress_example(
         name = "unknown",
         args = r#"{"call_id": "00000000-0000-4000-8000-000000000000"}"#,
-        expect = r#"{"ok": false, "code": "not-found"}"#
+        expect = r#"{"ok": false}"#
     )]
     async fn diagnose(&self, call_id: String, prompt: Option<String>) -> RequestResult;
 

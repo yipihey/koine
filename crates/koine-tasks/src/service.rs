@@ -38,7 +38,10 @@ pub trait TaskService: Send + Sync + 'static {
     /// `depends_on` is done and not before `not_before_ms`, retrying a
     /// refusal that says "not now" (conflict, an unavailable store or app,
     /// a timeout) with backoff. Refuses a verb this process does not link.
-    #[impress_method(safety = mutating, effects(writes = ["task@1.0.0"]))]
+    #[impress_method(
+        safety = mutating,
+        effects(reads = ["task@1.0.0"], writes = ["task@1.0.0"])
+    )]
     #[impress_example(
         name = "default",
         args = r#"{"verb": "task-service_list", "args": {"state": "done"}}"#,
@@ -57,6 +60,11 @@ pub trait TaskService: Send + Sync + 'static {
     /// verb tasks), only in `state`; at most `limit` (default 100, at most
     /// 500).
     #[impress_method]
+    #[impress_example(
+        name = "default",
+        args = r#"{"state": "pending"}"#,
+        expect = r#"{"ok": true}"#
+    )]
     async fn list(
         &self,
         state: Option<String>,
@@ -67,17 +75,38 @@ pub trait TaskService: Send + Sync + 'static {
     /// One task: its state, its verb and arguments, its answer or error,
     /// its attempts and what it waits for.
     #[impress_method]
+    #[impress_example(
+        name = "missing",
+        args = r#"{"id": "00000000-0000-4000-8000-000000000000"}"#,
+        expect = r#"{"ok": false, "code": "not-found"}"#
+    )]
     async fn show(&self, id: String) -> TaskResult;
 
     /// Stop a task: a pending one is cancelled at once; a running one is
     /// asked to stop (its scheduler cancels it at the next check). A
     /// finished task is refused.
-    #[impress_method(safety = mutating, effects(writes = ["task@1.0.0"]))]
+    #[impress_method(
+        safety = mutating,
+        effects(reads = ["task@1.0.0"], writes = ["task@1.0.0"])
+    )]
+    #[impress_example(
+        name = "missing",
+        args = r#"{"id": "00000000-0000-4000-8000-000000000000"}"#,
+        expect = r#"{"ok": false, "code": "not-found"}"#
+    )]
     async fn cancel(&self, id: String) -> TaskResult;
 
     /// File a failed or cancelled verb task again, as a new task naming the
     /// old one (`retry_of`). A finished task never runs twice in place.
-    #[impress_method(safety = mutating, effects(writes = ["task@1.0.0"]))]
+    #[impress_method(
+        safety = mutating,
+        effects(reads = ["task@1.0.0"], writes = ["task@1.0.0"])
+    )]
+    #[impress_example(
+        name = "missing",
+        args = r#"{"id": "00000000-0000-4000-8000-000000000000"}"#,
+        expect = r#"{"ok": false, "code": "not-found"}"#
+    )]
     async fn retry(&self, id: String) -> TaskResult;
 }
 
