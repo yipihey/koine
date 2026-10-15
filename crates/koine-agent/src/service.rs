@@ -285,7 +285,11 @@ impl AgentService for DefaultAgentService {
             .unwrap_or("?")
             .to_string();
         let prompt = prompt.filter(|p| !p.trim().is_empty()).unwrap_or_else(|| {
-            format!("Why did `{verb_name}` answer {outcome}, and what would fix it?")
+            if outcome == "ok" {
+                format!("Explain what `{verb_name}` did in this call and where its time went.")
+            } else {
+                format!("Why did `{verb_name}` answer {outcome}, and what would fix it?")
+            }
         });
         file(
             desk::DIAGNOSE,

@@ -218,7 +218,11 @@ fn diagnose_carries_the_calls_record_and_make_surface_what_to_build_with() {
         "notebook-service_run-start"
     );
     assert_eq!(request["context"]["verb"]["safety"], "mutating");
-    assert!(request["prompt"].as_str().unwrap().contains("run-start"));
+    let prompt = request["prompt"].as_str().unwrap();
+    assert!(
+        prompt.contains("run-start") && prompt.contains("where its time went"),
+        "{prompt}"
+    );
     verb("notebook-service_run-stop", json!({}));
 
     let made = verb(

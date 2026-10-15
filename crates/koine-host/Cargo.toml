@@ -36,6 +36,11 @@ impress-surface = { workspace = true, features = ["highlight"] }
 impress-verb-surface = { workspace = true }
 koine-store = { workspace = true }
 koine-mcp-host = { workspace = true }
+# The research-OS kit every host links (docs/plan-koine-research-os.md): the
+# call log and notebook, the agent desk and skill, packages and shipped surfaces.
+koine-notebook = { workspace = true }
+koine-agent = { workspace = true }
+koine-packages = { workspace = true }
 # The demo verbs the binary links (the library itself names no domain).
 surface-demo-service = { workspace = true }
 koine-window = { workspace = true }

@@ -2006,3 +2006,168 @@ async fn a_remote_peer_needs_the_bearer_on_the_second_listener() {
     );
     host.served.shutdown().await;
 }
+
+// ---------------------------------------------------------------- research OS
+
+/// docs/plan-koine-research-os.md and docs/plan-koine-notebook.md: a host
+/// installs the kit, keeps its call log, groups calls into a run, renders the
+/// kit's surfaces over the live verbs, and serves its skill three ways.
+#[tokio::test]
+async fn the_kit_the_call_log_and_the_skill_are_served() {
+    let _turn = TURN.lock().await;
+    let host = start("memory:", "lab-app").await;
+
+    // B-D4: the kit's surfaces are installed, as shipped.
+    let (_, shipped) = host
+        .post("/api/verb/package-service_shipped-status", json!({}))
+        .await;
+    let rows = shipped["rows"].as_array().unwrap();
+    let names: Vec<&str> = rows.iter().map(|r| r["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["Notebook", "Agent desk", "Packages"], "{shipped}");
+    assert!(rows.iter().all(|r| r["status"] == "pristine"), "{shipped}");
+
+    // N-D5: a run groups what is called over HTTP while it is open.
+    let (_, run) = host
+        .post(
+            "/api/verb/notebook-service_run-start",
+            json!({ "name": "over http" }),
+        )
+        .await;
+    let run_id = run["run"]["id"].as_str().unwrap().to_string();
+    let (status, added) = host
+        .post(
+            "/api/verb/surface-demo-service_note-add",
+            json!({ "title": "Lab note" }),
+        )
+        .await;
+    assert_eq!(status, 200, "{added}");
+    let (_, timeline) = host
+        .post(
+            "/api/verb/notebook-service_timeline",
+            json!({ "run": run_id, "verb": "note-add" }),
+        )
+        .await;
+    let row = &timeline["rows"][0];
+    assert_eq!(row["verb"], "surface-demo-service_note-add", "{timeline}");
+    assert!(row["writes"].as_u64().unwrap() >= 1, "{timeline}");
+    let (_, entry) = host
+        .post(
+            "/api/verb/notebook-service_entry",
+            json!({ "call_id": row["call_id"] }),
+        )
+        .await;
+    // N-D3, N-D6: the record names what it wrote, the machine and the build.
+    assert_eq!(entry["record"]["host"], "lab-app-device", "{entry}");
+    assert_eq!(entry["record"]["build"]["app"], "lab-app");
+    assert!(!entry["record"]["inserted_ids"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    let (_, status_body) = host.get_json("/api/status").await;
+    assert_eq!(status_body["call_log"]["run"], run_id.as_str());
+
+    // The kit's surfaces render over the live verbs without a source error.
+    for row in rows {
+        let id = row["surface_id"].as_str().unwrap();
+        let (status, rendered) = host.get_json(&format!("/api/surface/{id}/render")).await;
+        assert_eq!(status, 200, "{rendered}");
+        assert_eq!(rendered["ok"], true, "{}: {rendered}", row["name"]);
+        let errors = rendered["source_errors"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        // The notebook's entry source has no call selected yet; that is the
+        // one source allowed to answer a refusal.
+        assert!(
+            errors.iter().all(|e| e.to_string().contains("entry")),
+            "{}: {errors:?}",
+            row["name"]
+        );
+    }
+    let (_, stopped) = host
+        .post("/api/verb/notebook-service_run-stop", json!({}))
+        .await;
+    assert_eq!(stopped["run"]["status"], "closed");
+
+    // S-D2: the skill over HTTP, as an MCP resource, and from the verb.
+    let skill = host.get("/api/skill").await;
+    assert_eq!(skill.status(), 200);
+    let text = skill.text().await.unwrap();
+    assert!(text.starts_with("---\nname: lab-app\n"), "{text}");
+    assert!(text.contains("`package-service_shipped-reset`"));
+    let (_, resources) = host
+        .post(
+            "/mcp",
+            json!({ "jsonrpc": "2.0", "id": 1, "method": "resources/list" }),
+        )
+        .await;
+    assert!(
+        resources.to_string().contains("koine://skill"),
+        "{resources}"
+    );
+    let (_, from_verb) = host.post("/api/verb/agent-service_skill", json!({})).await;
+    assert_eq!(from_verb["markdown"], json!(text));
+
+    host.served.shutdown().await;
+}
+
+/// B-D2 at start: a person's edit to a kit surface survives a restart, and
+/// a dir store keeps the call log and the baseline.
+#[tokio::test]
+async fn an_edited_kit_surface_survives_a_restart() {
+    let _turn = TURN.lock().await;
+    let dir = tempfile::tempdir().unwrap();
+    let url = format!("dir:{}", dir.path().join("store").display());
+    let host = start(&url, "kit-app").await;
+    let (_, shipped) = host
+        .post("/api/verb/package-service_shipped-status", json!({}))
+        .await;
+    let desk = shipped["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == "Agent desk")
+        .unwrap()["surface_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut spec: Value = serde_json::from_str(koine_agent::AGENT_DESK_SURFACE).unwrap();
+    spec["root"]["column"][0]["text"] = json!("My desk.");
+    let (_, updated) = host
+        .post(
+            "/api/verb/impress-surface-service_surface-update",
+            json!({ "id": desk, "spec": spec }),
+        )
+        .await;
+    assert_eq!(updated["ok"], true, "{updated}");
+    host.served.shutdown().await;
+
+    let host = start(&url, "kit-app").await;
+    let (_, shipped) = host
+        .post("/api/verb/package-service_shipped-status", json!({}))
+        .await;
+    let row = shipped["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["surface_id"] == desk.as_str())
+        .cloned()
+        .unwrap();
+    assert_eq!(row["status"], "modified", "{shipped}");
+    let (_, diff) = host
+        .post(
+            "/api/verb/package-service_shipped-diff",
+            json!({ "id": desk }),
+        )
+        .await;
+    assert_eq!(diff["changes"][0]["yours"], "\"My desk.\"", "{diff}");
+    // The update was logged before the restart, and is still there.
+    let (_, timeline) = host
+        .post(
+            "/api/verb/notebook-service_timeline",
+            json!({ "verb": "surface-update" }),
+        )
+        .await;
+    assert!(timeline["total"].as_u64().unwrap() >= 1, "{timeline}");
+    host.served.shutdown().await;
+}

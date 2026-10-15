@@ -21,6 +21,9 @@ There is no second list.
 | `layout-selftest-service` | impress-layout-service | 1 |
 | `impress-surface-service` | impress-surface-service | 15 |
 | `surface-selftest-service` | impress-surface-service | 1 |
+| `notebook-service` | koine-notebook | 10 |
+| `agent-service` | koine-agent | 11 |
+| `package-service` | koine-packages | 9 |
 <!-- verb-coverage:end -->
 
 `impress-settings` has no `impress_service_impl!` block in this repository,

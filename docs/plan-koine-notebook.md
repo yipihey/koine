@@ -45,7 +45,11 @@ channel counts the record in `audit::count_dropped()` rather than blocking
 the call, as the audit layer's contract requires.
 
 The writer runs outside any call, so its own writes are never audited and
-never recorded as a call's mutations.
+never recorded as a call's mutations. A successful read-only call of the
+notebook's own plumbing (the surface wait loop and render, the notebook's
+read verbs) is not written: while a run records reads it would otherwise be
+most of the log. `GET /api/status` answers `call_log: {written, dropped,
+run}`.
 
 ### N-D2. Every record carries its step tree
 
@@ -74,7 +78,9 @@ pipeline's own `Instant`s.
 
 `CallNotes` also holds the ids a call read: `context::note_read(id)`,
 deduplicated, at most 256 ids, the rest counted in `reads_truncated`. The
-record carries `read_ids` and `reads_truncated`. A store does not know it
+record carries `read_ids` and `reads_truncated`, and `updated_ids`: what it
+changed in place (`context::note_update`), beside the `inserted_ids` and
+`deleted_ids` it always had. A store does not know it
 is inside a call, so koine-host wraps the store it opens in
 `koine_store::RecordingStore`, which delegates every method and, after a
 successful `get` or `query`, notes the ids it returned; after `insert`,
@@ -154,8 +160,9 @@ argument value the audit layer did not already keep.
 
 A record inside a run is evidence and is kept. A record outside any run is
 telemetry: `prune {keep}` deletes the oldest of those beyond `keep`, and the
-sink prunes to 20 000 every 512 writes. Notes are kept with their records
-and deleted with them.
+sink prunes to 5 000 (`SinkConfig::keep`) every 512 writes. Notes are kept
+with their records and deleted with them. (5 000 rather than more: the
+directory store reads one file per record to answer a timeline.)
 
 ## What this does not do
 
@@ -192,4 +199,14 @@ and deleted with them.
 
 ## Status
 
-Landed with plan-koine-research-os; see its Status section.
+Landed 2026-10-15 (branch `research-os`), N-D1 to N-D9 as written. The
+pipeline's step tree and read set are in `impress-service-core`
+(`pipeline::context::{StepRecord, CallNotes}`, `audit::{set_log_all,
+set_current_run}`); `koine_store::RecordingStore`; `koine-notebook`; and
+`koine-host` wraps its store, installs the sink and links the service.
+
+Note for impress-apps: `CallContext` gained a `notes` field and
+`VerbCallRecord` gained `duration_us`, `steps`, `steps_truncated`,
+`read_ids`, `reads_truncated`, `updated_ids` and `run`. A struct literal of
+either needs the new fields (`notes: Default::default()`); the payload
+change is additive.

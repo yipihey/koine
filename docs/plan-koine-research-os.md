@@ -46,7 +46,7 @@ the loopback token at `<workspace>/automation/loopback-<port>.token`), the
 rules (consent: a write may answer `review-pending`, which is not a failure
 to retry; try destructive verbs `tentatively` first; secrets are never
 arguments; edit your copy of a shipped surface, never its baseline, and
-`shipped_reset` puts it back), the adverbs, the record kinds, every verb by
+`package-service_shipped-reset` puts it back), the adverbs, the record kinds, every verb by
 service with its safety, secrets and `returns_kind`, how to make a surface
 (validate, create, show), how to pick up agent-desk requests and how to
 record a run. It is deterministic: two renders of one inventory are the same
@@ -89,19 +89,19 @@ spec and the person's copy.
 | equal to the old baseline | replaced by the new spec |
 | changed by the person | kept; the baseline records the new spec as `pending` and the status says `diverged` |
 
-`shipped_take {id}` takes the pending spec (the person's copy is the undo),
-`shipped_keep {id}` keeps theirs and clears the pending one. This replaces
+`package-service_shipped-take {id}` takes the pending spec (the person's copy is the undo),
+`package-service_shipped-keep {id}` keeps theirs and clears the pending one. This replaces
 the tour's rule (A-D8), which replaced a changed spec in place whether or
 not the person had edited it; the tour itself is unchanged by this plan.
 
 ### B-D3. Reset and diff
 
-`shipped_reset {id}` puts the shipped spec back and declares
+`package-service_shipped-reset {id}` puts the shipped spec back and declares
 `supports(reversibly)`: its inverse is `impress-surface-service_surface-
 update` with the spec it replaced, so the undo is an ordinary verb call.
-`shipped_diff {id}` answers the changes from baseline to copy as JSON
+`package-service_shipped-diff {id}` answers the changes from baseline to copy as JSON
 pointers (`added`, `removed`, `changed`, values cut at 200 characters).
-`shipped_status` lists every baseline: `pristine`, `modified`, `diverged`
+`package-service_shipped-status` lists every baseline: `pristine`, `modified`, `diverged`
 or `missing`.
 
 ### B-D4. The kit is a package
@@ -133,7 +133,8 @@ attaches it unless told not to.
 `requests {status?}` lists them; `next {timeout_ms?}` waits (at most 30 s)
 for an open one, so an agent's loop is one call; `claim`, `answer {id,
 text, surface_id?}` and `decline {id, reason}` move one along. An answer
-that names a surface gets a Show button on the desk.
+that names a surface can be shown: `show {id}` puts it in a new pane beside
+the focused one, which is what the desk's "Show its surface" calls.
 
 ### G-D3. A failure hands itself over
 
@@ -168,10 +169,10 @@ over the manifest and every file it names, in a fixed order.
 
 ### P-D2. Review, then install exactly what was reviewed
 
-`package_inspect {path}` answers the review: the digest, each surface
+`package-service_inspect {path}` answers the review: the digest, each surface
 validated, every verb the surfaces call with its safety class, secrets and
 whether it is linked, the required verbs and secrets that are missing, and
-what installing would do to each surface (B-D2). `package_install {path,
+what installing would do to each surface (B-D2). `package-service_install {path,
 digest}` refuses `digest-mismatch` unless the digest is the one inspected,
 so nothing changes between review and install. Installing writes the
 surfaces through B-D1, keeps the skills on the package item for `skill
@@ -180,8 +181,8 @@ install`, and records `koine/package@1.0.0` (`name`, `version`, `digest`,
 
 ### P-D3. Removing keeps what is yours
 
-`package_remove {name}` deletes the package's surfaces that are pristine and
-keeps, without a baseline, those the person changed. `package_list` lists
+`package-service_remove {name}` deletes the package's surfaces that are pristine and
+keeps, without a baseline, those the person changed. `package-service_list` lists
 what is installed.
 
 ### P-D4. Not yet
@@ -221,4 +222,10 @@ a binding with no implementation in impress-apps is a dead affordance
 ## Status
 
 Landed 2026-10-15 on branch `research-os`: everything above except P-D4
-and the chords. See each crate's tests.
+and the chords. `koine-agent` (11 verbs), `koine-packages` (9) and
+`koine-notebook` (10) are linked by every host through
+`koine_host::ensure_linked`; `Config::kit` (default on) installs the kit at
+start and `Config::app_version` stamps the call log and the skill. Each
+crate's `tests/` pins its rules; `koine-host`'s `tests/host.rs`
+(`the_kit_the_call_log_and_the_skill_are_served`,
+`an_edited_kit_surface_survives_a_restart`) pins them over HTTP.

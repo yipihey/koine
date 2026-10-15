@@ -54,6 +54,15 @@ OPTIONS:
                              the host stops when the native window closes
     --check                  start, print the URL and verb count, stop, exit 0
     -h, --help               this text
+
+SUBCOMMANDS (no server is started):
+    {program} skill print [--app-id <id>]
+                             write this app's agent skill (SKILL.md) to stdout
+    {program} skill install [--into <dir>]... [--force] [--app-id <id>]
+                             write it as <dir>/<app-id>/SKILL.md into each --into, or
+                             into every agent skill directory that exists
+                             (~/.claude/skills, ~/.codex/skills, ~/.agents/skills); a
+                             SKILL.md koine did not write is kept unless --force
 ";
 
 #[derive(Debug)]
@@ -209,6 +218,89 @@ pub fn parse_with_env(
     }))
 }
 
+/// `<host> skill print|install …` (plan-koine-research-os S-D3): what to
+/// print on success, or the message to fail with. `home` is where the agent
+/// skill directories are looked for; `app_id` the binary's default.
+pub fn skill_command(
+    args: impl IntoIterator<Item = String>,
+    app_id: &str,
+    home: Option<&std::path::Path>,
+) -> Result<String, String> {
+    let mut args = args.into_iter();
+    let action = args.next().unwrap_or_default();
+    let mut into: Vec<PathBuf> = Vec::new();
+    let mut force = false;
+    let mut app = app_id.to_string();
+    while let Some(flag) = args.next() {
+        let (flag, inline) = match flag.split_once('=') {
+            Some((f, v)) if f.starts_with("--") => (f.to_string(), Some(v.to_string())),
+            _ => (flag, None),
+        };
+        let mut value = |name: &str| {
+            inline
+                .clone()
+                .or_else(|| args.next())
+                .ok_or_else(|| format!("{name} needs a value"))
+        };
+        match flag.as_str() {
+            "--into" => into.push(PathBuf::from(value("--into")?)),
+            "--app-id" => app = value("--app-id")?,
+            "--force" => force = true,
+            other => return Err(format!("skill: unknown option {other} (see --help)")),
+        }
+    }
+    let info = koine_agent::AppInfo {
+        app_id: app.clone(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        kinds: crate::manifest::from_inventory()
+            .kinds
+            .keys()
+            .map(|k| k.to_string())
+            .collect(),
+    };
+    let text = koine_agent::skill::render(&info);
+    match action.as_str() {
+        "print" => Ok(text),
+        "install" => {
+            if into.is_empty() {
+                let home =
+                    home.ok_or("no $HOME to find agent skill directories under; pass --into")?;
+                into = koine_agent::skill::default_targets(home);
+                if into.is_empty() {
+                    return Err("no agent skill directory found (~/.claude, ~/.codex, \
+                                ~/.agents); pass --into <dir>"
+                        .into());
+                }
+            }
+            let name = koine_agent::skill::skill_name(&app);
+            let mut out = String::new();
+            let mut failed = false;
+            for result in koine_agent::skill::install(&text, &name, &into, force) {
+                match result {
+                    koine_agent::skill::Installed::Written(path) => {
+                        out.push_str(&format!("wrote {}\n", path.display()))
+                    }
+                    koine_agent::skill::Installed::KeptForeign(path) => out.push_str(&format!(
+                        "kept {} (not written by koine; --force replaces it)\n",
+                        path.display()
+                    )),
+                    koine_agent::skill::Installed::Failed(path, error) => {
+                        failed = true;
+                        out.push_str(&format!("could not write {}: {error}\n", path.display()))
+                    }
+                }
+            }
+            if failed {
+                Err(out)
+            } else {
+                Ok(out)
+            }
+        }
+        "" => Err("skill needs print or install (see --help)".into()),
+        other => Err(format!("skill {other}: expected print or install")),
+    }
+}
+
 /// Everything a host binary's `main` does: logging, the flags, [`serve`], the
 /// banner, then wait for Ctrl-C (or return at once for `--check`). `app_id` is
 /// the default for `--app-id`. Builds its own tokio runtime, so the caller's
@@ -255,6 +347,19 @@ pub fn main_with(
                 .map(|n| n.to_string_lossy().into_owned())
         })
         .unwrap_or_else(|| "koine-host".into());
+    if std::env::args().nth(1).as_deref() == Some("skill") {
+        let home = Env::process().home;
+        return match skill_command(std::env::args().skip(2), app_id, home.as_deref()) {
+            Ok(text) => {
+                print!("{text}");
+                ExitCode::SUCCESS
+            }
+            Err(message) => {
+                eprintln!("{program}: {message}");
+                ExitCode::from(2)
+            }
+        };
+    }
     let cli = match parse(std::env::args().skip(1), app_id) {
         Ok(Some(cli)) => cli,
         Ok(None) => {
@@ -482,6 +587,35 @@ mod tests {
         .unwrap();
         assert_eq!(cli.config.workspace, PathBuf::from("/tmp/flag"));
         assert!(parse_with_env(args(&[]), "x", &env(None, None, None)).is_err());
+    }
+
+    /// plan-koine-research-os S-D3: `skill print` and `skill install`.
+    #[test]
+    fn skill_print_and_install_write_the_generated_skill() {
+        crate::ensure_linked();
+        let printed = skill_command(args(&["print", "--app-id", "lab"]), "x", None).unwrap();
+        assert!(printed.starts_with("---\nname: lab\n"), "{printed}");
+        assert!(printed.contains("`notebook-service_run-start`"));
+
+        let home = tempfile::tempdir().unwrap();
+        // No agent directory and no --into: nothing to write to.
+        assert!(skill_command(args(&["install"]), "lab", Some(home.path())).is_err());
+        std::fs::create_dir_all(home.path().join(".claude")).unwrap();
+        let out = skill_command(args(&["install"]), "lab", Some(home.path())).unwrap();
+        let written = home.path().join(".claude/skills/lab/SKILL.md");
+        assert!(out.contains(&written.display().to_string()), "{out}");
+        assert!(std::fs::read_to_string(&written)
+            .unwrap()
+            .contains(koine_agent::skill::GENERATED_MARK));
+
+        let elsewhere = home.path().join("custom");
+        let into = elsewhere.display().to_string();
+        skill_command(args(&["install", "--into", &into]), "lab", None).unwrap();
+        assert!(elsewhere.join("lab/SKILL.md").is_file());
+        std::fs::write(elsewhere.join("lab/SKILL.md"), "mine").unwrap();
+        let kept = skill_command(args(&["install", "--into", &into]), "lab", None).unwrap();
+        assert!(kept.contains("kept"), "{kept}");
+        assert!(skill_command(args(&["publish"]), "lab", None).is_err());
     }
 
     #[test]

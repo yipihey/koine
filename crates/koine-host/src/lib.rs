@@ -118,6 +118,12 @@ pub struct Config {
     pub secrets_dir: Option<PathBuf>,
     /// Also read and write secrets in the macOS keychain (service `koine`).
     pub keychain: bool,
+    /// The app's version: stamped on every call record and run
+    /// (plan-koine-notebook N-D6) and named in the skill.
+    pub app_version: String,
+    /// Install the kit package at start: the Notebook, Agent desk and
+    /// Packages surfaces (plan-koine-research-os B-D4).
+    pub kit: bool,
 }
 
 impl Config {
@@ -138,6 +144,8 @@ impl Config {
             network_bearer: None,
             secrets_dir: None,
             keychain: false,
+            app_version: env!("CARGO_PKG_VERSION").to_string(),
+            kit: true,
         }
     }
 
@@ -276,7 +284,10 @@ pub(crate) struct HostState {
 pub async fn serve(config: Config) -> Result<Served, HostError> {
     check_network_config(&config)?;
     let opened = koine_store::open_with_blobs(&config.store_url)?;
-    let store: Arc<dyn AttributedStore> = opened.store.clone();
+    // plan-koine-notebook N-D3: every read and write through the process
+    // store is noted on the call it ran in.
+    let store: Arc<dyn AttributedStore> =
+        Arc::new(koine_store::RecordingStore::new(opened.store.clone()));
     let capabilities = store.capabilities();
 
     let listener = tokio::net::TcpListener::bind(SocketAddr::new(config.bind, config.port))
@@ -314,12 +325,51 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
     install_background_runner(runner.clone());
     let secret_source = secrets::host_source(config.secrets_path(), config.keychain);
     impress_service_core::secrets::install(secret_source.clone());
+    // plan-koine-notebook N-D1: the call log is kept in the store; a run left
+    // open by the last launch is open again.
+    koine_notebook::install(
+        store.clone(),
+        koine_notebook::SinkConfig::new(&config.device, &config.app_id, &config.app_version),
+    );
+    // plan-koine-research-os S-D1: who the skill and the desk speak for.
+    koine_agent::set_app(koine_agent::AppInfo {
+        app_id: config.app_id.clone(),
+        version: config.app_version.clone(),
+        kinds: config
+            .manifest
+            .kinds
+            .keys()
+            .map(|k| k.to_string())
+            .collect(),
+    });
     // After the seams a routine's verb may read: the store, the manifest and
     // the secrets.
     let rearmed = runner.rearm_routines();
     if rearmed > 0 {
         tracing::info!(target: "koine-host", "re-armed {rearmed} routine(s)");
     }
+    // B-D4: the kit's surfaces, three-way against the person's copies.
+    if config.kit {
+        match koine_packages::kit::install().await {
+            Ok(installed) => {
+                let changed: Vec<String> = installed
+                    .surfaces
+                    .iter()
+                    .filter(|(_, _, outcome)| {
+                        *outcome != koine_packages::shipped::Outcome::Unchanged
+                    })
+                    .map(|(name, _, outcome)| format!("{name} {}", outcome.word()))
+                    .collect();
+                if !changed.is_empty() {
+                    tracing::info!(target: "koine-host", "kit {}: {}", installed.version, changed.join(", "));
+                }
+            }
+            Err(error) => {
+                tracing::warn!(target: "koine-host", "kit not installed: {}", error.message)
+            }
+        }
+    }
+    let skill = koine_agent::skill::render(&koine_agent::app());
     let feed = feed::start(
         store,
         impress_surface_service::SessionRegistry::shared(),
@@ -350,11 +400,25 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
             server_version: env!("CARGO_PKG_VERSION").to_string(),
             instructions: format!(
                 "{}: every linked verb is a tool. Surfaces are authored with the surface_* \
-                 verbs and shown with surface_show; the layout is the layout-service_* verbs.",
+                 verbs and shown with surface_show; the layout is the layout-service_* verbs. \
+                 Read the resource koine://skill first; the person leaves you work on the \
+                 agent desk (agent-service_next).",
                 config.app_id
             ),
             allowed_tool_prefixes: Vec::new(),
-            resources: Vec::new(),
+            // S-D2: the skill, for an agent that reads resources.
+            resources: vec![koine_mcp_host::Resource {
+                uri: "koine://skill".into(),
+                name: "skill".into(),
+                description: format!(
+                    "How to work in {}: reaching the host, the rules, the adverbs, the record \
+                     kinds and every verb",
+                    config.app_id
+                ),
+                mime_type: "text/markdown".into(),
+                text: skill,
+                meta: None,
+            }],
             tool_ui: Vec::new(),
             tool_file_params: Vec::new(),
         }),
@@ -453,8 +517,9 @@ fn check_network_config(config: &Config) -> Result<(), HostError> {
     Ok(())
 }
 
-/// Reference the two runtime crates so the linker keeps their
-/// `#[impress_service]` registrations: an unreferenced crate that only
+/// Reference the two runtime crates and the kit's three (the notebook, the
+/// agent desk, packages) so the linker keeps their `#[impress_service]`
+/// registrations: an unreferenced crate that only
 /// contains `inventory::submit!` statics is dropped from the final binary.
 /// Call this from `main` (and from any test that expects their verbs).
 /// `surface-demo-service` is the binary's, not the library's.
@@ -464,6 +529,9 @@ pub fn ensure_linked() {
         impress_surface_service::DefaultImpressSurfaceService::new as *const (),
     ];
     std::hint::black_box(anchors);
+    koine_notebook::ensure_linked();
+    koine_agent::ensure_linked();
+    koine_packages::ensure_linked();
 }
 
 #[cfg(test)]

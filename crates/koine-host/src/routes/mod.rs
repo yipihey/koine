@@ -53,6 +53,7 @@ const BLOB_LIMIT: usize = 256 * 1024 * 1024;
 pub(crate) fn router(state: Shared) -> Router {
     Router::new()
         .route("/api/status", get(status))
+        .route("/api/skill", get(skill))
         .route("/api/surface", any(surface::handle))
         .route("/api/surface/{*rest}", any(surface::handle))
         .route("/api/layout/tree", get(layout::tree))
@@ -187,9 +188,29 @@ async fn status(State(state): State<Shared>) -> Response {
                 "declared": declared,
                 "missing": missing,
             },
+            "call_log": {
+                "written": koine_notebook::installed_sink()
+                    .map(|sink| sink.stats().written.load(std::sync::atomic::Ordering::Relaxed)),
+                "dropped": impress_service_core::pipeline::audit::dropped(),
+                "run": impress_service_core::pipeline::audit::current_run().map(|run| run.id),
+            },
             "wire_version": WIRE_VERSION,
         }),
     )
+}
+
+/// `GET /api/skill`: this app's skill as Markdown (plan-koine-research-os
+/// S-D2), generated from the linked inventory.
+async fn skill() -> Response {
+    (
+        StatusCode::OK,
+        [(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/markdown; charset=utf-8"),
+        )],
+        koine_agent::skill::render(&koine_agent::app()),
+    )
+        .into_response()
 }
 
 /// `POST /api/verb/<name>`: the body is the verb's argument object (empty is
