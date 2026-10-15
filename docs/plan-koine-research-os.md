@@ -249,7 +249,15 @@ for a mouse and a finger, `a` for the keyboard; the gesture suite
 
 In the impress apps the same action is ⌃⌥⌘A, "Ask an Agent…"
 (`imbib.view.ask_agent`, `imprint.edit.ask_agent` in `impress-keymap`); the
-Swift side and the agent that answers are impress-apps'.
+Swift side and the agent that answers are impress-apps'. There (branch
+`koine-research-os`) the command opens a sheet that calls
+`agent-service_ask {prompt, app_id}` through `dispatchVerb`, so the app's own
+layout focus and selection are the context, and lists the desk.
+`impel-taskd`'s desk bridge is the agent: it claims each open request as
+`agent:impress-ai`, runs it as an impress-ai conversation with the
+`impress-mcp` tool policy, and answers with the reply, a reply naming
+`surface:<id>` answering with that view. Claude Code over MCP can take the
+same requests (`agent-service_next`); whoever claims first answers.
 
 ## Work packages
 
