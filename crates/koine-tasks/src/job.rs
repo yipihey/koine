@@ -76,7 +76,7 @@ pub enum JobError {
     NotFound(ItemId),
     #[error("{0} is a {1}, not a task")]
     NotATask(ItemId, String),
-    #[error("append event '{0}': {1} writers took the next seq first")]
+    #[error("append event '{0}': {1} appends took the next seq first")]
     SeqContended(String, usize),
     #[error("encode: {0}")]
     Encode(String),
@@ -304,9 +304,15 @@ pub fn finish_job<S: AttributedStore + ?Sized>(
 ///
 /// Two writers cannot share a `seq`: the row id is DERIVED from `(task,
 /// seq)` ([`event_row_id`]) and the primary key refuses a second row under
-/// it — in this process or any other on the same file — so the loser reads
-/// the maximum again and takes the next number. `seq` stays unique and
-/// gap-free, which is what lets a reader treat a jump as pruning.
+/// it — in this process or any other on the same file — so the loser tries
+/// the next number. `seq` stays unique and gap-free, which is what lets a
+/// reader treat a jump as pruning.
+///
+/// A lost race proves `seq` exists, so the next try is `seq + 1` without
+/// reading the maximum again: re-reading (a scan on a directory store) let
+/// the winner of one round win every round, and a loser lost once per
+/// concurrent append (impress-surface-service's `append_event`, which has
+/// the same shape, lost 75 times in a row with four writers).
 pub fn append_event<S: AttributedStore + ?Sized>(
     store: &S,
     task: ItemId,
@@ -316,9 +322,12 @@ pub fn append_event<S: AttributedStore + ?Sized>(
 ) -> Result<u64> {
     let payload_text =
         serde_json::to_string(payload).map_err(|e| JobError::Encode(e.to_string()))?;
-    const MAX_ATTEMPTS: usize = 64;
+    // A guard against a store that answers `AlreadyExists` for a missing
+    // row, not a timeout: each real loss moves `seq` forward, and a loser
+    // can lose once per concurrent append, so the bound is generous.
+    const MAX_ATTEMPTS: usize = 4096;
+    let mut seq = max_seq(store, task)? + 1;
     for _ in 0..MAX_ATTEMPTS {
-        let seq = max_seq(store, task)? + 1;
         let mut fields: BTreeMap<String, Value> = BTreeMap::new();
         fields.insert(field::event::TASK.into(), Value::String(task.to_string()));
         fields.insert(field::event::SEQ.into(), Value::Int(seq as i64));
@@ -361,7 +370,7 @@ pub fn append_event<S: AttributedStore + ?Sized>(
                 prune(store, task, seq)?;
                 return Ok(seq);
             }
-            Err(StoreError::AlreadyExists(_)) => continue,
+            Err(StoreError::AlreadyExists(_)) => seq += 1,
             Err(e) => return Err(e.into()),
         }
     }
@@ -561,6 +570,40 @@ mod tests {
         // Another job's ring is its own.
         let other = create_job(&s, "v", &json!({}), "r", "t").unwrap();
         assert!(events_after(&s, other, 0, 0).unwrap().is_empty());
+    }
+
+    /// Two handles on one directory store (the app and a daemon), each
+    /// appending from two threads at once: every event gets its own `seq`
+    /// with no holes, and no writer gives up. A loser re-reading the
+    /// maximum lost once per concurrent append and hit the old bound of 64.
+    #[test]
+    fn interleaved_writers_on_two_handles_never_share_a_seq() {
+        use std::sync::Arc;
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(koine_store_dir::DirStore::open(dir.path()).unwrap());
+        let b = Arc::new(koine_store_dir::DirStore::open(dir.path()).unwrap());
+        let id = create_job(a.as_ref(), "v", &json!({}), "r", "t").unwrap();
+        const PER_WRITER: u64 = 25;
+        let threads: Vec<_> = [a.clone(), b.clone(), a.clone(), b.clone()]
+            .into_iter()
+            .map(|store| {
+                std::thread::spawn(move || {
+                    for i in 0..PER_WRITER {
+                        append_event(store.as_ref(), id, "step", &json!({"i": i}), "t")
+                            .expect("append");
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+        let seqs: Vec<u64> = events_after(b.as_ref(), id, 0, 0)
+            .unwrap()
+            .iter()
+            .map(|r| r.seq)
+            .collect();
+        assert_eq!(seqs, (1..=4 * PER_WRITER).collect::<Vec<_>>());
     }
 
     #[test]

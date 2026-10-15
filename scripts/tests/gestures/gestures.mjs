@@ -256,9 +256,14 @@ await step("reorder a layout tile from the outline", async () => {
   const rows = outline.locator("[data-koine-row]");
   await rows.nth(2).waitFor({ timeout: 20000 });
   const before = await layoutOrder();
+  const labels = await rows.allTextContents();
   await drag(page, cdp, rows.nth(2).locator(".koine-grip"), rows.nth(0), "top");
   const want = [before[2], before[0], before[1]];
-  const ok = await until(async () => JSON.stringify(await layoutOrder()) === JSON.stringify(want));
+  // The host's order, then the outline's: the next step measures these rows,
+  // and on the phone layout the outline re-renders after the host answers.
+  const ok =
+    (await until(async () => JSON.stringify(await layoutOrder()) === JSON.stringify(want))) &&
+    (await until(async () => (await rows.first().textContent()) === labels[2]));
   ok ? pass(`reorder a layout tile from the outline (${before} -> ${want})`) : fail("reorder a layout tile from the outline", `${before} became ${await layoutOrder()}, wanted ${want}`);
 });
 

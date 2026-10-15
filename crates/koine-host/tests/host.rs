@@ -1840,6 +1840,14 @@ async fn refused(client: &Client, url: &str) -> bool {
     }
 }
 
+/// Whether `0.0.0.0:<port>` can be bound, as the host binds it: it cannot
+/// while a network listener holds it, whatever else is on the port.
+async fn released(port: u16) -> bool {
+    tokio::net::TcpListener::bind(("0.0.0.0", port))
+        .await
+        .is_ok()
+}
+
 #[tokio::test]
 async fn the_network_toggle_opens_and_closes_a_second_listener() {
     let _turn = TURN.lock().await;
@@ -1921,6 +1929,10 @@ async fn the_network_toggle_opens_and_closes_a_second_listener() {
         .await;
     assert_eq!(rotated["addr"], opened["addr"], "{rotated}");
     assert_eq!(rotated["bearer"], "next");
+    assert!(
+        !released(port as u16).await,
+        "an open listener holds its port"
+    );
 
     let (status, off) = host
         .post("/api/host/network", json!({ "allow": false }))
@@ -1928,15 +1940,25 @@ async fn the_network_toggle_opens_and_closes_a_second_listener() {
     assert_eq!(status, StatusCode::OK, "{off}");
     assert_eq!(off["allowed"], false);
     // The abort lands on the runtime; give it a moment to drop the socket.
+    // Gone means the port is ours to bind again, and, when it is not the
+    // loopback listener's port, that a dial to it is refused. A dial alone
+    // cannot tell on macOS: `SO_REUSEADDR` lets `0.0.0.0:<port>` bind beside
+    // the loopback listener's `127.0.0.1:<port>`, so the network listener
+    // takes the same port, and a dial to 127.0.0.1 reaches the loopback
+    // listener, which never closes. (Linux refuses that bind, and the
+    // network listener falls back to another port.)
+    let shares_loopback_port = host.base.ends_with(&format!(":{port}"));
     let mut gone = false;
     for _ in 0..50 {
-        if refused(&host.client, &format!("{net}/api/status")).await {
+        if released(port as u16).await
+            && (shares_loopback_port || refused(&host.client, &format!("{net}/api/status")).await)
+        {
             gone = true;
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    assert!(gone, "the network listener still answers");
+    assert!(gone, "the network listener still holds its port");
     let (_, state) = host.get_json("/api/host/network").await;
     assert_eq!(state["allowed"], false, "{state}");
     // The first listener never stopped.

@@ -602,9 +602,16 @@ impl<S: AttributedStore + ?Sized> SurfaceStore<S> {
     /// The row's id is DERIVED from `(surface, host, seq)` ([`event_row_id`]),
     /// and the store's primary key refuses a second row with the same id —
     /// in this process or any other on the same file. A writer that read
-    /// the same maximum as another therefore fails its insert, reads the
-    /// maximum again and takes the next number. `seq` stays unique and
-    /// gap-free, which is what lets a reader treat a jump in it as pruning.
+    /// the same maximum as another therefore fails its insert and tries the
+    /// next number. `seq` stays unique and gap-free, which is what lets a
+    /// reader treat a jump in it as pruning.
+    ///
+    /// A lost race proves `seq` exists, so the next try is `seq + 1` without
+    /// reading the maximum again. Re-reading made the losers starve: on a
+    /// directory store the read is a scan, the winner of one round starts
+    /// its next read while the losers are still queued on the lock to learn
+    /// they lost, and so it wins the next round too. Four writers of 25
+    /// events each left one writer losing 75 times in a row.
     pub fn append_event(
         &self,
         surface: ItemId,
@@ -615,12 +622,15 @@ impl<S: AttributedStore + ?Sized> SurfaceStore<S> {
     ) -> Result<u64> {
         let payload_text = serde_json::to_string(payload)
             .map_err(|e| Refusal::store(format!("encode event payload: {e}")))?;
-        // Each retry means another writer took the number in between, so
-        // this bound is the number of writers that can race one append, not
-        // a timeout. Hitting it is a bug worth reporting, not retrying.
-        const MAX_ATTEMPTS: usize = 64;
+        // Each retry means another append landed at `seq` in between, so a
+        // loser can lose once per concurrent append, not once per writer
+        // (the bound was 64 "writers" and one writer lost 75 times). This
+        // is a guard against a store that answers `AlreadyExists` for a row
+        // that is not there, not a timeout: a real race moves `seq` forward
+        // every time and ends when the other writers stop.
+        const MAX_ATTEMPTS: usize = 4096;
+        let mut seq = self.max_seq(surface, host)? + 1;
         for _ in 0..MAX_ATTEMPTS {
-            let seq = self.max_seq(surface, host)? + 1;
             let mut fields: BTreeMap<String, ItemValue> = BTreeMap::new();
             fields.insert(
                 field::event::SURFACE.into(),
@@ -653,7 +663,7 @@ impl<S: AttributedStore + ?Sized> SurfaceStore<S> {
                     self.prune(surface, host, seq)?;
                     return Ok(seq);
                 }
-                Err(StoreError::AlreadyExists(_)) => continue,
+                Err(StoreError::AlreadyExists(_)) => seq += 1,
                 Err(e) => {
                     return Err(Refusal::store(format!(
                         "write {SURFACE_EVENT_SCHEMA_REF}: {e}"
@@ -662,7 +672,7 @@ impl<S: AttributedStore + ?Sized> SurfaceStore<S> {
             }
         }
         Err(Refusal::internal(format!(
-            "append event '{name}': {MAX_ATTEMPTS} writers took the next seq first"
+            "append event '{name}': {MAX_ATTEMPTS} appends took the next seq first"
         )))
     }
 
