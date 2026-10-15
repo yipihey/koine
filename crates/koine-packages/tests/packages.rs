@@ -275,6 +275,20 @@ fn what_is_installed_is_what_was_reviewed() {
     .unwrap();
     let outside = verb("package-service_inspect", json!({"path": path}));
     assert_eq!(outside["code"], "invalid-argument", "{outside}");
+
+    // So is a symlink inside the package that points outside it.
+    #[cfg(unix)]
+    {
+        let secret = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(secret.path(), "{}").unwrap();
+        write_package(dir.path(), "1.0.0", "one");
+        let link = dir.path().join("surfaces/triage.surface.json");
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(secret.path(), &link).unwrap();
+        let linked = verb("package-service_inspect", json!({"path": path}));
+        assert_eq!(linked["code"], "invalid-argument", "{linked}");
+        assert!(linked["message"].as_str().unwrap().contains("outside"));
+    }
 }
 
 #[test]

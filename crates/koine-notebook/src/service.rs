@@ -76,14 +76,16 @@ pub trait NotebookService: Send + Sync + 'static {
     /// One call record in full: a summary, the stored record, every step under
     /// it with total and self time, the slowest steps, folded stacks, a bar
     /// chart of self time per step, its notes, and whether it can be
-    /// replayed. Refuses an unknown call (`not-found`).
+    /// replayed. With no `call_id` (nothing selected yet) it answers an
+    /// empty entry, not a refusal. Refuses an unknown call (`not-found`).
     #[impress_method(effects(reads = ["core/verb-call@1.0.0", any("koine/notebook-note@1.0.0")]))]
     #[impress_example(
         name = "unknown",
         args = r#"{"call_id": "00000000-0000-4000-8000-000000000000"}"#,
         expect = r#"{"ok": false, "code": "not-found"}"#
     )]
-    async fn entry(&self, call_id: String) -> EntryResult;
+    #[impress_example(name = "nothing-selected", args = r#"{}"#, expect = r#"{"ok": true}"#)]
+    async fn entry(&self, call_id: Option<String>) -> EntryResult;
 
     /// Attach a note to a call record. Refuses an empty text and an unknown
     /// call.
@@ -498,7 +500,10 @@ impl NotebookService for DefaultNotebookService {
         }
     }
 
-    async fn entry(&self, call_id: String) -> EntryResult {
+    async fn entry(&self, call_id: Option<String>) -> EntryResult {
+        let Some(call_id) = call_id.filter(|c| !c.trim().is_empty()) else {
+            return EntryResult::default();
+        };
         crate::flush();
         let store = match records::store(false) {
             Ok(store) => store,
@@ -792,8 +797,8 @@ impress_service_impl! {
         ) -> TimelineResult,
         /// One call record in full, with its steps and notes.
         entry(
-            /// The call's id (the record's id).
-            call_id: String
+            /// The call's id (the record's id); absent: an empty entry.
+            call_id: Option<String>
         ) -> EntryResult,
         /// Attach a note to a call record.
         annotate(

@@ -2076,13 +2076,8 @@ async fn the_kit_the_call_log_and_the_skill_are_served() {
             .as_array()
             .cloned()
             .unwrap_or_default();
-        // The notebook's entry source has no call selected yet; that is the
-        // one source allowed to answer a refusal.
-        assert!(
-            errors.iter().all(|e| e.to_string().contains("entry")),
-            "{}: {errors:?}",
-            row["name"]
-        );
+        // Nothing is selected yet, and no source refuses for that.
+        assert!(errors.is_empty(), "{}: {errors:?}", row["name"]);
     }
     let (_, stopped) = host
         .post("/api/verb/notebook-service_run-stop", json!({}))

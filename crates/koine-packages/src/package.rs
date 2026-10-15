@@ -181,8 +181,22 @@ impl Package {
             .chain(manifest.skills.iter().map(|s| &s.file))
         {
             checked(file)?;
-            let bytes = std::fs::read(dir.join(file))
-                .map_err(|e| fail("not-found", format!("{}: {e}", dir.join(file).display())))?;
+            let path = dir.join(file);
+            // A symlink inside the package must not reach outside it.
+            let real = path
+                .canonicalize()
+                .map_err(|e| fail("not-found", format!("{}: {e}", path.display())))?;
+            let root = dir
+                .canonicalize()
+                .map_err(|e| fail("not-found", format!("{}: {e}", dir.display())))?;
+            if !real.starts_with(&root) {
+                return Err(fail(
+                    "invalid-argument",
+                    format!("'{file}' resolves outside the package ({})", real.display()),
+                ));
+            }
+            let bytes = std::fs::read(&real)
+                .map_err(|e| fail("not-found", format!("{}: {e}", path.display())))?;
             files.insert(file.clone(), bytes);
         }
         Self::from_parts(manifest_bytes, files, dir.display().to_string())
