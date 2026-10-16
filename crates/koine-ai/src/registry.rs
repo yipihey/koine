@@ -440,7 +440,7 @@ impl AiRegistry {
 
     /// Catalogue default, else the host's advertised default from the last
     /// discovery, else the first loaded model, else the first model.
-    fn default_model(&self, provider: &str) -> Option<String> {
+    pub fn default_model(&self, provider: &str) -> Option<String> {
         let descriptor = catalogue::descriptor(provider)?;
         if let Some(model) = descriptor
             .static_models
@@ -867,7 +867,9 @@ impl AiRegistry {
     ) -> Result<AiPreferences> {
         let known = categories::category(category)
             .ok_or_else(|| Error::Invalid(format!("unknown task category '{category}'")))?;
-        if known.is_root() {
+        // `agent` is a group, but it is also the category the agent desk
+        // resolves a request with no more specific one by (LM-D11).
+        if known.is_root() && known.id != "agent" {
             return Err(Error::Invalid(format!(
                 "{category} is a category group; assign models to its leaf categories"
             )));

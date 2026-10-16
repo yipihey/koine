@@ -18,7 +18,7 @@ use crate::types::{
     CompletionRecord, ModelContentPart, ModelMessage, Role, StreamEvent, ToolDefinition,
     ToolInvocationRecord,
 };
-use crate::{Error, InferenceProvider, OmlxClient};
+use crate::{Error, InferenceProvider, OmlxClient, ToolLoop};
 
 const DEFAULT_MAX_TOOL_ROUNDS: u32 = 6;
 
@@ -99,6 +99,7 @@ pub struct AiTaskExecutor {
     blobs: Arc<dyn BlobStore>,
     tool_catalog: BTreeMap<String, Vec<ToolDefinition>>,
     tool_adapter: Option<Arc<dyn ToolAdapter>>,
+    native_adapter: Option<Arc<dyn ToolAdapter>>,
     research: Option<Arc<dyn ResearchContextProvider>>,
     max_tool_rounds: u32,
 }
@@ -132,6 +133,7 @@ impl AiTaskExecutor {
             blobs,
             tool_catalog: BTreeMap::new(),
             tool_adapter: None,
+            native_adapter: None,
             research: None,
             max_tool_rounds: DEFAULT_MAX_TOOL_ROUNDS,
         }
@@ -150,6 +152,18 @@ impl AiTaskExecutor {
     pub fn with_tool_adapter(mut self, adapter: Arc<dyn ToolAdapter>) -> Self {
         self.tool_catalog = adapter.catalog();
         self.tool_adapter = Some(adapter);
+        self
+    }
+
+    /// The tools a provider that runs the tool loop itself
+    /// ([`ToolLoop::Provider`](crate::ToolLoop), Apple's on-device model)
+    /// is shown and calls through, instead of
+    /// [`with_tool_adapter`](Self::with_tool_adapter)'s: the flat,
+    /// provider-lowered catalog (LM-D11). Both the definitions the model
+    /// sees and the runner that executes its calls come from this adapter
+    /// for such a task.
+    pub fn with_native_tool_adapter(mut self, adapter: Arc<dyn ToolAdapter>) -> Self {
+        self.native_adapter = Some(adapter);
         self
     }
 
@@ -225,6 +239,18 @@ impl TaskExecutor for AiTaskExecutor {
             .resolve(&mut prepared)
             .map_err(classify_transport)?;
 
+        // The catalog follows the provider: one that runs the loop itself
+        // gets the native adapter's definitions and runner (LM-D11).
+        let active_adapter: Option<&Arc<dyn ToolAdapter>> =
+            match (client.tool_loop(), &self.native_adapter) {
+                (ToolLoop::Provider, Some(native)) => {
+                    prepared.request.tools =
+                        tools_for(&native.catalog(), &prepared.request.tool_policy.enabled);
+                    Some(native)
+                }
+                _ => self.tool_adapter.as_ref(),
+            };
+
         let research_context = if prepared.request.tool_policy.allows("web") {
             if let Some(provider) = &self.research {
                 let query = latest_user_text(&prepared.request.messages);
@@ -293,7 +319,7 @@ impl TaskExecutor for AiTaskExecutor {
             task_id: task.id,
             preview_published: AtomicBool::new(false),
         };
-        let adapter_runner = self.tool_adapter.as_ref().map(|adapter| AdapterToolRunner {
+        let adapter_runner = active_adapter.map(|adapter| AdapterToolRunner {
             adapter: adapter.as_ref(),
             observer: &observer,
         });
@@ -431,6 +457,19 @@ impl TaskExecutor for AiTitleTaskExecutor {
     fn max_retries(&self) -> u32 {
         4
     }
+}
+
+/// The definitions a catalog offers for the capabilities a policy enables.
+fn tools_for(
+    catalog: &BTreeMap<String, Vec<ToolDefinition>>,
+    enabled: &[String],
+) -> Vec<ToolDefinition> {
+    enabled
+        .iter()
+        .filter_map(|capability| catalog.get(capability))
+        .flatten()
+        .cloned()
+        .collect()
 }
 
 fn latest_user_text(messages: &[ModelMessage]) -> String {
@@ -703,6 +742,143 @@ mod tests {
         // 4 retries × the scheduler's exponential backoff ≈ 30 minutes of
         // provider-outage coverage before escalation (was 2 ≈ 15 seconds).
         assert_eq!(executor.max_retries(), 4);
+    }
+
+    /// A provider that runs its own tool loop: it records the tool names it
+    /// was offered and calls the first one through the runner it is handed.
+    struct ProviderLoop {
+        offered: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl InferenceProvider for ProviderLoop {
+        fn provider_id(&self) -> &str {
+            "provider-loop"
+        }
+        fn endpoint_id(&self) -> &str {
+            "executor-test"
+        }
+        fn tool_loop(&self) -> ToolLoop {
+            ToolLoop::Provider
+        }
+        async fn models(&self) -> AiResult<Vec<ModelSummary>> {
+            Ok(vec![])
+        }
+        async fn stream(&self, _request: crate::ChatRequest) -> AiResult<EventStream> {
+            Err(Error::Invalid(
+                "a provider-loop provider is not streamed".into(),
+            ))
+        }
+        async fn run_turn(
+            &self,
+            request: crate::ChatRequest,
+            tools: &dyn ToolRunner,
+            _observer: &dyn LoopObserver,
+        ) -> std::result::Result<agent_loop::LoopOutcome, LoopError> {
+            *self.offered.lock().unwrap() =
+                request.tools.iter().map(|tool| tool.name.clone()).collect();
+            let name = request.tools[0].name.clone();
+            tools
+                .run(agent_loop::ToolCall {
+                    id: "c1".into(),
+                    name,
+                    arguments: json!({ "query": "stars" }),
+                    raw: r#"{"query":"stars"}"#.into(),
+                })
+                .await
+                .map_err(LoopError::Transport)?;
+            Ok(agent_loop::LoopOutcome {
+                content: "done".into(),
+                ..Default::default()
+            })
+        }
+    }
+
+    /// The catalog a task is offered follows the provider that resolved: a
+    /// Provider-loop one sees the native adapter's flat tools and calls
+    /// through it; a Caller-loop one sees the grouped catalog (LM-D11).
+    #[tokio::test]
+    async fn the_catalog_and_the_runner_follow_the_providers_tool_loop() {
+        struct Flat;
+        #[async_trait]
+        impl ToolAdapter for Flat {
+            fn catalog(&self) -> BTreeMap<String, Vec<ToolDefinition>> {
+                BTreeMap::from([(
+                    "scix".into(),
+                    vec![ToolDefinition::new(
+                        "flat-search",
+                        "Flat",
+                        json!({ "type": "object" }),
+                    )],
+                )])
+            }
+            fn provider_id(&self, _tool_name: &str) -> String {
+                "flat-tools".into()
+            }
+            async fn call(&self, tool_name: &str, _arguments: Value) -> AiResult<Value> {
+                assert_eq!(tool_name, "flat-search");
+                Ok(json!({ "flat": true }))
+            }
+        }
+
+        let directory = tempfile::tempdir().unwrap();
+        let ai = Arc::new(
+            AiStore::open_dir(
+                &directory.path().join("impress.sqlite"),
+                "test:executor",
+                ActorKind::Agent,
+            )
+            .unwrap(),
+        );
+        let blobs = Arc::new(FileBlobStore::open(directory.path().join("blobs")).unwrap());
+        let turn = |text: &str| {
+            let conversation = ai
+                .create_conversation(ConversationDraft {
+                    model: "m".into(),
+                    tool_policy: ToolPolicy {
+                        enabled: vec!["scix".into()],
+                    },
+                    ..Default::default()
+                })
+                .unwrap();
+            ai.queue_user_turn(conversation, MessageDraft::user(text))
+                .unwrap()
+        };
+        let store = koine_tasks::ItemTaskStore::new(ai.shared_store());
+
+        // Provider loop: the flat catalog, and the flat adapter runs the call.
+        let provider = Arc::new(ProviderLoop {
+            offered: Mutex::new(vec![]),
+        });
+        let queued = turn("find");
+        let executor = AiTaskExecutor::with_provider(ai.clone(), provider.clone(), blobs.clone())
+            .with_tool_adapter(Arc::new(ScriptedTools))
+            .with_native_tool_adapter(Arc::new(Flat));
+        let task = ai.shared_store().get(queued.task_id).unwrap().unwrap();
+        executor.execute(&task, &store).await.unwrap();
+        assert_eq!(*provider.offered.lock().unwrap(), vec!["flat-search"]);
+        let provenance = ai.task_provenance(queued.task_id).unwrap().unwrap();
+        assert_eq!(provenance.tool_invocations.len(), 1);
+
+        // Caller loop: the grouped catalog, never the native one.
+        let scripted = Arc::new(ScriptedProvider {
+            rounds: Mutex::new(VecDeque::from([vec![
+                StreamEvent::Token { text: "ok".into() },
+                StreamEvent::Done {
+                    finish_reason: Some("stop".into()),
+                },
+            ]])),
+            requests: Mutex::new(vec![]),
+        });
+        let queued = turn("find again");
+        let executor = AiTaskExecutor::with_provider(ai.clone(), scripted.clone(), blobs)
+            .with_tool_adapter(Arc::new(ScriptedTools))
+            .with_native_tool_adapter(Arc::new(Flat));
+        let task = ai.shared_store().get(queued.task_id).unwrap().unwrap();
+        executor.execute(&task, &store).await.unwrap();
+        let requests = scripted.requests.lock().unwrap();
+        let names: Vec<_> = requests[0].tools.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, vec!["scix"]);
     }
 
     #[test]

@@ -24,6 +24,10 @@ pub const ASK_VERB: &str = "agent-service_ask";
 pub const MAKE_VERB: &str = "agent-service_make-surface";
 pub const REQUESTS_VERB: &str = "agent-service_requests";
 
+/// The category a "use the strongest model" question asks for
+/// (docs/plan-koine-local-models.md LM-D11).
+pub const FRONTIER_CATEGORY: &str = "agent.frontier";
+
 /// How often the desk is read while the page is visible.
 const POLL_MS: u32 = 3_000;
 
@@ -36,12 +40,15 @@ pub enum Asking {
 
 /// The verb and arguments for one submission: a question carries the surface
 /// the person came from when `attach` is on; a view request carries the text
-/// as its description. `None` for an empty prompt.
+/// as its description. A question asks for the strongest model
+/// ([`FRONTIER_CATEGORY`]) when `strongest` is on; without it the desk routes
+/// the question. `None` for an empty prompt.
 pub fn submission(
     asking: Asking,
     prompt: &str,
     about: &str,
     attach: bool,
+    strongest: bool,
 ) -> Option<(&'static str, Value)> {
     let prompt = prompt.trim();
     if prompt.is_empty() {
@@ -52,6 +59,9 @@ pub fn submission(
             let mut args = json!({ "prompt": prompt });
             if attach && !about.trim().is_empty() {
                 args["surface_id"] = json!(about.trim());
+            }
+            if strongest {
+                args["category"] = json!(FRONTIER_CATEGORY);
             }
             (ASK_VERB, args)
         }
@@ -69,6 +79,22 @@ pub struct DeskRow {
     pub answer: Option<String>,
     pub surface_id: Option<String>,
     pub claimed_by: Option<String>,
+    /// The category the question asked for.
+    pub category: Option<String>,
+    /// The category the desk's triage chose for a question with none.
+    pub routed_category: Option<String>,
+}
+
+impl DeskRow {
+    /// How the request was placed, for the row's head: the category it asked
+    /// for, or the one triage chose.
+    pub fn placed(&self) -> Option<String> {
+        match (&self.category, &self.routed_category) {
+            (Some(category), _) => Some(category.clone()),
+            (None, Some(routed)) => Some(format!("routed to {routed}")),
+            (None, None) => None,
+        }
+    }
 }
 
 /// The rows of an `agent-service_requests` answer.
@@ -91,6 +117,8 @@ pub fn desk_rows(answer: &Value) -> Vec<DeskRow> {
                     answer: text(row, "answer"),
                     surface_id: text(row, "surface_id"),
                     claimed_by: text(row, "claimed_by"),
+                    category: text(row, "category"),
+                    routed_category: text(row, "routed_category"),
                 })
                 .collect()
         })
@@ -119,6 +147,7 @@ pub fn AskPage(about: String) -> Element {
     let session = use_context::<Session>();
     let mut prompt = use_signal(String::new);
     let mut attach = use_signal(|| true);
+    let mut strongest = use_signal(|| false);
     let mut filed: Signal<Option<Value>> = use_signal(|| None);
     let mut desk: Signal<Option<Vec<DeskRow>>> = use_signal(|| None);
     let mut busy = use_signal(|| false);
@@ -162,8 +191,13 @@ pub fn AskPage(about: String) -> Element {
         }
     });
     let mut submit = move |asking: Asking| {
-        let Some((verb, args)) = submission(asking, &prompt.peek(), &about.peek(), *attach.peek())
-        else {
+        let Some((verb, args)) = submission(
+            asking,
+            &prompt.peek(),
+            &about.peek(),
+            *attach.peek(),
+            *strongest.peek(),
+        ) else {
             session.refuse(ApiError::new(
                 "invalid-argument",
                 "write what you want to ask first",
@@ -217,6 +251,15 @@ pub fn AskPage(about: String) -> Element {
                     onclick: move |_| submit(Asking::View),
                     "Ask for a view"
                 }
+                label { class: "kw-ask-attach",
+                    input {
+                        r#type: "checkbox",
+                        id: "kw-ask-strongest",
+                        checked: *strongest.read(),
+                        onchange: move |event| strongest.set(event.checked()),
+                    }
+                    "Use the strongest model"
+                }
                 if !about_text.is_empty() {
                     label { class: "kw-ask-attach",
                         input {
@@ -251,6 +294,9 @@ pub fn AskPage(about: String) -> Element {
                                 if let Some(agent) = &row.claimed_by {
                                     span { "{agent}" }
                                 }
+                                if let Some(placed) = row.placed() {
+                                    span { class: "kw-desk-category", "{placed}" }
+                                }
                             }
                             div { "{row.prompt}" }
                             if let Some(answer) = &row.answer {
@@ -273,17 +319,32 @@ mod tests {
 
     #[test]
     fn a_question_carries_the_surface_only_when_attached() {
-        let (verb, args) = submission(Asking::Question, "  why? ", "s-1", true).unwrap();
+        let (verb, args) = submission(Asking::Question, "  why? ", "s-1", true, false).unwrap();
         assert_eq!(verb, ASK_VERB);
         assert_eq!(args, json!({"prompt": "why?", "surface_id": "s-1"}));
-        let (_, args) = submission(Asking::Question, "why?", "s-1", false).unwrap();
+        let (_, args) = submission(Asking::Question, "why?", "s-1", false, false).unwrap();
         assert_eq!(args, json!({"prompt": "why?"}));
-        let (_, args) = submission(Asking::Question, "why?", "", true).unwrap();
+        let (_, args) = submission(Asking::Question, "why?", "", true, false).unwrap();
         assert_eq!(args, json!({"prompt": "why?"}));
-        let (verb, args) = submission(Asking::View, "a table", "s-1", true).unwrap();
+        let (verb, args) = submission(Asking::View, "a table", "s-1", true, false).unwrap();
         assert_eq!(verb, MAKE_VERB);
         assert_eq!(args, json!({"description": "a table"}));
-        assert!(submission(Asking::Question, "   ", "", true).is_none());
+        assert!(submission(Asking::Question, "   ", "", true, false).is_none());
+    }
+
+    #[test]
+    fn the_strongest_model_is_a_category_on_a_question_only() {
+        let (_, args) = submission(Asking::Question, "check this proof", "", true, true).unwrap();
+        assert_eq!(
+            args,
+            json!({"prompt": "check this proof", "category": "agent.frontier"})
+        );
+        let (_, args) =
+            submission(Asking::Question, "check this proof", "s-1", true, true).unwrap();
+        assert_eq!(args["category"], "agent.frontier");
+        assert_eq!(args["surface_id"], "s-1");
+        let (_, args) = submission(Asking::View, "a table", "", true, true).unwrap();
+        assert_eq!(args, json!({"description": "a table"}));
     }
 
     #[test]
@@ -297,6 +358,13 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].surface_id.as_deref(), Some("s"));
         assert_eq!(rows[1].answer, None);
+        assert_eq!(rows[0].placed(), None);
+        let placed = desk_rows(&json!({"rows": [
+            {"id": "r3", "category": "agent.frontier", "routed_category": "agent"},
+            {"id": "r4", "routed_category": "agent"}
+        ]}));
+        assert_eq!(placed[0].placed().as_deref(), Some("agent.frontier"));
+        assert_eq!(placed[1].placed().as_deref(), Some("routed to agent"));
         assert!(desk_rows(&json!({"ok": true})).is_empty());
     }
 }

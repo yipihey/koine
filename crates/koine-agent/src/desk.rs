@@ -44,6 +44,17 @@ impl DeskError {
     }
 }
 
+/// Whether `id` has the shape of a task-category id: lowercase letters,
+/// digits, `.` and `-`, starting with a letter (`agent.frontier`). Whether
+/// the category exists is the desk agent's to say: this crate does not know
+/// the model registry.
+pub fn is_category_id(id: &str) -> bool {
+    id.starts_with(|c: char| c.is_ascii_lowercase())
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
+}
+
 fn schema() -> SchemaRef {
     SchemaRef::from_stored(REQUEST.to_owned())
 }
@@ -95,6 +106,9 @@ pub fn row_of(item: &Item, with_context: bool) -> RequestRow {
         answer: text(&p, "answer"),
         surface_id: text(&p, "surface_id"),
         call_id: text(&p, "call_id"),
+        category: text(&p, "category"),
+        routed_category: text(&p, "routed_category"),
+        triage_model: text(&p, "triage_model"),
         releases: p.get("releases").and_then(Value::as_u64).unwrap_or(0),
         release_reason: text(&p, "release_reason"),
         context: if with_context {
@@ -111,6 +125,7 @@ pub fn file(
     prompt: &str,
     context: Value,
     call_id: Option<&str>,
+    category: Option<&str>,
     author: String,
     author_kind: ActorKind,
 ) -> Result<RequestRow, DeskError> {
@@ -123,6 +138,9 @@ pub fn file(
     payload.insert("context".to_string(), to_item_value(context));
     if let Some(call_id) = call_id {
         payload.insert("call_id".to_string(), ItemValue::String(call_id.into()));
+    }
+    if let Some(category) = category {
+        payload.insert("category".to_string(), ItemValue::String(category.into()));
     }
     let item = Item {
         id: ItemId::new_v4(),

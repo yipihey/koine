@@ -415,3 +415,47 @@ Tests assert properties, not model wording.
     then `KOINE_TEST_LLAMACPP_URL` set for `cargo test -p koine-ai --test
     conformance live_llama_cpp`. CPU-only is slow but this fixture is a few
     short turns. Not added here.
+- **Package 7a done** (LM-D11; the response schema on a turn is still to come).
+  `agent-service_ask` takes `category` (shape-checked in `koine-agent`, which
+  cannot depend on `koine-ai`; the desk checks it against the table and the
+  installed categories); `RequestRow` gains `category`, `routed_category` and
+  `triage_model`, all skipped when absent. New built-in categories
+  `agent.route` and `agent.frontier` (no app lists them). `DeskBridge` gains
+  `with_registry(ai, registry)`: each request is resolved on its own
+  (`ResolveTarget { category }`: assignment, then selection, then first
+  ready); `DeskBridge::new(ai, provider, model)` is unchanged and stays fixed.
+  An unknown category declines the request with a message that says so; a
+  retryable failure still releases. With no category and an enabled
+  `agent.route` assignment, one structured call on that model (an enum of the
+  categories with an enabled primary assignment, minus `agent.route`, plus
+  `agent`; 30 s limit) picks the category; any failure or an answer outside
+  the enum falls back to the default and is logged. The choice is written to
+  the row. `impress-ai-service_apply-routing-preset {preset: "local-first"}`
+  assigns `agent.route` to apple-on-device, `agent` to oMLX (else another ready
+  local provider) and `agent.frontier` to the first ready cloud provider,
+  skipping with a reason what is not ready; it writes preferences only.
+  `AiTaskExecutor::with_native_tool_adapter` supplies the definitions and the
+  runner for a task whose resolved provider has `ToolLoop::Provider`;
+  koine-host (feature `apple-fm`) passes a flat, Apple-lowered
+  `InventoryTools` over `DEFAULT_NATIVE_TOOLS` (8 read-only verbs, 2.7k
+  characters of name, description and input schema; the cap is 6000, applied
+  in allowlist order), overridable with `--native-tools a,b,c`. `/ask` has a
+  "Use the strongest model" checkbox (`category: "agent.frontier"`) and shows
+  the category or the routing on a listed request.
+  - **Beyond the plan:** `agent` is a category group, which
+    `set_task_category` refused; it now accepts `agent` (the desk resolves by
+    it). `AiRegistry::default_model` is public. `koine-ai` depends on
+    `tracing`. `categories::{triage_request, parse_triage}` hold the triage
+    call so the Apple live test uses the production request.
+  - **Registry quirk:** `resolve` takes the model from the device selection
+    before the category's own model when both name the same provider, so two
+    categories on one provider with different models only work while the
+    selection is on another provider.
+  - **Live (macOS 27.0.1, `KOINE_TEST_APPLE_FM=1`, `koine-ai-apple` test
+    `triage`):** enum of agent, agent.frontier, research.summarize,
+    writing.rewrite. "What is the capital of France?" gave `agent`;
+    "Summarise the abstract of this paper in two sentences." gave
+    `research.summarize`; "Review this proof for errors: ..." gave `agent` (not
+    `agent.frontier`), 0.4-0.9 s each.
+  - **Downstream:** impress-apps keeps `DeskBridge::new` working; `impel-taskd`
+    may move to `with_registry`. `TaskRuntime` and `Config` gain `native_tools`.

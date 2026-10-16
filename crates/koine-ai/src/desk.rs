@@ -19,6 +19,13 @@
 //!    (`agent-service_answer`, naming a surface the answer names as
 //!    `surface:<uuid>`), or decline it with the run's error.
 //!
+//! A bridge built over the registry ([`DeskBridge::with_registry`]) routes
+//! each request on its own (docs/plan-koine-local-models.md LM-D11): the
+//! request's `category` picks the model through the registry's assignments;
+//! a request with none is triaged by the `agent.route` model when one is
+//! assigned. A bridge built with [`DeskBridge::new`] has one fixed
+//! provider and model and does neither.
+//!
 //! Every step is a verb call or an `AiStore` write, so the call log and the
 //! desk show what happened. The tag makes a restart pick up where it left
 //! off: a claimed request whose conversation exists is only waited on.
@@ -29,6 +36,10 @@ use impress_item::item::{Item, ItemId, Value as CoreValue};
 use impress_service_core::call;
 use impress_service_core::pipeline::CallerIdentity;
 use serde_json::{json, Value};
+
+use crate::agent_loop::{self, NoObserver};
+use crate::categories;
+use crate::registry::{AiRegistry, ResolveTarget};
 
 use crate::{AiStore, ConversationDraft, MessageDraft, ToolPolicy};
 
@@ -60,10 +71,24 @@ pub struct Pass {
 /// not this agent's to keep retrying for ever.
 pub const MAX_RELEASES: u64 = 3;
 
+/// The category a triaged request falls back to when nothing else places it.
+pub const DEFAULT_CATEGORY: &str = "agent";
+/// The category whose model triages a request that names none.
+pub const ROUTE_CATEGORY: &str = "agent.route";
+/// How long triage may take before the request goes to the default model.
+pub const TRIAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Where a request's model comes from.
+enum Target {
+    /// One provider and model for every request.
+    Fixed { provider: String, model: String },
+    /// Each request resolved on its own against the device registry.
+    Registry(Arc<AiRegistry>),
+}
+
 pub struct DeskBridge {
     ai: Arc<AiStore>,
-    provider: String,
-    model: String,
+    target: Target,
     agent: String,
     tools: Vec<String>,
     system_prompt: String,
@@ -134,12 +159,23 @@ pub fn surface_in(answer: &str) -> Option<String> {
 
 impl DeskBridge {
     /// The bridge over `ai`, asking `model` at `provider`, as
-    /// `agent:koine-ai` with the linked inventory as its tools.
+    /// `agent:koine-ai` with the linked inventory as its tools. The model is
+    /// fixed: no request is routed.
     pub fn new(ai: Arc<AiStore>, provider: String, model: String) -> Self {
+        Self::over(ai, Target::Fixed { provider, model })
+    }
+
+    /// The bridge over `ai` that resolves each request's model from
+    /// `registry` (LM-D11): the request's category, else the `agent.route`
+    /// triage, else the device default.
+    pub fn with_registry(ai: Arc<AiStore>, registry: Arc<AiRegistry>) -> Self {
+        Self::over(ai, Target::Registry(registry))
+    }
+
+    fn over(ai: Arc<AiStore>, target: Target) -> Self {
         Self {
             ai,
-            provider,
-            model,
+            target,
             agent: DEFAULT_AGENT.into(),
             tools: vec![crate::inventory_tools::POLICY_ID.into()],
             system_prompt: DEFAULT_SYSTEM_PROMPT.into(),
@@ -188,7 +224,7 @@ impl DeskBridge {
     /// again for the same request: a conversation already tagged for it is
     /// reused, and its turn queued only if it has none, so a retry after a
     /// failure between the two writes never opens a second conversation.
-    fn start(&self, request: &Value) -> crate::Result<ItemId> {
+    async fn start(&self, request: &Value) -> crate::Result<ItemId> {
         let id = request["id"].as_str().unwrap_or_default();
         let tag = format!("{TAG}{id}");
         let existing = self
@@ -204,6 +240,7 @@ impl DeskBridge {
                 conversation.id
             }
             None => {
+                let (provider, model) = self.model_for(request).await?;
                 let prompt = request["prompt"].as_str().unwrap_or("Agent desk request");
                 let title: String = prompt.chars().take(60).collect();
                 self.ai.create_conversation(ConversationDraft {
@@ -214,8 +251,8 @@ impl DeskBridge {
                     },
                     summary: Some(tag),
                     system_prompt: Some(self.system_prompt.clone()),
-                    provider: self.provider.clone(),
-                    model: self.model.clone(),
+                    provider,
+                    model,
                     tool_policy: ToolPolicy {
                         enabled: self.tools.clone(),
                     },
@@ -227,6 +264,152 @@ impl DeskBridge {
         turn.from = format!("agent-desk:{id}");
         self.ai.queue_user_turn(conversation, turn)?;
         Ok(conversation)
+    }
+
+    /// The provider and model that answer `request`. A fixed bridge has
+    /// one. Over a registry: the request's category (refused when unknown),
+    /// else the triage's choice, else no category; the registry resolves it
+    /// (assignment, then the device selection, then the first ready).
+    async fn model_for(&self, request: &Value) -> crate::Result<(String, String)> {
+        let registry = match &self.target {
+            Target::Fixed { provider, model } => return Ok((provider.clone(), model.clone())),
+            Target::Registry(registry) => registry,
+        };
+        let mut category = request["category"]
+            .as_str()
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .map(str::to_string);
+        match &category {
+            Some(id) => self.check_category(id)?,
+            None => {
+                if let Some(routed) = self.triage(registry, request).await {
+                    self.record_triage(request, &routed.category, &routed.model);
+                    category = Some(routed.category);
+                }
+            }
+        }
+        let target = ResolveTarget {
+            category,
+            ..ResolveTarget::default()
+        };
+        // Network-free when the preferences name the model; discovery only
+        // when they leave it open.
+        let resolved = match registry.resolve(&target) {
+            Ok(resolved) => resolved,
+            Err(_) => registry.resolve_with_discovery(&target).await?,
+        };
+        Ok((resolved.provider, resolved.model))
+    }
+
+    /// A category the desk knows: a built-in or an installed one.
+    fn check_category(&self, id: &str) -> crate::Result<()> {
+        let known = categories::category(id).is_some()
+            || categories::installed_in(self.ai.shared_store().as_ref())
+                .iter()
+                .any(|category| category.id == id);
+        if known {
+            Ok(())
+        } else {
+            Err(crate::Error::Invalid(format!(
+                "unknown task category '{id}'; ask without a category, or with a category \
+                 impress-ai-service_ai-preferences knows"
+            )))
+        }
+    }
+
+    /// The ids triage may answer: every category with an enabled primary
+    /// assignment except `agent.route` itself, plus `agent`.
+    fn routable(registry: &AiRegistry) -> Vec<String> {
+        let mut ids: Vec<String> = registry
+            .task_categories()
+            .into_iter()
+            .filter(|(id, assignment)| {
+                id != ROUTE_CATEGORY && assignment.enabled && assignment.primary.is_some()
+            })
+            .map(|(id, _)| id)
+            .collect();
+        if !ids.iter().any(|id| id == DEFAULT_CATEGORY) {
+            ids.push(DEFAULT_CATEGORY.into());
+        }
+        ids.sort();
+        ids
+    }
+
+    /// One structured call on the `agent.route` model: which category fits
+    /// the request. `None` when nothing is assigned to `agent.route`, and
+    /// when the call fails or answers outside the enum (logged): the
+    /// request then goes to the default model.
+    async fn triage(&self, registry: &AiRegistry, request: &Value) -> Option<Routed> {
+        let assigned = registry.task_categories();
+        let route = assigned.get(ROUTE_CATEGORY)?;
+        if !route.enabled || route.primary.is_none() {
+            return None;
+        }
+        let id = request["id"].as_str().unwrap_or_default();
+        let ids = Self::routable(registry);
+        let attempt = async {
+            let resolved = registry.resolve(&ResolveTarget::category(ROUTE_CATEGORY))?;
+            let provider = registry.provider(&resolved.provider)?;
+            let chat = categories::triage_request(
+                &resolved.model,
+                request["prompt"].as_str().unwrap_or(""),
+                &ids,
+            );
+            let outcome = agent_loop::run(provider.as_ref(), chat, None, &NoObserver, 1)
+                .await
+                .map_err(|e| crate::Error::Invalid(format!("{e:?}")))?;
+            let category = categories::parse_triage(&outcome.content, &ids).ok_or_else(|| {
+                crate::Error::Invalid(format!(
+                    "answered {:?}, which is none of {ids:?}",
+                    outcome.content.chars().take(120).collect::<String>()
+                ))
+            })?;
+            Ok::<_, crate::Error>(Routed {
+                category,
+                model: format!("{}/{}", resolved.provider, resolved.model),
+            })
+        };
+        match tokio::time::timeout(TRIAGE_TIMEOUT, attempt).await {
+            Ok(Ok(routed)) => {
+                tracing::info!(target: "koine-ai",
+                    "desk: request {id} routed to {} by {}", routed.category, routed.model);
+                Some(routed)
+            }
+            Ok(Err(error)) => {
+                tracing::warn!(target: "koine-ai",
+                    "desk: triage of request {id} failed, using the default model: {error}");
+                None
+            }
+            Err(_) => {
+                tracing::warn!(target: "koine-ai",
+                    "desk: triage of request {id} timed out, using the default model");
+                None
+            }
+        }
+    }
+
+    /// Put the triage on the request's row, where `agent-service_requests`
+    /// shows it. A failure is logged: the request is answered either way.
+    fn record_triage(&self, request: &Value, category: &str, model: &str) {
+        use impress_item::{FieldMutation, ItemStore};
+        let Some(id) = request["id"]
+            .as_str()
+            .and_then(|id| id.parse::<ItemId>().ok())
+        else {
+            return;
+        };
+        let set = |field: &str, value: &str| {
+            FieldMutation::SetPayload(field.into(), CoreValue::String(value.into()))
+        };
+        if let Err(error) = ItemStore::update(
+            self.ai.shared_store().as_ref(),
+            id,
+            vec![set("routed_category", category), set("triage_model", model)],
+        ) {
+            tracing::warn!(target: "koine-ai",
+                "desk: could not record the triage on request {id}: {error}");
+        }
     }
 
     /// After `start` failed for `request`: give it back to the desk when the
@@ -308,7 +491,7 @@ impl DeskBridge {
                 break;
             };
             let claimed = verb("agent-service_claim", json!({ "id": id })).await?;
-            match self.start(&claimed["request"]) {
+            match self.start(&claimed["request"]).await {
                 Ok(_) => done.started += 1,
                 Err(error) => {
                     // A request given back is the oldest open one again, so
@@ -342,7 +525,7 @@ impl DeskBridge {
                 let request = full
                     .map(|f| f["request"].clone())
                     .unwrap_or(request.clone());
-                match self.start(&request) {
+                match self.start(&request).await {
                     Ok(_) => done.started += 1,
                     Err(error) => {
                         self.after_failed_start(&request, &error, &mut done).await?;
@@ -372,6 +555,12 @@ impl DeskBridge {
         }
         Ok(done)
     }
+}
+
+/// What triage chose: a category id and the `provider/model` that chose it.
+struct Routed {
+    category: String,
+    model: String,
 }
 
 #[cfg(test)]
@@ -479,8 +668,8 @@ mod tests {
             .unwrap();
         assert!(bridge.turnless(half));
 
-        assert_eq!(bridge.start(&request).unwrap(), half);
-        assert_eq!(bridge.start(&request).unwrap(), half);
+        assert_eq!(bridge.start(&request).await.unwrap(), half);
+        assert_eq!(bridge.start(&request).await.unwrap(), half);
         let tagged = ai
             .list_conversations(true)
             .unwrap()
@@ -585,5 +774,236 @@ mod tests {
         );
         assert_eq!(surface_in("no surface here"), None);
         assert_eq!(surface_in("surface:not-a-uuid"), None);
+    }
+
+    // Routing (LM-D11).
+
+    use crate::credentials::InMemoryCredentials;
+    use crate::preferences::{CategoryAssignment, ModelRef};
+    use crate::ResponseFormat;
+    use crate::{
+        ChatRequest, EventStream, InferenceProvider, ModelSummary, Result as AiResult, StreamEvent,
+    };
+    use async_trait::async_trait;
+    use std::collections::VecDeque;
+    use std::sync::Mutex;
+
+    /// A provider that answers triage from a script and keeps what it was
+    /// asked.
+    struct Triage {
+        answers: Mutex<VecDeque<Result<String, String>>>,
+        asked: Mutex<Vec<ChatRequest>>,
+    }
+
+    impl Triage {
+        fn new(answers: Vec<Result<&str, &str>>) -> Arc<Self> {
+            Arc::new(Self {
+                answers: Mutex::new(
+                    answers
+                        .into_iter()
+                        .map(|a| a.map(str::to_string).map_err(str::to_string))
+                        .collect(),
+                ),
+                asked: Mutex::new(vec![]),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl InferenceProvider for Triage {
+        fn provider_id(&self) -> &str {
+            "apple-on-device"
+        }
+        fn endpoint_id(&self) -> &str {
+            "triage-test"
+        }
+        async fn models(&self) -> AiResult<Vec<ModelSummary>> {
+            Ok(vec![])
+        }
+        async fn stream(&self, request: ChatRequest) -> AiResult<EventStream> {
+            self.asked.lock().unwrap().push(request);
+            let answer = self
+                .answers
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("triage asked more often than scripted")
+                .map_err(crate::Error::Invalid)?;
+            let (sender, receiver) = tokio::sync::mpsc::channel(2);
+            sender
+                .try_send(Ok(StreamEvent::Token { text: answer }))
+                .unwrap();
+            sender
+                .try_send(Ok(StreamEvent::Done {
+                    finish_reason: Some("stop".into()),
+                }))
+                .unwrap();
+            Ok(tokio_stream::wrappers::ReceiverStream::new(receiver))
+        }
+    }
+
+    fn assign(registry: &AiRegistry, category: &str, provider: &str, model: &str) {
+        registry
+            .set_task_category(
+                category,
+                CategoryAssignment {
+                    primary: Some(ModelRef {
+                        provider: provider.into(),
+                        model: Some(model.into()),
+                        display_name: None,
+                    }),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+
+    /// A registry whose `agent.route` is the scripted `triage`, `agent` the
+    /// small omlx model, `agent.frontier` the big one, and whose device
+    /// selection is `selected-model`.
+    fn routed(triage: &Arc<Triage>, with_route: bool) -> (tempfile::TempDir, Arc<AiRegistry>) {
+        let directory = tempfile::tempdir().unwrap();
+        let registry = AiRegistry::for_app(directory.path(), InMemoryCredentials::new());
+        registry.register_native("apple-on-device", triage.clone());
+        if with_route {
+            assign(&registry, "agent.route", "apple-on-device", "triage");
+        }
+        assign(&registry, "agent", "omlx", "small");
+        assign(&registry, "agent.frontier", "omlx", "big");
+        registry
+            .select_model("ollama", Some("selected-model".into()))
+            .unwrap();
+        (directory, registry)
+    }
+
+    /// The provider/model a request's conversation was opened with, and its
+    /// row on the desk.
+    async fn routed_to(
+        bridge: &DeskBridge,
+        prompt: &str,
+        category: Option<&str>,
+    ) -> (String, Value) {
+        let mut args = json!({ "prompt": prompt, "with_context": false });
+        if let Some(category) = category {
+            args["category"] = json!(category);
+        }
+        let asked = call::call_async("agent-service_ask", args).await.unwrap();
+        let id = asked["request"]["id"].as_str().unwrap().to_string();
+        bridge.pass().await.unwrap();
+        let listed = call::call_async("agent-service_requests", json!({}))
+            .await
+            .unwrap();
+        let row = listed["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == json!(id))
+            .cloned()
+            .unwrap();
+        let used = match bridge.conversation_for(&id).unwrap() {
+            Some(c) => format!(
+                "{}/{}",
+                text(&c, "provider").unwrap(),
+                text(&c, "model").unwrap()
+            ),
+            None => "none".into(),
+        };
+        (used, row)
+    }
+
+    /// A request that names its category goes to that category's model, with
+    /// no triage; a request that names none is triaged on the `agent.route`
+    /// model, which sees a schema whose enum is the assigned categories
+    /// (not `agent.route`), and the choice is on the row.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn each_request_goes_to_the_model_of_its_category() {
+        let _turn = TURN.lock().await;
+        let ai = fresh_desk();
+        let triage = Triage::new(vec![Ok(r#"{"category":"agent.frontier"}"#)]);
+        let (_dir, registry) = routed(&triage, true);
+        let bridge = DeskBridge::with_registry(ai, registry).as_agent("desk-test");
+
+        let (used, row) = routed_to(&bridge, "Review this proof", Some("agent.frontier")).await;
+        assert_eq!(used, "omlx/big");
+        assert_eq!(row["category"], "agent.frontier");
+        assert!(row.get("routed_category").is_none(), "{row}");
+        assert!(
+            triage.asked.lock().unwrap().is_empty(),
+            "a named category is not triaged"
+        );
+
+        let (used, row) = routed_to(&bridge, "Review this proof for errors", None).await;
+        assert_eq!(used, "omlx/big");
+        assert_eq!(row["routed_category"], "agent.frontier", "{row}");
+        assert_eq!(row["triage_model"], "apple-on-device/triage");
+        assert!(row.get("category").is_none());
+        let asked = triage.asked.lock().unwrap();
+        assert_eq!(asked.len(), 1);
+        let Some(ResponseFormat::JsonSchema { schema, .. }) = &asked[0].response_format else {
+            panic!("triage asks for a schema: {:?}", asked[0].response_format);
+        };
+        assert_eq!(
+            schema["properties"]["category"]["enum"],
+            json!(["agent", "agent.frontier"])
+        );
+        assert_eq!(schema["required"], json!(["category"]));
+        assert!(asked[0].tools.is_empty());
+        assert!(format!("{:?}", asked[0].messages).contains("Review this proof for errors"));
+    }
+
+    /// A triage that fails, or answers outside the enum, leaves the request
+    /// on the default model and the row without a routing; with no
+    /// `agent.route` assignment there is no triage at all.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_failed_triage_falls_back_to_the_default_model() {
+        let _turn = TURN.lock().await;
+        let ai = fresh_desk();
+        let triage = Triage::new(vec![
+            Err("the on-device model is busy"),
+            Ok(r#"{"category":"agent.route"}"#),
+            Ok("not json"),
+        ]);
+        let (_dir, registry) = routed(&triage, true);
+        let bridge = DeskBridge::with_registry(ai, registry).as_agent("desk-test");
+        for _ in 0..3 {
+            let (used, row) = routed_to(&bridge, "What is the capital of France?", None).await;
+            assert_eq!(used, "ollama/selected-model");
+            assert!(row.get("routed_category").is_none(), "{row}");
+            assert_eq!(row["status"], "claimed", "{row}");
+        }
+        assert_eq!(triage.asked.lock().unwrap().len(), 3);
+
+        let untriaged = Triage::new(vec![]);
+        let (_dir, registry) = routed(&untriaged, false);
+        let bridge = DeskBridge::with_registry(fresh_desk(), registry).as_agent("desk-test");
+        let (used, _) = routed_to(&bridge, "Hello", None).await;
+        assert_eq!(used, "ollama/selected-model");
+        assert!(untriaged.asked.lock().unwrap().is_empty());
+    }
+
+    /// An unknown category is declined with a message that says so; a fixed
+    /// bridge ignores the category.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_unknown_category_is_declined_and_a_fixed_bridge_ignores_it() {
+        let _turn = TURN.lock().await;
+        let ai = fresh_desk();
+        let triage = Triage::new(vec![]);
+        let (_dir, registry) = routed(&triage, true);
+        let bridge = DeskBridge::with_registry(ai.clone(), registry).as_agent("desk-test");
+        let (used, row) = routed_to(&bridge, "x", Some("no.such")).await;
+        assert_eq!(used, "none");
+        assert_eq!(row["status"], "declined", "{row}");
+        assert!(
+            row["answer"]
+                .as_str()
+                .unwrap()
+                .contains("unknown task category 'no.such'"),
+            "{row}"
+        );
+
+        let fixed = DeskBridge::new(ai, "omlx".into(), "fixed-model".into()).as_agent("desk-test");
+        let (used, row) = routed_to(&fixed, "y", Some("agent.frontier")).await;
+        assert_eq!(used, "omlx/fixed-model");
+        assert_eq!(row["category"], "agent.frontier");
     }
 }
