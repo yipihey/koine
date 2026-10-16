@@ -14,6 +14,12 @@
 //! A refusal is the verb's own answer (`ok: false`); an unreachable verb is
 //! an error the model reads. Nothing is hidden or rewritten. The policy id
 //! a conversation enables these with is [`POLICY_ID`].
+//!
+//! [`InventoryTools::flat`] is the other shape (LM-D4): one tool per allowed
+//! verb, named by the verb, with the verb's own input schema (lowered for a
+//! [`Profile`] when one is given), its output schema and its MCP
+//! annotations. The arguments object is the verb's arguments, with no
+//! `action`/`args` wrapper, and there is no `koine_capabilities` tool.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -22,6 +28,7 @@ use impress_service_core::pipeline::{self, Call, PipelineError};
 use impress_service_core::{call, ProviderStatus, VerbHandle};
 use serde_json::{json, Map, Value};
 
+use crate::schema::{self, Profile, Unsupported};
 use crate::{Error, Result, ToolAdapter, ToolDefinition};
 
 /// The tool-policy id a conversation lists to get these tools.
@@ -35,6 +42,22 @@ pub const CAPABILITIES_TOOL: &str = "koine_capabilities";
 pub struct InventoryTools {
     agent: String,
     excluded: Vec<String>,
+    flat: Option<Flat>,
+}
+
+/// The flat mode's allowlist and schema profile.
+#[derive(Debug, Clone)]
+struct Flat {
+    allow: Vec<String>,
+    profile: Option<Profile>,
+}
+
+impl Flat {
+    fn allows(&self, verb: &str) -> bool {
+        self.allow.iter().any(|entry| {
+            entry == verb || (entry.ends_with('_') && verb.starts_with(entry.as_str()))
+        })
+    }
 }
 
 impl InventoryTools {
@@ -43,7 +66,78 @@ impl InventoryTools {
         Self {
             agent: agent.into(),
             excluded: Vec::new(),
+            flat: None,
         }
+    }
+
+    /// One tool per allowed verb, each with the verb's own input schema
+    /// lowered for `profile` (the raw schema when `None`).
+    ///
+    /// An entry of `verbs` is a full verb name (`task-service_list`) or a
+    /// namespace prefix ending in `_` (`task-service_`), which means every
+    /// verb in that namespace. A verb that is not linked, is unavailable or
+    /// deprecated, is in an [excluded](Self::excluding) namespace, or whose
+    /// schema the profile cannot express is left out of the catalog;
+    /// [`skipped`](Self::skipped) reports the last kind. The catalog is
+    /// computed on each [`catalog`](ToolAdapter::catalog) call, since the
+    /// inventory can change.
+    pub fn flat<I, S>(agent: impl Into<String>, verbs: I, profile: Option<Profile>) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self {
+            flat: Some(Flat {
+                allow: verbs.into_iter().map(Into::into).collect(),
+                profile,
+            }),
+            ..Self::new(agent)
+        }
+    }
+
+    /// Flat mode: the allowed verbs whose schemas the profile cannot
+    /// express, with why. Empty in grouped mode.
+    pub fn skipped(&self) -> Vec<(String, Unsupported)> {
+        self.flat_entries().1
+    }
+
+    /// Allowed, available verbs by name, split into offered definitions and
+    /// the ones the profile refused.
+    fn flat_entries(&self) -> (Vec<ToolDefinition>, Vec<(String, Unsupported)>) {
+        let Some(flat) = &self.flat else {
+            return (Vec::new(), Vec::new());
+        };
+        let mut handles: Vec<VerbHandle> = self
+            .available()
+            .filter(|handle| flat.allows(handle.name()))
+            .collect();
+        handles.sort_by(|a, b| a.name().cmp(b.name()));
+        handles.dedup_by(|a, b| a.name() == b.name());
+        let (mut offered, mut skipped) = (Vec::new(), Vec::new());
+        for handle in handles {
+            let input = match flat.profile {
+                None => handle.input_schema().into_owned(),
+                Some(profile) => {
+                    let title = handle.name().replace(['-', '.'], "_");
+                    match schema::lower(&handle.input_schema(), &title, profile) {
+                        Ok(lowered) => lowered,
+                        Err(unsupported) => {
+                            skipped.push((handle.name().to_string(), unsupported));
+                            continue;
+                        }
+                    }
+                }
+            };
+            let mut tool = ToolDefinition::new(handle.name(), handle.description(), input);
+            let output = handle.output_schema().into_owned();
+            let empty = output.is_null() || output.as_object().is_some_and(|o| o.is_empty());
+            if !empty {
+                tool.output_schema = Some(output);
+            }
+            tool.annotations = Some(handle.mcp_annotations());
+            offered.push(tool);
+        }
+        (offered, skipped)
     }
 
     /// Leave out every verb whose namespace is one of `namespaces`.
@@ -98,18 +192,22 @@ impl InventoryTools {
     }
 
     fn definitions(&self) -> Vec<ToolDefinition> {
+        if self.flat.is_some() {
+            return self.flat_entries().0;
+        }
         let groups = self.groups();
-        let mut tools = vec![ToolDefinition {
-            name: CAPABILITIES_TOOL.into(),
-            description: "List the tools (one per service) and how many actions each has.".into(),
-            input_schema: json!({ "type": "object", "properties": {} }),
-        }];
+        let mut tools = vec![ToolDefinition::new(
+            CAPABILITIES_TOOL,
+            "List the tools (one per service) and how many actions each has.",
+            json!({ "type": "object", "properties": {} }),
+        )];
         for (ns, actions) in groups {
-            tools.push(ToolDefinition {
-                description: format!(
+            tools.push(ToolDefinition::new(
+                ns.clone(),
+                format!(
                     "The {ns} verbs. Pass `describe: true` with an action for its argument schema."
                 ),
-                input_schema: json!({
+                json!({
                     "type": "object",
                     "properties": {
                         "action": { "type": "string", "enum": actions },
@@ -118,8 +216,7 @@ impl InventoryTools {
                     },
                     "required": ["action"]
                 }),
-                name: ns,
-            });
+            ));
         }
         tools
     }
@@ -145,6 +242,38 @@ pub fn action_of(verb: &str) -> Option<&str> {
         .filter(|action| !action.is_empty())
 }
 
+impl InventoryTools {
+    /// Flat mode: the tool name is the verb, the arguments are the verb's.
+    async fn call_flat(&self, tool_name: &str, arguments: Value) -> Result<Value> {
+        let not_offered = || Error::Invalid(format!("{tool_name}: not offered"));
+        let offered = self
+            .flat_entries()
+            .0
+            .iter()
+            .any(|tool| tool.name == tool_name);
+        let handle = self
+            .available()
+            .find(|handle| handle.name() == tool_name)
+            .filter(|_| offered)
+            .ok_or_else(not_offered)?;
+        let args = match arguments {
+            Value::Object(values) => Value::Object(values),
+            Value::Null => Value::Object(Map::new()),
+            _ => {
+                return Err(Error::Invalid(format!(
+                    "{tool_name}: arguments must be an object"
+                )))
+            }
+        };
+        pipeline::invoke_handle(handle, Call::agent(self.agent.clone(), args))
+            .await
+            .map_err(|error| match error {
+                PipelineError::Handler(e) => Error::Invalid(format!("{tool_name} failed: {e}")),
+                unavailable => Error::Invalid(unavailable.to_string()),
+            })
+    }
+}
+
 #[async_trait]
 impl ToolAdapter for InventoryTools {
     fn catalog(&self) -> BTreeMap<String, Vec<ToolDefinition>> {
@@ -156,6 +285,9 @@ impl ToolAdapter for InventoryTools {
     }
 
     async fn call(&self, tool_name: &str, arguments: Value) -> Result<Value> {
+        if self.flat.is_some() {
+            return self.call_flat(tool_name, arguments).await;
+        }
         if tool_name == CAPABILITIES_TOOL {
             return Ok(self.capabilities());
         }

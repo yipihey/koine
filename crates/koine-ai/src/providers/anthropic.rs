@@ -454,6 +454,16 @@ fn parse_frame(state: &Mutex<StreamState>, frame: &SseFrame) -> Result<SseOutcom
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_wire_tool_has_no_mcp_fields() {
+        let mut tool = ToolDefinition::new("t", "d", json!({ "type": "object" }));
+        tool.output_schema = Some(json!({ "type": "object" }));
+        tool.annotations = Some(json!({ "readOnlyHint": true }));
+        let wire = tool_json(&tool);
+        assert!(wire.get("output_schema").is_none() && wire.get("annotations").is_none());
+        assert!(!wire.to_string().contains("readOnlyHint"));
+    }
     use crate::types::{ImageUrl, ModelToolCall};
     use futures_util::StreamExt;
     use mockito::Matcher;
@@ -506,11 +516,11 @@ mod tests {
             top_p: Some(0.9),
             max_tokens: 4096,
             thinking: true,
-            tools: vec![ToolDefinition {
-                name: "scix".into(),
-                description: "Search".into(),
-                input_schema: json!({ "type": "object" }),
-            }],
+            tools: vec![ToolDefinition::new(
+                "scix",
+                "Search",
+                json!({ "type": "object" }),
+            )],
             ..Default::default()
         }
     }

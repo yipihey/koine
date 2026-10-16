@@ -80,11 +80,38 @@ pub struct ModelToolCall {
     pub arguments: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
+    /// The verb's result schema, when it has one (MCP `outputSchema`).
+    /// Never sent to a provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<serde_json::Value>,
+    /// MCP tool annotations (`readOnlyHint`, `destructiveHint`,
+    /// `idempotentHint`, `openWorldHint`), as the descriptor states them.
+    /// Never sent to a provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<serde_json::Value>,
+}
+
+impl ToolDefinition {
+    /// A tool with a name, a description and an input schema; no output
+    /// schema or annotations.
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        input_schema: serde_json::Value,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            input_schema,
+            output_schema: None,
+            annotations: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -396,6 +423,18 @@ pub struct StoredAttachment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tool_definitions_from_before_the_mcp_fields_still_deserialize() {
+        let old: ToolDefinition = serde_json::from_value(serde_json::json!({
+            "name": "t", "description": "d", "input_schema": { "type": "object" }
+        }))
+        .unwrap();
+        assert_eq!(old.output_schema, None);
+        assert_eq!(old.annotations, None);
+        let json = serde_json::to_value(&old).unwrap();
+        assert!(json.get("output_schema").is_none() && json.get("annotations").is_none());
+    }
 
     #[test]
     fn tool_policy_is_stable_and_deduplicated() {

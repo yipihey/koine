@@ -663,11 +663,11 @@ mod tests {
         fn catalog(&self) -> BTreeMap<String, Vec<ToolDefinition>> {
             BTreeMap::from([(
                 "scix".into(),
-                vec![ToolDefinition {
-                    name: "scix".into(),
-                    description: "Search the literature".into(),
-                    input_schema: json!({ "type": "object" }),
-                }],
+                vec![ToolDefinition::new(
+                    "scix",
+                    "Search the literature",
+                    json!({ "type": "object" }),
+                )],
             )])
         }
 

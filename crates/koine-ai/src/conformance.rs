@@ -17,10 +17,10 @@ use crate::{Error, Result, ToolAdapter};
 /// `weather_lookup {city, unit}` and the parameterless `deny_me`.
 pub fn tools() -> Vec<ToolDefinition> {
     vec![
-        ToolDefinition {
-            name: "weather_lookup".into(),
-            description: "Current temperature for a city.".into(),
-            input_schema: json!({
+        ToolDefinition::new(
+            "weather_lookup",
+            "Current temperature for a city.",
+            json!({
                 "type": "object",
                 "properties": {
                     "city": { "type": "string" },
@@ -28,12 +28,12 @@ pub fn tools() -> Vec<ToolDefinition> {
                 },
                 "required": ["city", "unit"]
             }),
-        },
-        ToolDefinition {
-            name: "deny_me".into(),
-            description: "A tool the policy always refuses.".into(),
-            input_schema: json!({ "type": "object", "properties": {} }),
-        },
+        ),
+        ToolDefinition::new(
+            "deny_me",
+            "A tool the policy always refuses.",
+            json!({ "type": "object", "properties": {} }),
+        ),
     ]
 }
 

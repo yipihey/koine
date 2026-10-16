@@ -301,3 +301,21 @@ Tests assert properties, not model wording.
   generation order does (a response schema), not for tool arguments.
   `koine-ai` tests: 123 lib with `--features executor` (110 before, plus 13),
   6 conformance, 1 inventory_tools, 4 schema_lowering.
+- **Package 4 done** on branch `local-models`. `ToolDefinition` gains optional
+  `output_schema` and `annotations` (serde-defaulted and skipped when absent,
+  so stored definitions still load) plus `ToolDefinition::new`; the providers
+  build their own wire JSON and never send them. `InventoryTools::flat(agent,
+  verbs, profile)` offers one tool per allowed verb under `koine-verbs`, named
+  by the verb, with its input schema (lowered for the profile, raw when
+  `None`), output schema and MCP annotations. An allowlist entry ending in
+  `_` is a namespace prefix. Unlinked, unavailable, deprecated and excluded
+  verbs are absent; verbs the profile cannot express are skipped and listed by
+  `skipped()`. A call's arguments are the verb's own, through
+  `pipeline::invoke_handle`; a name outside the catalog is `<name>: not
+  offered`. `koine-ai` tests with `--features executor`: 126 lib (123 before,
+  plus 3), 6 conformance, 5 inventory_tools (1 before, plus 4), 4
+  schema_lowering.
+  - **Downstream:** impress-apps builds `ToolDefinition` with struct literals in
+    `crates/impress-ai-tools/src/lib.rs` and
+    `crates/impress-store-ffi/src/ai_registry.rs`; on the next koine pin those
+    need `..Default::default()` or `ToolDefinition::new`.

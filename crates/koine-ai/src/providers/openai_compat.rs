@@ -748,6 +748,17 @@ fn parse_omlx_models(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_wire_tool_has_no_mcp_fields() {
+        let mut tool = ToolDefinition::new("t", "d", json!({ "type": "object" }));
+        tool.output_schema = Some(json!({ "type": "object" }));
+        tool.annotations = Some(json!({ "readOnlyHint": true }));
+        let wire = tool_json(&tool);
+        let text = wire.to_string();
+        assert!(!text.contains("output_schema") && !text.contains("annotations"));
+        assert!(!text.contains("readOnlyHint"));
+    }
     use crate::types::{ImageUrl, ModelContentPart, Role};
     use futures_util::StreamExt;
     use mockito::Matcher;

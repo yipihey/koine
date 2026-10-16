@@ -488,11 +488,11 @@ mod tests {
 
     fn request(with_tool: bool) -> ChatRequest {
         let tools = if with_tool {
-            vec![ToolDefinition {
-                name: "lookup".into(),
-                description: "Look something up".into(),
-                input_schema: json!({ "type": "object" }),
-            }]
+            vec![ToolDefinition::new(
+                "lookup",
+                "Look something up",
+                json!({ "type": "object" }),
+            )]
         } else {
             vec![]
         };
