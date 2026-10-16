@@ -195,7 +195,34 @@ repositories stay green.
 
 - `history_service` and `audit` against koine-notebook's call log: one of the
   two should own `core/verb-call@1.0.0`.
+- `scripts/new-app.sh --python` (a stub cdylib calling `koine_py::register`) is
+  not done: it needs a pyo3 `extension-module` build and a maturin or
+  setup step the script's e2e does not have yet.
+- koine has no `.config/hakari.toml`, so `koine-workspace-hack` was not
+  regenerated for the new crates; the member lines are in place.
 
 ## Status
 
-Planned.
+- **KM1 done** on branch `kit-moves` (koine) and `koine-kit-moves`
+  (impress-apps). `perf-service` (4 verbs), `impress-app-transport` and
+  `capabilities-service` (4 verbs) moved under the same names; `koine-py` is
+  new. API changes: `impress-app-transport` takes
+  `loopback_token::client_token_for_url` from `impress-service-core` (already
+  there; impress-core still re-exports it); `DefaultCapabilitiesService` holds
+  an `Arc<dyn AttributedStore>` (`with_store` takes the port) and defaults to
+  `koine_store::process::acquire_or_stand_in`, so a host that registers the
+  process ports gets its own store (impress-capabilities' `force_link` now
+  calls `register_process_ports`). `koine-py` exposes `list_verb_infos`,
+  `call_local`, `call_remote`, `reload_provider_registry` and, behind
+  `python` (pyo3 0.23, pythonize 0.23), `register(m, Hooks)`; `Hooks` carries
+  what only the binary knows (`force_link`, `reload_providers`).
+  impress-apps' `impress-py` stays the `impress` cdylib with identical module
+  name and behaviour. Two tests that need impress left the transport crate for
+  `implore-verbs-ffi`: the implore parity stub and the Swift port-table pin.
+  koine tests: perf-service 6, impress-app-transport 20 + 2, capabilities-service
+  7 (two over the memory and directory stores), koine-py 4 (+1 interpreter test,
+  `--ignored`, needs `PYTHONHOME`), koine-host 84; impress-apps: impress-py 3,
+  implore-verbs-ffi 12, impress-capabilities 56 (with `KOINE_CHECKOUT`, while
+  the lock has no koine git pin), impel-tools 14, impress-ai-tools 6,
+  impress-mcp 49. `docs/verb-coverage.md` gained the two service rows (and the
+  impress-ai-service count is corrected to 17).
