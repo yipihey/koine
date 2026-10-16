@@ -447,10 +447,12 @@ Tests assert properties, not model wording.
     it). `AiRegistry::default_model` is public. `koine-ai` depends on
     `tracing`. `categories::{triage_request, parse_triage}` hold the triage
     call so the Apple live test uses the production request.
-  - **Registry quirk:** `resolve` takes the model from the device selection
-    before the category's own model when both name the same provider, so two
-    categories on one provider with different models only work while the
-    selection is on another provider.
+  - **Registry fix (review):** `resolve` took the model from the device
+    selection before the category's own model when both named the same
+    provider, so two categories on one host (a small and a large oMLX model)
+    both got the selected model. When the category chose the provider, its
+    model now comes first; test
+    `two_categories_on_the_selected_provider_keep_their_own_models`.
   - **Live (macOS 27.0.1, `KOINE_TEST_APPLE_FM=1`, `koine-ai-apple` test
     `triage`):** enum of agent, agent.frontier, research.summarize,
     writing.rewrite. "What is the capital of France?" gave `agent`;

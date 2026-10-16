@@ -357,23 +357,33 @@ impl AiRegistry {
         };
 
         let same_provider = |reference: &ModelRef| reference.provider == provider;
+        let selected_model = || {
+            preferences
+                .selected
+                .as_ref()
+                .filter(|selected| same_provider(selected))
+                .and_then(|selected| selected.model.clone())
+        };
+        let category_model = || {
+            category_assignment
+                .as_ref()
+                .filter(|assignment| same_provider(assignment))
+                .and_then(|assignment| assignment.model.clone())
+        };
+        // A category that chose the provider also chooses the model: two
+        // categories on one host (a small and a large oMLX model) must not
+        // both collapse to the device selection's model (LM-D11).
+        let (first, second) = if origin == ResolutionOrigin::Category {
+            (category_model(), selected_model())
+        } else {
+            (selected_model(), category_model())
+        };
         let model = target
             .model
             .clone()
             .filter(|model| !model.trim().is_empty())
-            .or_else(|| {
-                preferences
-                    .selected
-                    .as_ref()
-                    .filter(|selected| same_provider(selected))
-                    .and_then(|selected| selected.model.clone())
-            })
-            .or_else(|| {
-                category_assignment
-                    .as_ref()
-                    .filter(|assignment| same_provider(assignment))
-                    .and_then(|assignment| assignment.model.clone())
-            })
+            .or(first)
+            .or(second)
             .or_else(|| self.default_model(&provider))
             .ok_or_else(|| Error::Invalid(format!("choose a model for {provider}")))?;
 
@@ -955,6 +965,42 @@ mod tests {
             provider,
             HashMap::from([("apiKey".to_string(), key.to_string())]),
         );
+    }
+
+    #[test]
+    fn two_categories_on_the_selected_provider_keep_their_own_models() {
+        let memory = InMemoryCredentials::new();
+        let (_directory, registry) = registry_with(&memory);
+        registry
+            .select_model("omlx", Some("mlx-community--Qwen3.5-4B-4bit".into()))
+            .unwrap();
+        for (category, model) in [
+            ("agent", "mlx-community--Qwen3.6-35B-A3B-4bit"),
+            ("agent.frontier", "mlx-community--Qwen3.5-122B-A10B-4bit"),
+        ] {
+            registry
+                .set_task_category(
+                    category,
+                    CategoryAssignment {
+                        primary: Some(ModelRef::new("omlx", Some(model.into()))),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+        let model = |category: &str| {
+            registry
+                .resolve(&ResolveTarget::category(category))
+                .unwrap()
+                .model
+        };
+        assert_eq!(model("agent"), "mlx-community--Qwen3.6-35B-A3B-4bit");
+        assert_eq!(
+            model("agent.frontier"),
+            "mlx-community--Qwen3.5-122B-A10B-4bit"
+        );
+        // A category with no assignment still gets the selection.
+        assert_eq!(model("writing.rewrite"), "mlx-community--Qwen3.5-4B-4bit");
     }
 
     #[test]
