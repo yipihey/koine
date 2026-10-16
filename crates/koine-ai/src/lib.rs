@@ -19,6 +19,8 @@ pub mod blob;
 pub mod blocking;
 pub mod catalogue;
 pub mod categories;
+#[doc(hidden)]
+pub mod conformance;
 pub mod credentials;
 #[cfg(feature = "executor")]
 pub mod desk;
@@ -75,7 +77,9 @@ pub use presentation::{
     tool_options_for_policy, AiAttachmentRow, AiConversationRow, AiConversationView, AiMessageRow,
     AiTaskRow, AiToolInvocationRow, AiToolOption, AiWebSourceRow,
 };
-pub use provider::{collect_stream, Completion, HealthState, InferenceProvider, ProviderHealth};
+pub use provider::{
+    collect_stream, Completion, HealthState, InferenceProvider, ProviderHealth, ToolLoop,
+};
 pub use providers::{AnthropicClient, OpenAiCompatibleClient};
 pub use registry::{AiRegistry, ProviderState, ResolutionOrigin, ResolveTarget, ResolvedTarget};
 pub use research::{ResearchContext, ResearchContextProvider, ResearchSource, WebResearchProvider};

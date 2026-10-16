@@ -106,6 +106,10 @@ pub struct Capabilities {
     pub thinking: bool,
     pub embeddings: bool,
     pub system_prompt: bool,
+    /// A request may carry `tools` and a JSON-schema `response_format` at
+    /// once (LM-D8). Without it the loop asks for the schema in a last round.
+    #[serde(default)]
+    pub structured_with_tools: bool,
 }
 
 impl Capabilities {
@@ -117,6 +121,7 @@ impl Capabilities {
         thinking: false,
         embeddings: false,
         system_prompt: true,
+        structured_with_tools: false,
     };
 
     pub const FULL: Self = Self {
@@ -127,6 +132,7 @@ impl Capabilities {
         thinking: false,
         embeddings: false,
         system_prompt: true,
+        structured_with_tools: false,
     };
 
     pub const FULL_THINKING: Self = Self {
@@ -142,6 +148,7 @@ impl Capabilities {
         thinking: true,
         embeddings: false,
         system_prompt: true,
+        structured_with_tools: false,
     };
 }
 
@@ -401,6 +408,11 @@ const ANTHROPIC_MODELS: &[StaticModel] = &[
     },
 ];
 
+const OPENAI_FULL: Capabilities = Capabilities {
+    structured_with_tools: true,
+    ..Capabilities::FULL
+};
+
 const OPENAI_REASONING: Capabilities = Capabilities {
     streaming: true,
     tools: true,
@@ -409,6 +421,7 @@ const OPENAI_REASONING: Capabilities = Capabilities {
     thinking: true,
     embeddings: false,
     system_prompt: true,
+    structured_with_tools: true,
 };
 
 const OPENAI_MODELS: &[StaticModel] = &[
@@ -419,7 +432,7 @@ const OPENAI_MODELS: &[StaticModel] = &[
         context_window: Some(128_000),
         max_output_tokens: Some(16_384),
         is_default: true,
-        capabilities: Capabilities::FULL,
+        capabilities: OPENAI_FULL,
         sampling_params: true,
     },
     StaticModel {
@@ -429,7 +442,7 @@ const OPENAI_MODELS: &[StaticModel] = &[
         context_window: Some(128_000),
         max_output_tokens: Some(16_384),
         is_default: false,
-        capabilities: Capabilities::FULL,
+        capabilities: OPENAI_FULL,
         sampling_params: true,
     },
     StaticModel {
@@ -672,7 +685,7 @@ pub const CATALOGUE: [ProviderDescriptor; 8] = [
         default_endpoint: Some(OPENAI_DEFAULT_URL),
         endpoint_editable: true,
         registration_url: Some("https://platform.openai.com/api-keys"),
-        capabilities: Capabilities::FULL_THINKING,
+        capabilities: OPENAI_REASONING,
         static_models: OPENAI_MODELS,
         discovery: Discovery::Api,
         can_auto_start: false,

@@ -7,6 +7,7 @@
 //! A caller that keeps a record listens through a [`LoopObserver`].
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -14,9 +15,10 @@ use futures_util::StreamExt;
 use impress_item::item::Value as CoreValue;
 use serde_json::{json, Value};
 
-use crate::tools::ToolCallAccumulator;
+use crate::provider::ToolLoop;
+use crate::tools::{PendingToolCall, ToolCallAccumulator};
 use crate::types::{
-    ChatRequest, ModelContentPart, ModelMessage, ModelToolCall, Role, StreamEvent,
+    ChatRequest, ModelContentPart, ModelMessage, ModelToolCall, ResponseFormat, Role, StreamEvent,
     ToolInvocationRecord,
 };
 use crate::{Error, InferenceProvider, ToolAdapter};
@@ -149,8 +151,91 @@ pub enum LoopError {
     Tool(Error),
 }
 
+/// Passes the first `limit` calls through; later ones are refused without
+/// reaching the inner runner. Wraps the runner of a provider-run turn.
+struct LimitedRunner<'a> {
+    inner: Option<&'a dyn ToolRunner>,
+    limit: u32,
+    used: AtomicU32,
+}
+
+#[async_trait]
+impl ToolRunner for LimitedRunner<'_> {
+    async fn run(&self, call: ToolCall) -> crate::Result<ToolOutcome> {
+        let Some(inner) = self.inner else {
+            return Ok(ToolOutcome::Refused {
+                code: "no_tools".into(),
+                message: "No tools are available for this turn.".into(),
+            });
+        };
+        if self.used.fetch_add(1, Ordering::SeqCst) >= self.limit {
+            return Ok(ToolOutcome::Refused {
+                code: "tool_limit".into(),
+                message: "The tool-use limit has been reached. Answer now from the evidence \
+                          already collected."
+                    .into(),
+            });
+        }
+        inner.run(call).await
+    }
+}
+
+/// One streamed round: its text and tool calls. Reasoning, usage and the
+/// finish reason accumulate into `outcome`.
+async fn stream_round(
+    provider: &dyn InferenceProvider,
+    request: &ChatRequest,
+    previews: bool,
+    observer: &dyn LoopObserver,
+    outcome: &mut LoopOutcome,
+) -> std::result::Result<(String, Vec<PendingToolCall>), LoopError> {
+    let mut stream = provider
+        .stream(request.clone())
+        .await
+        .map_err(LoopError::Transport)?;
+    let mut round_content = String::new();
+    let mut round_reasoning = String::new();
+    let mut calls = ToolCallAccumulator::default();
+    while let Some(event) = stream.next().await {
+        match event.map_err(LoopError::Transport)? {
+            StreamEvent::Token { text } => {
+                round_content.push_str(&text);
+                if previews {
+                    observer.on_text(&round_content).map_err(LoopError::Tool)?;
+                }
+            }
+            StreamEvent::Reasoning { text } => round_reasoning.push_str(&text),
+            StreamEvent::Usage { usage } => outcome.usage = Some(usage),
+            StreamEvent::Done { finish_reason } => {
+                if finish_reason.is_some() {
+                    outcome.finish_reason = finish_reason;
+                }
+            }
+            StreamEvent::ToolCallDelta {
+                index,
+                id,
+                name,
+                arguments,
+            } => calls.push(index, id, name, arguments),
+            StreamEvent::Error { error } => return Err(LoopError::Stream(error)),
+        }
+    }
+    if !round_reasoning.is_empty() {
+        if !outcome.reasoning.is_empty() {
+            outcome.reasoning.push_str("\n\n");
+        }
+        outcome.reasoning.push_str(&round_reasoning);
+    }
+    let pending = calls.finish().map_err(LoopError::Invalid)?;
+    Ok((round_content, pending))
+}
+
 /// Run the loop. `max_tool_rounds` tool-using rounds are allowed, then one
-/// tools-disabled round makes the model answer from what it has.
+/// tools-disabled round makes the model answer from what it has. A
+/// [`ToolLoop::Provider`] runtime runs its own turn through `run_turn`, with
+/// the same limit applied to the runner. When the provider can't combine
+/// tools with a response schema, the schema is held back for a final
+/// tools-free round (LM-D7).
 pub async fn run(
     provider: &dyn InferenceProvider,
     request: ChatRequest,
@@ -159,50 +244,63 @@ pub async fn run(
     max_tool_rounds: u32,
 ) -> std::result::Result<LoopOutcome, LoopError> {
     let mut request = request;
+    if provider.tool_loop() == ToolLoop::Provider {
+        let limited = LimitedRunner {
+            inner: tools,
+            limit: max_tool_rounds,
+            used: AtomicU32::new(0),
+        };
+        return provider.run_turn(request, &limited, observer).await;
+    }
+
     let mut outcome = LoopOutcome::default();
     let previews_allowed = request.tools.is_empty();
+    // LM-D7: the schema rides only on rounds that carry no tools.
+    let mut held_schema = None;
+    if matches!(
+        request.response_format,
+        Some(ResponseFormat::JsonSchema { .. })
+    ) && !request.tools.is_empty()
+        && !provider
+            .capabilities(&request.model)
+            .await
+            .structured_with_tools
+    {
+        held_schema = request.response_format.take();
+    }
 
     for round in 0..=max_tool_rounds {
-        let mut stream = provider
-            .stream(request.clone())
-            .await
-            .map_err(LoopError::Transport)?;
-        let mut round_content = String::new();
-        let mut round_reasoning = String::new();
-        let mut calls = ToolCallAccumulator::default();
-        while let Some(event) = stream.next().await {
-            match event.map_err(LoopError::Transport)? {
-                StreamEvent::Token { text } => {
-                    round_content.push_str(&text);
-                    if previews_allowed {
-                        observer.on_text(&round_content).map_err(LoopError::Tool)?;
-                    }
-                }
-                StreamEvent::Reasoning { text } => round_reasoning.push_str(&text),
-                StreamEvent::Usage { usage } => outcome.usage = Some(usage),
-                StreamEvent::Done { finish_reason } => {
-                    if finish_reason.is_some() {
-                        outcome.finish_reason = finish_reason;
-                    }
-                }
-                StreamEvent::ToolCallDelta {
-                    index,
-                    id,
-                    name,
-                    arguments,
-                } => calls.push(index, id, name, arguments),
-                StreamEvent::Error { error } => return Err(LoopError::Stream(error)),
-            }
+        if held_schema.is_some() && request.tools.is_empty() {
+            request.response_format = held_schema.clone();
         }
-        if !round_reasoning.is_empty() {
-            if !outcome.reasoning.is_empty() {
-                outcome.reasoning.push_str("\n\n");
-            }
-            outcome.reasoning.push_str(&round_reasoning);
-        }
-        let pending = calls.finish().map_err(LoopError::Invalid)?;
+        let carried_tools = !request.tools.is_empty();
+        let (round_content, pending) =
+            stream_round(provider, &request, previews_allowed, observer, &mut outcome).await?;
         if pending.is_empty() {
-            outcome.content = round_content;
+            if carried_tools && held_schema.is_some() {
+                if !round_content.is_empty() {
+                    request
+                        .messages
+                        .push(ModelMessage::text(Role::Assistant, round_content));
+                }
+                request.messages.push(ModelMessage::text(
+                    Role::User,
+                    "Give that answer as JSON matching the response schema.",
+                ));
+                request.tools.clear();
+                request.response_format = held_schema.take();
+                let (content, pending) =
+                    stream_round(provider, &request, previews_allowed, observer, &mut outcome)
+                        .await?;
+                if !pending.is_empty() {
+                    return Err(LoopError::Exhausted(
+                        "model requested a tool in the schema round".into(),
+                    ));
+                }
+                outcome.content = content;
+            } else {
+                outcome.content = round_content;
+            }
             outcome.messages = request.messages;
             return Ok(outcome);
         }
@@ -269,6 +367,8 @@ pub async fn run(
 
         if round + 1 == max_tool_rounds {
             request.tools.clear();
+            // LM-D7: some llama.cpp chat templates reject a system message
+            // after the first; move this to the user role with package 5.
             request.messages.push(ModelMessage::text(
                 Role::System,
                 "The tool-use limit has been reached. Answer the user now using the evidence \
@@ -546,6 +646,22 @@ mod tests {
         let last = requests[1].messages.last().unwrap();
         assert_eq!(last.role, Role::System);
         assert!(message_text(last).starts_with("The tool-use limit has been reached."));
+    }
+
+    #[tokio::test]
+    async fn empty_arguments_run_as_an_empty_object() {
+        let provider = ScriptedProvider::new(vec![tool_round(""), answer_round("ok")]);
+        let runner = CapturingRunner {
+            calls: Mutex::new(vec![]),
+        };
+        run(&provider, request(true), Some(&runner), &NoObserver, 4)
+            .await
+            .unwrap();
+        let calls = runner.calls.lock().unwrap();
+        assert_eq!(calls[0].arguments, json!({}));
+        assert_eq!(calls[0].raw, "{}");
+        let requests = provider.requests.lock().unwrap();
+        assert_eq!(requests[1].messages[0].tool_calls[0].arguments, "{}");
     }
 
     #[test]

@@ -274,3 +274,14 @@ Tests assert properties, not model wording.
   with `ToolCall`, `ToolOutcome`, `ToolRunner`, `LoopObserver` and
   `AdapterToolRunner`; `AiTaskExecutor` calls it with unchanged behaviour.
   `koine-ai` tests: 108 pass (103 before, plus 5 new loop tests).
+- **Package 2 done** on branch `local-models`. `InferenceProvider` gains
+  `tool_loop()`, `capabilities(model)` and `run_turn()`; `agent_loop::run`
+  hands a `ToolLoop::Provider` turn to the provider behind a limit-enforcing
+  runner and, for a Caller loop whose provider has
+  `structured_with_tools = false`, holds the schema back for a final
+  tools-free round (user-role instruction). A tool call with empty arguments
+  now runs with `{}`. `conformance.rs` holds the shared fixture;
+  `tests/conformance.rs` runs it over scripted providers in both loop modes.
+  `koine-ai` tests with `--features executor`: 110 lib (108 before, plus 2)
+  and 6 conformance. Live (`KOINE_TEST_OPENAI_COMPAT_URL`, oMLX): Qwen3.5-4B-4bit
+  and Qwen3-Coder-30B-A3B-Instruct-8bit both pass.

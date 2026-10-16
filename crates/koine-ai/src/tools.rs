@@ -59,7 +59,7 @@ impl ToolCallAccumulator {
     pub fn finish(self) -> Result<Vec<PendingToolCall>> {
         self.calls
             .into_values()
-            .map(|call| {
+            .map(|mut call| {
                 if call.name.is_empty() {
                     return Err(Error::Invalid(format!(
                         "tool call {} did not include a function name",
@@ -72,12 +72,11 @@ impl ToolCallAccumulator {
                         call.index
                     )));
                 }
-                let arguments = if call.arguments.trim().is_empty() {
-                    "{}"
-                } else {
-                    &call.arguments
-                };
-                let value: Value = serde_json::from_str(arguments).map_err(|error| {
+                // A parameterless call streams no arguments at all.
+                if call.arguments.trim().is_empty() {
+                    call.arguments = "{}".into();
+                }
+                let value: Value = serde_json::from_str(&call.arguments).map_err(|error| {
                     Error::Invalid(format!(
                         "{} returned invalid tool arguments: {error}",
                         call.name
@@ -114,6 +113,16 @@ mod tests {
         assert_eq!(calls[0].name, "first");
         assert_eq!(calls[0].arguments, r#"{"query":"stars"}"#);
         assert_eq!(calls[1].name, "second");
+    }
+
+    #[test]
+    fn blank_arguments_become_an_empty_object() {
+        let mut calls = ToolCallAccumulator::default();
+        calls.push(0, Some("a".into()), Some("ping".into()), "  ".into());
+        calls.push(1, Some("b".into()), Some("pong".into()), String::new());
+        let calls = calls.finish().unwrap();
+        assert_eq!(calls[0].arguments, "{}");
+        assert_eq!(calls[1].arguments, "{}");
     }
 
     #[test]

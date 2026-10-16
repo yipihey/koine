@@ -4,10 +4,21 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::catalogue::{self, ProviderDescriptor};
+use crate::agent_loop::{LoopError, LoopObserver, LoopOutcome, ToolRunner};
+use crate::catalogue::{self, Capabilities, ProviderDescriptor};
 use crate::tools::{PendingToolCall, ToolCallAccumulator};
 use crate::types::{ChatRequest, ModelSummary, StreamEvent};
 use crate::{Error, Result};
+
+/// Who runs the call, result, call cycle (LM-D1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ToolLoop {
+    /// Koine streams a round, runs the tools and asks again.
+    #[default]
+    Caller,
+    /// The runtime calls Koine's tools itself (Apple Foundation Models).
+    Provider,
+}
 
 /// Token/tool/usage events for one model call, in arrival order.
 pub type EventStream = ReceiverStream<Result<StreamEvent>>;
@@ -44,6 +55,37 @@ pub trait InferenceProvider: Send + Sync {
     }
 
     async fn stream(&self, request: ChatRequest) -> Result<EventStream>;
+
+    /// Who runs the call, result, call cycle. `Provider` runtimes call
+    /// Koine's tools themselves.
+    fn tool_loop(&self) -> ToolLoop {
+        ToolLoop::Caller
+    }
+
+    /// What this provider can do with `model`. The default is the
+    /// catalogue's entry for this provider, or nothing for an uncatalogued
+    /// one.
+    async fn capabilities(&self, _model: &str) -> Capabilities {
+        self.descriptor()
+            .map(|d| d.capabilities)
+            .unwrap_or_default()
+    }
+
+    /// Only for `ToolLoop::Provider`: run the whole turn, calling `tools` for
+    /// every tool call the runtime makes, reporting text through `observer`.
+    /// The outcome's `messages` include the assistant tool-call and
+    /// tool-result messages the turn produced, in order.
+    async fn run_turn(
+        &self,
+        _request: ChatRequest,
+        _tools: &dyn ToolRunner,
+        _observer: &dyn LoopObserver,
+    ) -> std::result::Result<LoopOutcome, LoopError> {
+        Err(LoopError::Exhausted(format!(
+            "{} does not run its own tool loop",
+            self.provider_id()
+        )))
+    }
 
     /// Non-streaming completion, folded from `stream()` so every backend
     /// shares one accumulation rule for text, reasoning, tool calls and
