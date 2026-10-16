@@ -285,3 +285,19 @@ Tests assert properties, not model wording.
   `koine-ai` tests with `--features executor`: 110 lib (108 before, plus 2)
   and 6 conformance. Live (`KOINE_TEST_OPENAI_COMPAT_URL`, oMLX): Qwen3.5-4B-4bit
   and Qwen3-Coder-30B-A3B-Instruct-8bit both pass.
+- **Package 3 done** on branch `local-models`. `koine-ai/src/schema.rs`
+  (`koine_ai::schema::{lower, Profile, Unsupported}`) lowers a `schemars`
+  schema for `AppleGuided`, `LlamaGrammar` or `OpenAiStrict`; what a profile
+  cannot say is refused with the path. With `--all-features` 33 verbs are
+  linked: `LlamaGrammar` lowers all 33; `AppleGuided` and `OpenAiStrict`
+  lower 32 and refuse `task-service_enqueue` at `args` (any value: it takes
+  the arguments of any verb), which is right. With `KOINE_TEST_APPLE_FM=1`
+  on macOS 27.0.1, `swiftc` decodes all 39 Apple-profile outputs (fixtures,
+  derived structs, verbs) into a `GenerationSchema`. Foundation Models
+  needed one rule beyond the plan: an `anyOf` node carries a `title`.
+  Vendor `x-*` keywords (`x-private`) are dropped for Apple and OpenAI.
+  `x-order` is alphabetical: the workspace's `serde_json` has no
+  `preserve_order`, so source field order is lost; it matters only where
+  generation order does (a response schema), not for tool arguments.
+  `koine-ai` tests: 123 lib with `--features executor` (110 before, plus 13),
+  6 conformance, 1 inventory_tools, 4 schema_lowering.

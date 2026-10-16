@@ -40,6 +40,7 @@ pub mod provider;
 pub mod providers;
 pub mod registry;
 pub mod research;
+pub mod schema;
 pub mod schemas;
 pub mod secret;
 #[cfg(feature = "service")]
