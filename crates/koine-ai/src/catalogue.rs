@@ -63,6 +63,8 @@ pub enum Dialect {
     OpenRouter,
     Google,
     Ollama,
+    /// llama.cpp's `llama-server`.
+    LlamaCpp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -253,6 +255,7 @@ impl ProviderDescriptor {
 
 pub const OMLX_ID: &str = "omlx";
 pub const OLLAMA_ID: &str = "ollama";
+pub const LLAMA_CPP_ID: &str = "llama-cpp";
 pub const OPENAI_COMPATIBLE_ID: &str = "openai-compatible";
 pub const APPLE_ON_DEVICE_ID: &str = "apple-on-device";
 pub const ANTHROPIC_ID: &str = "anthropic";
@@ -264,6 +267,7 @@ pub const OMLX_DEFAULT_URL: &str = "http://127.0.0.1:8000";
 pub const OMLX_BUNDLE_ID: &str = "app.omlx";
 pub const OMLX_PORT: u16 = 8000;
 pub const OLLAMA_DEFAULT_URL: &str = "http://localhost:11434";
+pub const LLAMA_CPP_DEFAULT_URL: &str = "http://127.0.0.1:8080";
 pub const ANTHROPIC_DEFAULT_URL: &str = "https://api.anthropic.com";
 pub const OPENAI_DEFAULT_URL: &str = "https://api.openai.com";
 pub const GOOGLE_DEFAULT_URL: &str = "https://generativelanguage.googleapis.com";
@@ -591,7 +595,7 @@ const OPENROUTER_MODELS: &[StaticModel] = &[
 
 /// Fixed order: this is also the fallback resolution order — local hosts,
 /// then the on-device model, then cloud providers.
-pub const CATALOGUE: [ProviderDescriptor; 8] = [
+pub const CATALOGUE: [ProviderDescriptor; 9] = [
     ProviderDescriptor {
         id: OMLX_ID,
         display_name: "oMLX — local models on this Mac",
@@ -630,6 +634,28 @@ pub const CATALOGUE: [ProviderDescriptor; 8] = [
         discovery: Discovery::Api,
         can_auto_start: false,
         icon: "shippingbox",
+    },
+    ProviderDescriptor {
+        id: LLAMA_CPP_ID,
+        display_name: "llama.cpp (llama-server)",
+        description:
+            "GGUF models served by llama-server; start it with --jinja or tool calls are refused",
+        category: ProviderCategory::Local,
+        host: ExecutionHost::Rust,
+        transport: Transport::OpenAiCompatible(Dialect::LlamaCpp),
+        credential_fields: &[OPTIONAL_BEARER],
+        default_endpoint: Some(LLAMA_CPP_DEFAULT_URL),
+        endpoint_editable: true,
+        registration_url: Some("https://github.com/ggml-org/llama.cpp"),
+        // Vision needs `--mmproj`, which the catalogue cannot know.
+        capabilities: Capabilities {
+            vision: false,
+            ..Capabilities::LOCAL_SERVER
+        },
+        static_models: &[],
+        discovery: Discovery::Api,
+        can_auto_start: false,
+        icon: "terminal",
     },
     ProviderDescriptor {
         id: OPENAI_COMPATIBLE_ID,
@@ -831,6 +857,7 @@ mod tests {
             [
                 "omlx",
                 "ollama",
+                "llama-cpp",
                 "openai-compatible",
                 "apple-on-device",
                 "anthropic",

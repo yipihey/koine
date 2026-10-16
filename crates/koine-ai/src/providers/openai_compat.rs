@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use super::{http_client, status_error, transport_error};
 use crate::catalogue::{self, Dialect, ProviderDescriptor};
 use crate::provider::{EventStream, HealthState, InferenceProvider, ProviderHealth};
+use crate::schema::{self, Profile};
 use crate::secret::Secret;
 use crate::sse::{spawn_sse_stream, SseFrame, SseOutcome};
 use crate::types::{
@@ -30,6 +31,7 @@ impl Dialect {
             Self::OpenRouter => catalogue::OPENROUTER_ID,
             Self::Google => catalogue::GOOGLE_ID,
             Self::Ollama => catalogue::OLLAMA_ID,
+            Self::LlamaCpp => catalogue::LLAMA_CPP_ID,
         }
     }
 
@@ -195,8 +197,19 @@ impl OpenAiCompatibleClient {
             Dialect::Ollama => parse_ollama_models(&listed),
             Dialect::OpenRouter => parse_openrouter_models(&listed),
             Dialect::Google => parse_generic_models(&listed, Some("models/")),
-            Dialect::OpenAi | Dialect::Generic => parse_generic_models(&listed, None),
+            Dialect::OpenAi | Dialect::Generic | Dialect::LlamaCpp => {
+                parse_generic_models(&listed, None)
+            }
         };
+        if self.dialect == Dialect::LlamaCpp {
+            // llama-server serves one model; its context window is the
+            // slot size in `/props`, which `/v1/models` doesn't carry.
+            if let Some(n_ctx) = self.llama_props().await.and_then(|props| props.n_ctx) {
+                for model in &mut models {
+                    model.max_context_window.get_or_insert(n_ctx);
+                }
+            }
+        }
         models.sort_by(|left, right| {
             (!left.loaded).cmp(&(!right.loaded)).then_with(|| {
                 left.display_name()
@@ -207,7 +220,21 @@ impl OpenAiCompatibleClient {
         Ok(models)
     }
 
+    async fn llama_props(&self) -> Option<LlamaProps> {
+        self.optional_json("/props")
+            .await
+            .map(|props| LlamaProps::parse(&props))
+    }
+
     pub async fn health(&self) -> Result<ProviderHealth> {
+        if self.dialect == Dialect::LlamaCpp {
+            let mut health = ProviderHealth::from_models(self.models().await?);
+            health.endpoint = Some(self.origin.clone());
+            if let Some(props) = self.llama_props().await {
+                health.detail = format!("{} · {}", health.detail, props.describe());
+            }
+            return Ok(health);
+        }
         if self.dialect != Dialect::Omlx {
             let mut health = ProviderHealth::from_models(self.models().await?);
             health.endpoint = Some(self.origin.clone());
@@ -306,11 +333,24 @@ impl OpenAiCompatibleClient {
             payload["stream_options"] = json!({ "include_usage": true });
         }
         if !request.tools.is_empty() {
-            payload["tools"] = Value::Array(request.tools.iter().map(tool_json).collect());
+            payload["tools"] = Value::Array(
+                request
+                    .tools
+                    .iter()
+                    .map(|tool| match self.dialect {
+                        Dialect::LlamaCpp => llama_tool_json(tool),
+                        _ => tool_json(tool),
+                    })
+                    .collect(),
+            );
             payload["tool_choice"] = Value::String("auto".into());
         }
         if let Some(format) = &request.response_format {
-            if let Some(value) = response_format_json(format) {
+            let value = match self.dialect {
+                Dialect::LlamaCpp => response_format_json(&lower_for_llama(format)),
+                _ => response_format_json(format),
+            };
+            if let Some(value) = value {
                 payload["response_format"] = value;
             }
         }
@@ -381,7 +421,7 @@ fn apply_thinking(
         Dialect::Omlx => {
             payload["chat_template_kwargs"] = json!({ "enable_thinking": request.thinking });
         }
-        Dialect::Generic => {
+        Dialect::Generic | Dialect::LlamaCpp => {
             if request.thinking {
                 payload["chat_template_kwargs"] = json!({ "enable_thinking": true });
             }
@@ -405,6 +445,84 @@ fn apply_thinking(
             }
         }
         Dialect::Ollama => {}
+    }
+}
+
+/// What llama-server's `/props` says about the loaded model.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct LlamaProps {
+    n_ctx: Option<u64>,
+    model: Option<String>,
+    has_template: bool,
+    /// `Some(false)` when the server reports the template cannot take tools
+    /// (or `jinja: false`, on builds that expose it).
+    tools_ready: Option<bool>,
+}
+
+impl LlamaProps {
+    fn parse(props: &Value) -> Self {
+        let template = props["chat_template"].as_str().unwrap_or("");
+        let model = props["model_alias"]
+            .as_str()
+            .filter(|alias| !alias.is_empty())
+            .or_else(|| {
+                props["model_path"]
+                    .as_str()
+                    .and_then(|path| path.rsplit(['/', '\\']).next())
+            })
+            .map(str::to_string);
+        let tools_ready = props["jinja"]
+            .as_bool()
+            .filter(|jinja| !jinja)
+            .or_else(|| props["chat_template_caps"]["supports_tools"].as_bool());
+        Self {
+            n_ctx: props
+                .pointer("/default_generation_settings/n_ctx")
+                .and_then(Value::as_u64),
+            model,
+            has_template: !template.is_empty(),
+            tools_ready,
+        }
+    }
+
+    fn describe(&self) -> String {
+        let mut parts = vec!["llama-server".to_string()];
+        if let Some(model) = &self.model {
+            parts.push(model.clone());
+        }
+        if let Some(n_ctx) = self.n_ctx {
+            parts.push(format!("{n_ctx} context"));
+        }
+        if !self.has_template || self.tools_ready == Some(false) {
+            parts
+                .push("no tool-capable chat template: tool calls need llama-server --jinja".into());
+        }
+        parts.join(" · ")
+    }
+}
+
+/// llama.cpp turns a tool's parameters into a grammar; lower them to what
+/// that converter accepts, and send the raw schema if lowering refuses.
+fn llama_tool_json(tool: &ToolDefinition) -> Value {
+    let mut value = tool_json(tool);
+    if let Ok(lowered) = schema::lower(&tool.input_schema, &tool.name, Profile::LlamaGrammar) {
+        value["function"]["parameters"] = lowered;
+    }
+    value
+}
+
+fn lower_for_llama(format: &ResponseFormat) -> ResponseFormat {
+    match format {
+        ResponseFormat::JsonSchema {
+            name,
+            schema: raw,
+            strict,
+        } => ResponseFormat::JsonSchema {
+            name: name.clone(),
+            schema: schema::lower(raw, name, Profile::LlamaGrammar).unwrap_or_else(|_| raw.clone()),
+            strict: *strict,
+        },
+        other => other.clone(),
     }
 }
 
@@ -1129,5 +1247,134 @@ mod tests {
                 .models()
                 .await;
         assert!(matches!(unreachable, Err(Error::Unreachable { .. })));
+    }
+
+    fn refd_schema() -> Value {
+        json!({
+            "type": "object",
+            "properties": { "unit": { "$ref": "#/definitions/Unit" } },
+            "required": ["unit"],
+            "definitions": { "Unit": { "type": "string", "enum": ["c", "f"] } }
+        })
+    }
+
+    #[test]
+    fn llama_cpp_lowers_tool_and_response_schemas() {
+        let request = ChatRequest {
+            model: "m".into(),
+            messages: vec![ModelMessage::text(Role::User, "hi")],
+            tools: vec![ToolDefinition::new("weather", "d", refd_schema())],
+            response_format: Some(ResponseFormat::JsonSchema {
+                name: "answer".into(),
+                schema: refd_schema(),
+                strict: true,
+            }),
+            ..Default::default()
+        };
+        let payload = client(Dialect::LlamaCpp, "http://127.0.0.1:8080").build_payload(&request);
+        let wire = payload.to_string();
+        assert!(
+            !wire.contains("$ref") && !wire.contains("definitions"),
+            "{wire}"
+        );
+        assert_eq!(
+            payload["tools"][0]["function"]["parameters"]["properties"]["unit"]["enum"],
+            json!(["c", "f"])
+        );
+        assert_eq!(
+            payload["response_format"]["json_schema"]["schema"]["properties"]["unit"]["enum"],
+            json!(["c", "f"])
+        );
+        // Other dialects keep the raw schema.
+        let generic = client(Dialect::Generic, "http://x").build_payload(&request);
+        assert!(generic.to_string().contains("$ref"));
+    }
+
+    #[test]
+    fn llama_cpp_keeps_a_schema_it_cannot_lower() {
+        let cyclic = json!({
+            "type": "object",
+            "properties": { "next": { "$ref": "#/definitions/Node" } },
+            "definitions": { "Node": {
+                "type": "object",
+                "properties": { "next": { "$ref": "#/definitions/Node" } }
+            } }
+        });
+        assert!(schema::lower(&cyclic, "t", Profile::LlamaGrammar).is_err());
+        let tool = ToolDefinition::new("t", "d", cyclic.clone());
+        assert_eq!(llama_tool_json(&tool)["function"]["parameters"], cyclic);
+    }
+
+    #[tokio::test]
+    async fn llama_cpp_health_reads_props() {
+        let mut server = mockito::Server::new_async().await;
+        let _models = server
+            .mock("GET", "/v1/models")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"object":"list","data":[{"id":"qwen","object":"model"}]}"#)
+            .create_async()
+            .await;
+        let _props = server
+            .mock("GET", "/props")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"default_generation_settings":{"n_ctx":16384},"model_alias":"qwen-alias","model_path":"/m/q.gguf","chat_template":"{{ x }}","chat_template_caps":{"supports_tools":true}}"#)
+            .create_async()
+            .await;
+        let client = client(Dialect::LlamaCpp, &server.url());
+        let health = client.health().await.unwrap();
+        assert_eq!(health.state, HealthState::Ready);
+        assert!(health.detail.contains("qwen-alias"), "{}", health.detail);
+        assert!(health.detail.contains("16384 context"), "{}", health.detail);
+        assert!(!health.detail.contains("--jinja"), "{}", health.detail);
+        let models = client.models().await.unwrap();
+        assert_eq!(models[0].max_context_window, Some(16_384));
+    }
+
+    #[tokio::test]
+    async fn llama_cpp_health_hints_at_jinja() {
+        for props in [
+            r#"{"default_generation_settings":{"n_ctx":4096},"model_path":"/m/q.gguf"}"#,
+            r#"{"chat_template":"x","jinja":false}"#,
+            r#"{"chat_template":"x","chat_template_caps":{"supports_tools":false}}"#,
+        ] {
+            let mut server = mockito::Server::new_async().await;
+            let _models = server
+                .mock("GET", "/v1/models")
+                .with_status(200)
+                .with_body(r#"{"data":[{"id":"qwen"}]}"#)
+                .create_async()
+                .await;
+            let _props = server
+                .mock("GET", "/props")
+                .with_status(200)
+                .with_body(props)
+                .create_async()
+                .await;
+            let health = client(Dialect::LlamaCpp, &server.url())
+                .health()
+                .await
+                .unwrap();
+            assert!(
+                health.detail.contains("--jinja"),
+                "{props}: {}",
+                health.detail
+            );
+        }
+        // /props missing: the model list alone decides.
+        let mut server = mockito::Server::new_async().await;
+        let _models = server
+            .mock("GET", "/v1/models")
+            .with_status(200)
+            .with_body(r#"{"data":[{"id":"qwen"}]}"#)
+            .create_async()
+            .await;
+        let health = client(Dialect::LlamaCpp, &server.url())
+            .health()
+            .await
+            .unwrap();
+        assert_eq!(health.state, HealthState::Ready);
+        assert!(!health.detail.contains("llama-server"));
     }
 }

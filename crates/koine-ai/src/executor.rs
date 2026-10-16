@@ -911,7 +911,7 @@ mod tests {
         assert_eq!(requests.len(), 2);
         assert!(requests[1].tools.is_empty());
         assert!(requests[1].messages.iter().any(|message| {
-            message.role == Role::System
+            message.role == Role::User
                 && message.content.iter().any(|part| {
                     matches!(part, ModelContentPart::Text { text } if text.contains("Answer the user now"))
                 })

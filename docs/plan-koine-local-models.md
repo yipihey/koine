@@ -293,8 +293,8 @@ Tests assert properties, not model wording.
 
 ## Open
 
-- The llama.cpp model for CI: Qwen3 1.7B or 4B GGUF is the suggestion.
-  `brew install llama.cpp` on this Mac, which doesn't have it yet.
+- A llama.cpp CI job: the model is chosen (Qwen3-4B-Instruct-2507 Q4_K_M
+  works, see package 5); the job itself, with a cached GGUF, is not added.
 
 ## Status
 
@@ -381,3 +381,37 @@ Tests assert properties, not model wording.
     even after its terminal event. Cancelling resumes a tool call Swift may
     have parked but not yet announced, which would then reach a freed
     context. The context of a turn that ends on its own is freed.
+- **Package 5 done** on branch `local-models`. New catalogue entry `llama-cpp`
+  ("llama.cpp (llama-server)", Local, `Dialect::LlamaCpp`, default
+  `http://127.0.0.1:8080`, optional bearer, `structured_with_tools = false`,
+  vision false), placed after Ollama and before the generic entry. The dialect
+  uses the standard `/v1` paths, lowers every tool `input_schema` and a
+  JSON-schema `response_format` with `Profile::LlamaGrammar` (raw schema if
+  lowering refuses), and reads `GET /props` for health: `n_ctx` (from
+  `default_generation_settings`, also set as `max_context_window` on listed
+  models), `model_alias`/`model_path`, and `chat_template`; with no template,
+  `jinja: false` or `chat_template_caps.supports_tools == false` the detail says
+  tool calls need `--jinja`. The `/props` of build b11669 has no `jinja` field
+  (that flag is not visible there), so a server started without `--jinja`
+  cannot be told apart from its health alone; it fails at the first tool call.
+  The round-limit instruction is now a `Role::User` message for every provider
+  (tests updated in `agent_loop.rs` and `executor.rs`). `koine-ai` tests with
+  `--features executor`: 131 lib (127 before, plus 4), 7 conformance (6 before, plus
+  `live_llama_cpp`, which skips unconfigured), 5 inventory_tools, 4 schema_lowering; the catalogue
+  and `service.rs` provider-count tests now expect 9 entries.
+  - **Live** (`KOINE_TEST_LLAMACPP_URL`, `live_llama_cpp`, Qwen3-4B-Instruct-2507
+    Q4_K_M on this Mac): the weather turn (one `weather_lookup`, answer in the
+    schema) and the refused `deny_me` pass, three runs of 18.1 s, 15.4 s and
+    18.0 s in total (both turns). oMLX live (Qwen3.5-4B-4bit) still passes
+    (3.0 s).
+  - **The command that works:**
+    `llama-server -hf unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M --jinja -c 16384 --host 127.0.0.1 --port 8080`
+    (`--api-key KEY` if the entry gets a bearer).
+  - **Linux and Windows:** the same command and the same `llama-cpp` entry apply;
+    `llama-server` is a release binary or a package on both, and nothing in
+    the dialect is OS-specific. A CI job would need `llama-server` on the
+    runner, the GGUF restored from a cache keyed on the model file (about
+    2.5 GB), the server started in the background and polled on `/health`,
+    then `KOINE_TEST_LLAMACPP_URL` set for `cargo test -p koine-ai --test
+    conformance live_llama_cpp`. CPU-only is slow but this fixture is a few
+    short turns. Not added here.

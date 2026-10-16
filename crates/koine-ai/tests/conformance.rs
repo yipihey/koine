@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use koine_ai::agent_loop::{self, AdapterToolRunner, NoObserver};
-use koine_ai::catalogue::{Capabilities, Dialect};
+use koine_ai::catalogue::{Capabilities, Dialect, LLAMA_CPP_ID};
 use koine_ai::conformance::{self, FixtureTools};
 use koine_ai::{
     ChatRequest, EventStream, InferenceProvider, LoopError, LoopObserver, LoopOutcome,
@@ -354,4 +354,83 @@ async fn live_openai_compatible_server() {
         );
     }
     eprintln!("live conformance passed; content: {}", outcome.content);
+}
+
+/// llama-server, built the way the registry builds the `llama-cpp` entry.
+/// The model is `KOINE_TEST_MODEL` or the first one `/v1/models` lists.
+#[tokio::test]
+async fn live_llama_cpp() {
+    let Ok(url) = std::env::var("KOINE_TEST_LLAMACPP_URL") else {
+        eprintln!("KOINE_TEST_LLAMACPP_URL not set; skipping the live llama.cpp run");
+        return;
+    };
+    let client = OpenAiCompatibleClient::new(Dialect::LlamaCpp, url, None, "conformance")
+        .unwrap()
+        .with_provider_id(LLAMA_CPP_ID);
+    let health = client.health().await.unwrap();
+    eprintln!("health: {:?} {}", health.state, health.detail);
+    let model = match std::env::var("KOINE_TEST_MODEL") {
+        Ok(model) => model,
+        Err(_) => client.models().await.unwrap()[0].id.clone(),
+    };
+    let tools = FixtureTools::default();
+    let runner = AdapterToolRunner {
+        adapter: &tools,
+        observer: &NoObserver,
+    };
+
+    let outcome = agent_loop::run(
+        &client,
+        conformance::request(&model),
+        Some(&runner),
+        &NoObserver,
+        4,
+    )
+    .await
+    .unwrap_or_else(|error| panic!("loop failed: {error:?}"));
+    if let Err(message) = conformance::check_weather_turn(&outcome, &tools) {
+        panic!(
+            "{message}\ncontent: {:?}\ntranscript: {:#?}",
+            outcome.content, outcome.messages
+        );
+    }
+    eprintln!(
+        "live llama.cpp weather turn passed; content: {}",
+        outcome.content
+    );
+
+    // The refused tool: the model must see the refusal and still answer.
+    let denied_tools = FixtureTools::default();
+    let denied_runner = AdapterToolRunner {
+        adapter: &denied_tools,
+        observer: &NoObserver,
+    };
+    let mut request = conformance::request(&model);
+    request.response_format = None;
+    request.messages = vec![
+        ModelMessage::text(Role::System, "Use tools when asked."),
+        ModelMessage::text(
+            Role::User,
+            "Call the deny_me tool, then tell me in one sentence what happened.",
+        ),
+    ];
+    let outcome = agent_loop::run(&client, request, Some(&denied_runner), &NoObserver, 4)
+        .await
+        .unwrap_or_else(|error| panic!("deny loop failed: {error:?}"));
+    let saw_refusal = outcome.messages.iter().any(|message| {
+        message.role == Role::Tool
+            && message.content.iter().any(
+                |part| matches!(part, ModelContentPart::Text { text } if text.contains("denied")),
+            )
+    });
+    assert!(
+        saw_refusal && !outcome.content.trim().is_empty(),
+        "content: {:?}\ntranscript: {:#?}",
+        outcome.content,
+        outcome.messages
+    );
+    eprintln!(
+        "live llama.cpp deny_me passed; content: {}",
+        outcome.content
+    );
 }

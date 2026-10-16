@@ -367,10 +367,10 @@ pub async fn run(
 
         if round + 1 == max_tool_rounds {
             request.tools.clear();
-            // LM-D7: some llama.cpp chat templates reject a system message
-            // after the first; move this to the user role with package 5.
+            // A user message: several chat templates (Qwen's among them)
+            // reject a system message after the first.
             request.messages.push(ModelMessage::text(
-                Role::System,
+                Role::User,
                 "The tool-use limit has been reached. Answer the user now using the evidence \
                  already collected. Do not request more tools. Clearly state any remaining \
                  uncertainty.",
@@ -644,7 +644,7 @@ mod tests {
         assert!(!requests[0].tools.is_empty());
         assert!(requests[1].tools.is_empty());
         let last = requests[1].messages.last().unwrap();
-        assert_eq!(last.role, Role::System);
+        assert_eq!(last.role, Role::User);
         assert!(message_text(last).starts_with("The tool-use limit has been reached."));
     }
 

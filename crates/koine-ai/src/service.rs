@@ -1013,7 +1013,7 @@ mod tests {
         let service = DefaultImpressAiService::with_components(ai, registry);
 
         let providers = service.list_providers().await;
-        assert_eq!(providers.providers.len(), 8);
+        assert_eq!(providers.providers.len(), 9);
         assert_eq!(providers.providers[0].id, "omlx");
         assert!(providers.selected_provider.is_none());
         let anthropic = providers
