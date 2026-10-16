@@ -178,7 +178,7 @@ repositories stay green.
 | KM4 | `koine-collections`, `koine-settings-service`, `impress-scenario-service`, `impress-workflow-service` (with its runner) | both |
 | KM5 | `koine-memory`, `koine-embeddings`; the desk agent's memory (KM-D6) | both |
 | KM6 | `impress-helix` | both |
-| KM7 | Built-in packages for the moved capabilities (KM-D5); koine-host installs them | koine |
+| KM7 | Built-in packages for the moved capabilities (KM-D5); koine-host installs them. The package format (manifest, digest, `Package::from_parts`) moves out of `koine-packages` into a dependency-free `koine-package-format`, so carrying a package does not link the notebook and agent verbs (found in KM2) | koine |
 | KM8 | impress-apps pins the pushed koine `main`, removes the moved crates and the `[patch]`; the full gate | both |
 
 ## What pins this
