@@ -130,7 +130,8 @@ attaches it unless told not to.
 
 ### G-D2. Asking
 
-`agent-service_ask {prompt, with_context?}` files an `ask` request.
+`agent-service_ask {prompt, with_context?, category?}` files an `ask` request
+(`category` names a task category whose model answers it, LM-D11).
 `requests {status?}` lists them; `next {timeout_ms?}` waits (at most 30 s)
 for an open one, so an agent's loop is one call; `claim`, `answer {id,
 text, surface_id?}` and `decline {id, reason}` move one along. `release

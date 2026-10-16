@@ -140,6 +140,10 @@ pub struct Config {
     /// [`Self::tasks`]. The model is the device's choice in
     /// `<workspace>/ai/preferences.json` (`impress-ai-service_select-model`).
     pub ai: bool,
+    /// The verbs the on-device Apple model may call (`--native-tools`): full
+    /// verb names, or namespace prefixes ending in `_`. `None` is
+    /// [`tasks::DEFAULT_NATIVE_TOOLS`]. Only used with `--features apple-fm`.
+    pub native_tools: Option<Vec<String>>,
 }
 
 impl Config {
@@ -167,6 +171,7 @@ impl Config {
             task_poll: std::time::Duration::from_secs(2),
             task_start_delay: std::time::Duration::ZERO,
             ai: false,
+            native_tools: None,
         }
     }
 
@@ -421,6 +426,7 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
                 poll: config.task_poll,
                 start_delay: config.task_start_delay,
                 ai: config.ai,
+                native_tools: config.native_tools.clone(),
             },
             store.clone(),
         )

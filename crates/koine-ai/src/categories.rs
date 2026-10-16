@@ -236,6 +236,26 @@ pub const TASK_CATEGORIES: &[TaskCategory] = &[
         apps: &["impel"],
         supports_comparison: false,
     },
+    // The agent desk (docs/plan-koine-local-models.md LM-D11). Not impel's
+    // executors, so no app lists them; the desk and the routing preset do.
+    TaskCategory {
+        id: "agent.route",
+        name: "Request Routing",
+        icon: "arrow.triangle.branch",
+        description: "Route a request to a model",
+        parent: Some("agent"),
+        apps: &[],
+        supports_comparison: false,
+    },
+    TaskCategory {
+        id: "agent.frontier",
+        name: "Strongest Model",
+        icon: "bolt",
+        description: "The strongest model, when asked for",
+        parent: Some("agent"),
+        apps: &[],
+        supports_comparison: false,
+    },
 ];
 
 pub fn category(id: &str) -> Option<&'static TaskCategory> {
@@ -253,6 +273,64 @@ pub fn leaf_categories(app: Option<&str>) -> Vec<&'static TaskCategory> {
         .filter(|category| !category.is_root())
         .filter(|category| app.is_none_or(|app| category.apps.contains(&app)))
         .collect()
+}
+
+/// Triage sees at most this much of a prompt: the on-device model's window
+/// is small.
+pub const TRIAGE_PROMPT_CHARS: usize = 2_000;
+
+/// The structured call triage makes: a short instruction, the request's
+/// prompt, and a schema whose only property is an enum of `ids`.
+pub fn triage_request(model: &str, prompt: &str, ids: &[String]) -> crate::types::ChatRequest {
+    let described: Vec<String> = ids
+        .iter()
+        .map(|id| match (id.as_str(), category(id)) {
+            // The table describes these for settings, not for choosing.
+            ("agent", _) => format!("- {id}: everyday questions and tasks; the default"),
+            ("agent.frontier", _) => format!(
+                "- {id}: difficult reasoning, proofs or careful review that need the strongest model"
+            ),
+            (_, Some(category)) => format!("- {id}: {}", category.description),
+            (_, None) => format!("- {id}"),
+        })
+        .collect();
+    let prompt: String = prompt.chars().take(TRIAGE_PROMPT_CHARS).collect();
+    crate::types::ChatRequest {
+        model: model.to_string(),
+        messages: vec![
+            crate::types::ModelMessage::text(
+                crate::types::Role::System,
+                format!(
+                    "You route a request to the kind of model that should answer it. Answer \
+                     with JSON naming one category.\n{}\nUse `agent` when unsure.",
+                    described.join("\n")
+                ),
+            ),
+            crate::types::ModelMessage::text(crate::types::Role::User, prompt),
+        ],
+        temperature: Some(0.0),
+        max_tokens: 64,
+        response_format: Some(crate::types::ResponseFormat::JsonSchema {
+            name: "route".into(),
+            schema: serde_json::json!({
+                "type": "object",
+                "properties": { "category": { "type": "string", "enum": ids } },
+                "required": ["category"]
+            }),
+            strict: true,
+        }),
+        ..crate::types::ChatRequest::default()
+    }
+}
+
+/// The category in triage's answer, if it is one of `ids`.
+pub fn parse_triage(content: &str, ids: &[String]) -> Option<String> {
+    use serde_json::Value;
+    let start = content.find('{')?;
+    let end = content.rfind('}')?;
+    let answer: Value = serde_json::from_str(content.get(start..=end)?).ok()?;
+    let category = answer["category"].as_str()?.trim();
+    ids.iter().find(|id| id.as_str() == category).cloned()
 }
 
 /// The kind a package's category is stored as.
@@ -362,7 +440,7 @@ mod tests {
             }
         }
         assert_eq!(root_categories().count(), 6);
-        assert_eq!(leaf_categories(None).len(), 16);
+        assert_eq!(leaf_categories(None).len(), 18);
         assert_eq!(leaf_categories(Some("implore")).len(), 2);
         assert!(leaf_categories(Some("impel"))
             .iter()

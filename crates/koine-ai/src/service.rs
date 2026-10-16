@@ -84,6 +84,130 @@ pub struct AiPreferencesResult {
     pub error: Option<String>,
 }
 
+/// One category a routing preset assigned.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RoutingAssignmentRow {
+    pub category: String,
+    pub provider: String,
+    /// The provider's default model; `None` leaves it to the registry's
+    /// fallback (the device selection, then discovery).
+    pub model: Option<String>,
+}
+
+/// One category a routing preset left alone, and why.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RoutingSkipRow {
+    pub category: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RoutingPresetResult {
+    pub preset: String,
+    pub assigned: Vec<RoutingAssignmentRow>,
+    pub skipped: Vec<RoutingSkipRow>,
+    pub error: Option<String>,
+}
+
+/// The routing presets [`apply_routing_preset`] knows.
+pub const ROUTING_PRESETS: &[&str] = &["local-first"];
+
+/// Write the three-tier assignment `preset` names, from what is ready in
+/// `states` (docs/plan-koine-local-models.md LM-D11). `local-first`:
+/// `agent.route` to the on-device model, `agent` to the best ready local
+/// provider (oMLX first), `agent.frontier` to the first ready cloud
+/// provider. Only preferences are written, with
+/// [`AiRegistry::set_task_category`]; a tier with nothing ready is left as
+/// it was and reported as skipped.
+pub fn apply_routing_preset(
+    registry: &AiRegistry,
+    preset: &str,
+    states: &[crate::registry::ProviderState],
+) -> RoutingPresetResult {
+    use crate::catalogue::{ProviderCategory, APPLE_ON_DEVICE_ID, OMLX_ID};
+    use crate::preferences::{CategoryAssignment, ModelRef};
+
+    let mut result = RoutingPresetResult {
+        preset: preset.to_string(),
+        assigned: vec![],
+        skipped: vec![],
+        error: None,
+    };
+    if !ROUTING_PRESETS.contains(&preset) {
+        result.error = Some(format!(
+            "unknown routing preset '{preset}'; the presets are: {}",
+            ROUTING_PRESETS.join(", ")
+        ));
+        return result;
+    }
+    let ready = |id: &str| {
+        states
+            .iter()
+            .find(|state| state.descriptor.id == id)
+            .is_some_and(|state| state.readiness.is_ready())
+    };
+    let first_ready = |category: ProviderCategory, prefer: Option<&str>| {
+        prefer
+            .filter(|id| ready(id))
+            .or_else(|| {
+                states
+                    .iter()
+                    .find(|state| {
+                        state.descriptor.category == category && state.readiness.is_ready()
+                    })
+                    .map(|state| state.descriptor.id)
+            })
+            .map(str::to_string)
+    };
+    let tiers = [
+        (
+            "agent.route",
+            ready(APPLE_ON_DEVICE_ID).then(|| APPLE_ON_DEVICE_ID.to_string()),
+            "the on-device model (apple-on-device) is not ready",
+        ),
+        (
+            "agent",
+            first_ready(ProviderCategory::Local, Some(OMLX_ID)),
+            "no local provider is ready (oMLX or llama.cpp)",
+        ),
+        (
+            "agent.frontier",
+            first_ready(ProviderCategory::Cloud, None),
+            "no cloud provider is ready (it needs credentials)",
+        ),
+    ];
+    for (category, provider, why_not) in tiers {
+        let Some(provider) = provider else {
+            result.skipped.push(RoutingSkipRow {
+                category: category.into(),
+                reason: why_not.into(),
+            });
+            continue;
+        };
+        let model = registry.default_model(&provider);
+        let assignment = CategoryAssignment {
+            primary: Some(ModelRef {
+                provider: provider.clone(),
+                model: model.clone(),
+                display_name: None,
+            }),
+            ..Default::default()
+        };
+        match registry.set_task_category(category, assignment) {
+            Ok(_) => result.assigned.push(RoutingAssignmentRow {
+                category: category.into(),
+                provider,
+                model,
+            }),
+            Err(error) => result.skipped.push(RoutingSkipRow {
+                category: category.into(),
+                reason: error.to_string(),
+            }),
+        }
+    }
+    result
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ProviderHealthResult {
     pub provider: Option<String>,
@@ -209,6 +333,17 @@ pub trait ImpressAiService: Send + Sync + 'static {
         provider: String,
         endpoint: Option<String>,
     ) -> AiPreferencesResult;
+
+    /// Write a routing preset into the device's task-category assignments
+    /// from what is ready on this device, and answer what it assigned and
+    /// what it skipped. `local-first`: `agent.route` is the on-device model,
+    /// `agent` the best ready local provider (oMLX first), `agent.frontier`
+    /// the first ready cloud provider, each with its default model. It
+    /// writes preferences only; any assignment can be changed after. An
+    /// unknown preset is refused.
+    #[impress_method(safety = mutating, effects(reach = [provider]))]
+    #[impress_example(name = "unknown-preset", args = r#"{"preset":"nope"}"#)]
+    async fn apply_routing_preset(&self, preset: String) -> RoutingPresetResult;
 
     /// Passive reachability probe for `provider` (or the resolved default):
     /// never launches a host. For oMLX it reports version, loaded/total
@@ -481,6 +616,11 @@ impl ImpressAiService for DefaultImpressAiService {
         endpoint: Option<String>,
     ) -> AiPreferencesResult {
         self.preferences_result(self.registry.set_provider_endpoint(&provider, endpoint))
+    }
+
+    async fn apply_routing_preset(&self, preset: String) -> RoutingPresetResult {
+        let states = self.registry.provider_states_probed().await;
+        apply_routing_preset(&self.registry, &preset, &states)
     }
 
     async fn provider_health(&self, provider: Option<String>) -> ProviderHealthResult {
@@ -893,6 +1033,10 @@ impress_service_impl! {
             /// HTTP(S) endpoint URL, or null to reset to the catalogue default.
             endpoint: Option<String>
         ) -> AiPreferencesResult,
+        apply_routing_preset(
+            /// The preset: local-first.
+            preset: String
+        ) -> RoutingPresetResult,
         provider_health(
             /// Provider ID to probe, or null for the device default.
             provider: Option<String>
@@ -974,6 +1118,10 @@ mod tests {
             (
                 "impress-ai-service_set-provider-endpoint",
                 "set-provider-endpoint",
+            ),
+            (
+                "impress-ai-service_apply-routing-preset",
+                "apply-routing-preset",
             ),
             ("impress-ai-service_provider-health", "provider-health"),
             (
@@ -1073,6 +1221,91 @@ mod tests {
                 fields: vec!["apiKey".into()]
             }
         );
+    }
+
+    fn ready_states(registry: &AiRegistry, ready: &[&str]) -> Vec<crate::registry::ProviderState> {
+        let mut states = registry.provider_states();
+        for state in &mut states {
+            state.readiness = if ready.contains(&state.descriptor.id) {
+                crate::HealthState::Ready
+            } else {
+                crate::HealthState::Unreachable
+            };
+        }
+        states
+    }
+
+    /// The local-first preset assigns the three tiers from what is ready,
+    /// reports what it could not, writes only preferences, and refuses a
+    /// preset it does not know.
+    #[test]
+    fn the_local_first_preset_assigns_the_three_tiers_from_what_is_ready() {
+        let directory = tempfile::tempdir().unwrap();
+        let registry = AiRegistry::for_app(directory.path(), crate::InMemoryCredentials::new());
+
+        let all = ready_states(
+            &registry,
+            &["apple-on-device", "omlx", "ollama", "anthropic", "openai"],
+        );
+        let done = apply_routing_preset(&registry, "local-first", &all);
+        assert_eq!(done.error, None);
+        assert!(done.skipped.is_empty(), "{:?}", done.skipped);
+        let by = |category: &str| {
+            done.assigned
+                .iter()
+                .find(|row| row.category == category)
+                .unwrap_or_else(|| panic!("{category} not assigned: {:?}", done.assigned))
+                .clone()
+        };
+        assert_eq!(by("agent.route").provider, "apple-on-device");
+        assert_eq!(
+            by("agent").provider,
+            "omlx",
+            "oMLX before the other local ones"
+        );
+        assert_eq!(
+            by("agent.frontier").provider,
+            "anthropic",
+            "the first cloud in the catalogue"
+        );
+        assert_eq!(
+            by("agent.frontier").model,
+            registry.default_model("anthropic"),
+            "its default model"
+        );
+        let stored = registry.task_categories();
+        for category in ["agent.route", "agent", "agent.frontier"] {
+            let assignment = &stored[category];
+            assert!(assignment.enabled);
+            assert_eq!(
+                assignment.primary.as_ref().unwrap().provider,
+                by(category).provider
+            );
+        }
+        assert!(
+            registry.preferences().load().unwrap().selected.is_none(),
+            "the device selection is untouched"
+        );
+
+        // Nothing local or on-device is ready: another local provider is
+        // used, and the tiers with nothing are skipped with a reason and
+        // left as they were.
+        let directory = tempfile::tempdir().unwrap();
+        let registry = AiRegistry::for_app(directory.path(), crate::InMemoryCredentials::new());
+        let states = ready_states(&registry, &["ollama"]);
+        let done = apply_routing_preset(&registry, "local-first", &states);
+        assert_eq!(done.assigned.len(), 1, "{:?}", done.assigned);
+        assert_eq!(done.assigned[0].category, "agent");
+        assert_eq!(done.assigned[0].provider, "ollama");
+        let skipped: Vec<_> = done.skipped.iter().map(|s| s.category.as_str()).collect();
+        assert_eq!(skipped, ["agent.route", "agent.frontier"]);
+        assert!(done.skipped.iter().all(|s| !s.reason.is_empty()));
+        assert_eq!(registry.task_categories().len(), 1);
+
+        let refused = apply_routing_preset(&registry, "cloud-first", &states);
+        assert!(refused.error.as_deref().unwrap().contains("local-first"));
+        assert!(refused.assigned.is_empty());
+        assert_eq!(registry.task_categories().len(), 1);
     }
 
     #[tokio::test]

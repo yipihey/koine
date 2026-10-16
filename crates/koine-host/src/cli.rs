@@ -61,6 +61,9 @@ OPTIONS:
     --ai                     also run the model executors and the desk agent (implies
                              --tasks); the model is the device's choice
                              (impress-ai-service_select-model)
+    --native-tools <a,b,c>   the verbs the on-device Apple model may call, as full verb
+                             names or namespace prefixes ending in `_` (default: a small
+                             read-only set; its window is about 4k tokens)
     --check                  start, print the URL and verb count, stop, exit 0
     -h, --help               this text
 
@@ -169,6 +172,7 @@ pub fn parse_with_env(
     let mut kit = true;
     let mut tasks = false;
     let mut ai = false;
+    let mut native_tools: Option<Vec<String>> = None;
     while let Some(flag) = args.next() {
         let (flag, inline) = match flag.split_once('=') {
             Some((flag, value)) if flag.starts_with("--") => {
@@ -211,6 +215,16 @@ pub fn parse_with_env(
             "--no-kit" => kit = false,
             "--tasks" => tasks = true,
             "--ai" => ai = true,
+            "--native-tools" => {
+                native_tools = Some(
+                    value("--native-tools")?
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|verb| !verb.is_empty())
+                        .map(str::to_string)
+                        .collect(),
+                )
+            }
             "--window" => window = true,
             other => return Err(format!("unknown option {other} (see --help)")),
         }
@@ -237,6 +251,7 @@ pub fn parse_with_env(
     config.kit = kit;
     config.tasks = tasks || ai;
     config.ai = ai;
+    config.native_tools = native_tools;
     Ok(Some(Cli {
         config,
         check,
@@ -567,6 +582,28 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn native_tools_is_a_comma_separated_list() {
+        let cli = parse_args(args(&[
+            "--store",
+            "memory:",
+            "--workspace",
+            "/tmp/ws",
+            "--native-tools",
+            "task-service_list, notebook-service_,",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            cli.config.native_tools,
+            Some(vec!["task-service_list".into(), "notebook-service_".into()])
+        );
+        let none = parse_args(args(&["--store", "memory:", "--workspace", "/tmp/ws"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(none.config.native_tools, None);
     }
 
     #[test]

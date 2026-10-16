@@ -55,7 +55,10 @@ pub trait AgentService: Send + Sync + 'static {
     /// the layout's focus and selection, and, given `surface_id`, the surface
     /// they were looking at (its name, spec and current state). `app_id`
     /// names whose layout that is (an impress app passes its own); this
-    /// host's when absent. Refuses an empty prompt.
+    /// host's when absent. `category` names a task category (for example
+    /// `agent.frontier`, the strongest model) whose assigned model answers
+    /// it; without one the desk may route it. Refuses an empty prompt and a
+    /// malformed category.
     #[impress_method(
         safety = mutating,
         effects(
@@ -78,6 +81,7 @@ pub trait AgentService: Send + Sync + 'static {
         with_context: Option<bool>,
         surface_id: Option<String>,
         app_id: Option<String>,
+        category: Option<String>,
     ) -> RequestResult;
 
     /// Hand a call to an agent: a `diagnose` request whose context is the
@@ -246,13 +250,20 @@ fn filed(result: Result<RequestRow, DeskError>) -> RequestResult {
     }
 }
 
-fn file(kind: &str, prompt: &str, context: Value, call_id: Option<&str>) -> RequestResult {
+fn file(
+    kind: &str,
+    prompt: &str,
+    context: Value,
+    call_id: Option<&str>,
+    category: Option<&str>,
+) -> RequestResult {
     let who = caller();
     filed(desk::file(
         kind,
         prompt,
         context,
         call_id,
+        category,
         who.author(),
         actor_kind(&who),
     ))
@@ -282,6 +293,7 @@ impl AgentService for DefaultAgentService {
         with_context: Option<bool>,
         surface_id: Option<String>,
         app_id: Option<String>,
+        category: Option<String>,
     ) -> RequestResult {
         let prompt = prompt.trim();
         if prompt.is_empty() {
@@ -290,6 +302,16 @@ impl AgentService for DefaultAgentService {
                 "a request needs a prompt",
             ));
         }
+        let category = match category.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(id) if desk::is_category_id(id) => Some(id.to_string()),
+            Some(id) => {
+                return refused(DeskError::new(
+                    "invalid-argument",
+                    format!("'{id}' is not a task-category id (lowercase letters, digits, '.' and '-', like agent.frontier)"),
+                ))
+            }
+        };
         let pointing = if with_context.unwrap_or(true) {
             let app_id = app_id
                 .filter(|a| !a.trim().is_empty())
@@ -312,6 +334,7 @@ impl AgentService for DefaultAgentService {
                 json!({ "pointing": pointing, "viewing": viewing }),
             ),
             None,
+            category.as_deref(),
         )
     }
 
@@ -364,6 +387,7 @@ impl AgentService for DefaultAgentService {
                 }),
             ),
             entry["call_id"].as_str(),
+            None,
         )
     }
 
@@ -410,6 +434,7 @@ impl AgentService for DefaultAgentService {
                     ],
                 }),
             ),
+            None,
             None,
         )
     }
@@ -575,7 +600,9 @@ impress_service_impl! {
             /// The surface the person was looking at, attached as context.
             surface_id: Option<String>,
             /// The app whose layout (focus, selection) is the context; this host's when absent.
-            app_id: Option<String>
+            app_id: Option<String>,
+            /// A task-category id (for example agent.frontier for the strongest model); the desk routes it when absent.
+            category: Option<String>
         ) -> RequestResult,
         /// Hand a logged call to an agent.
         diagnose(

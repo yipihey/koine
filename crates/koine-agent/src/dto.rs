@@ -90,6 +90,16 @@ pub struct RequestRow {
     /// Why it was last given back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub release_reason: Option<String>,
+    /// The task category the person asked for (`agent.frontier` is the
+    /// strongest model); the desk routes the request when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// The category the desk's triage chose for a request with none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub routed_category: Option<String>,
+    /// The model that triaged it, as `provider/model`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub triage_model: Option<String>,
     /// What the agent needs to act: the pointing context, a call record, the
     /// kinds and verbs to build with.
     #[serde(default)]

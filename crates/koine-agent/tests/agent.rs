@@ -210,6 +210,41 @@ fn a_request_moves_from_ask_to_answer_and_its_surface_can_be_shown() {
     assert_eq!(shown["ok"], true, "{shown}");
 }
 
+/// A request may name the task category whose model should answer it; the
+/// row keeps it and an old row without one still reads.
+#[test]
+fn a_request_keeps_the_category_it_was_asked_with() {
+    let _turn = fresh();
+    let asked = verb(
+        "agent-service_ask",
+        json!({"prompt": "Review this proof", "with_context": false, "category": "agent.frontier"}),
+    );
+    assert_eq!(asked["ok"], true, "{asked}");
+    assert_eq!(asked["request"]["category"], "agent.frontier");
+    let listed = verb("agent-service_requests", json!({"status": "open"}));
+    assert_eq!(listed["rows"][0]["category"], "agent.frontier");
+
+    let plain = verb(
+        "agent-service_ask",
+        json!({"prompt": "No category", "with_context": false, "category": " "}),
+    );
+    assert_eq!(plain["ok"], true, "{plain}");
+    assert!(plain["request"].get("category").is_none(), "{plain}");
+
+    let bad = verb(
+        "agent-service_ask",
+        json!({"prompt": "x", "with_context": false, "category": "Not A Category!"}),
+    );
+    assert_eq!(bad["code"], "invalid-argument", "{bad}");
+
+    let old: koine_agent::dto::RequestRow = serde_json::from_value(json!({
+        "id": "1", "kind": "ask", "prompt": "p", "status": "open",
+        "created_by": "me", "created_at": "now"
+    }))
+    .unwrap();
+    assert_eq!(old.category, None);
+}
+
 /// An agent that could not start gives the request back instead of
 /// declining it: open again for any agent, with the try counted. Only the
 /// claimant may release, and only a claimed request.
