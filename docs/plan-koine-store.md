@@ -57,6 +57,11 @@ pub struct StoreCapabilities {
     pub shared: bool,
     /// The store holds blobs beside items (`BlobStore`, D5).
     pub blobs: bool,
+    /// `search_text` is answered from a text index, not the port's default
+    /// (plan-koine-kit-moves KM-D3).
+    pub text_search_indexed: bool,
+    /// `arrivals_after` works (plan-koine-kit-moves KM-D3).
+    pub arrival_feed: bool,
 }
 ```
 
@@ -122,6 +127,7 @@ The layout, under one root:
 <root>/koine-store.json          format version, created, store id
 <root>/clock                     "wall_ms counter", rewritten on every advance
 <root>/lock                      the writer lock (impress-fs-lock)
+<root>/arrivals                  append-only arrival log, "<id>\t<schema>" per row (KM-D3)
 <root>/items/<schema ref as path>/<id>.json
 <root>/operations/<id>.json
 <root>/journal/<batch id>.json   pending atomic batch (D4.2)

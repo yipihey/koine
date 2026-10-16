@@ -8,6 +8,7 @@ use crate::operation::OperationSpec;
 use crate::query::{ItemQuery, Predicate, SortDescriptor};
 use crate::reference::{EdgeType, TypedReference};
 use crate::schema::{refs::CORE_OPERATION, SchemaRef};
+use crate::text_search::{ArrivalCursor, TextHit};
 
 /// The schema of the rows [`AttributedStore::metadata_get`] and
 /// [`AttributedStore::metadata_set`] keep by default: one item per key,
@@ -58,6 +59,14 @@ pub struct StoreCapabilities {
     pub shared: bool,
     /// The store holds blobs beside items ([`BlobStore`]).
     pub blobs: bool,
+    /// [`ItemStore::search_text`] is answered from a text index, not by the
+    /// port's default (a `Contains` scan scored in memory).
+    #[serde(default)]
+    pub text_search_indexed: bool,
+    /// [`ItemStore::arrivals_after`] works. A store without it returns
+    /// [`StoreError::Unsupported`].
+    #[serde(default)]
+    pub arrival_feed: bool,
 }
 
 /// Bytes kept beside an item: a PDF next to its record, a figure next to
@@ -127,6 +136,42 @@ pub trait ItemStore: Send + Sync {
     /// No default: a backend that cannot answer cannot tell a host whether
     /// anything changed, and a guessed constant would say "never".
     fn change_token(&self) -> Result<u64, StoreError>;
+
+    /// Ranked text search over the text fields of items of `schema` (every
+    /// kind when `None`): the fields SQLite's FTS indexes
+    /// ([`TEXT_FIELDS`](crate::TEXT_FIELDS)). Best first, at most `limit`.
+    ///
+    /// The default tokenizes `text` (lowercase alphanumeric, tokens under two
+    /// characters dropped), narrows with a `Contains` query, and scores by the
+    /// fraction of query tokens an item holds (ties: more occurrences, then
+    /// newer). [`StoreCapabilities::text_search_indexed`] says a store
+    /// answers from an index instead; scores are not comparable across stores.
+    fn search_text(
+        &self,
+        schema: Option<&str>,
+        text: &str,
+        limit: usize,
+    ) -> Result<Vec<TextHit>, StoreError> {
+        crate::text_search::default_search_text(self, schema, text, limit)
+    }
+
+    /// Items in the order this store received them, after `cursor`
+    /// (exclusive), optionally of one schema; at most `limit`. Returns the
+    /// page and the cursor to ask from next (the input cursor when the page is
+    /// empty). Includes rows applied by sync with old timestamps, which a
+    /// `created` query would miss; that is the point.
+    ///
+    /// Default: [`StoreError::Unsupported`]. A store that implements it sets
+    /// [`StoreCapabilities::arrival_feed`].
+    fn arrivals_after(
+        &self,
+        cursor: ArrivalCursor,
+        schema: Option<&str>,
+        limit: usize,
+    ) -> Result<(Vec<Item>, ArrivalCursor), StoreError> {
+        let _ = (cursor, schema, limit);
+        Err(StoreError::Unsupported("arrivals_after".into()))
+    }
 }
 
 /// What [`AttributedStore::apply_operation_if_clock`] did.
@@ -363,6 +408,9 @@ pub enum StoreError {
 
     #[error("Storage error: {0}")]
     Storage(String),
+
+    #[error("Unsupported by this store: {0}")]
+    Unsupported(String),
 }
 
 #[cfg(test)]

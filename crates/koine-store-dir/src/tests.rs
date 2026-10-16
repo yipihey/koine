@@ -144,6 +144,8 @@ fn capabilities_are_the_plan_d4() {
             durable: true,
             shared: true,
             blobs: true,
+            text_search_indexed: false,
+            arrival_feed: true,
         }
     );
 }
@@ -990,7 +992,8 @@ fn tree() {
     store.put_blob(a, "paper.pdf", b"%PDF").unwrap();
     let files = files_under(root.path());
     println!("{}", files.join("\n"));
-    assert_eq!(files.len(), 7);
+    // 7 records and markers, and the `arrivals` log.
+    assert_eq!(files.len(), 8);
 }
 
 #[test]
@@ -2267,4 +2270,66 @@ mod merging {
         assert_eq!(store.conflicts().len(), 1);
         assert_eq!(store.conflicts()[0].id, op);
     }
+}
+
+// ── the arrival feed (plan-koine-kit-moves KM-D3) ───────────────────────────
+
+fn feed_ids(store: &DirStore, from: ArrivalCursor) -> (Vec<ItemId>, ArrivalCursor) {
+    let (rows, next) = store.arrivals_after(from, Some("note"), 1000).unwrap();
+    (rows.into_iter().map(|r| r.id).collect(), next)
+}
+
+#[test]
+fn arrivals_are_one_log_across_two_handles() {
+    let root = TempRoot::new();
+    let a = DirStore::open(root.path()).unwrap();
+    let b = DirStore::open(root.path()).unwrap();
+    let mut ids = Vec::new();
+    for i in 0..6 {
+        let store = if i % 2 == 0 { &a } else { &b };
+        ids.push(store.insert(make_item("note", &format!("n{i}"))).unwrap());
+    }
+    assert_eq!(feed_ids(&a, ArrivalCursor::START).0, ids);
+    assert_eq!(feed_ids(&b, ArrivalCursor::START).0, ids);
+    let log = std::fs::read_to_string(root.path().join("arrivals")).unwrap();
+    assert_eq!(log.lines().count(), 6, "one line per row, none doubled");
+}
+
+#[test]
+fn arrivals_find_rows_a_file_tool_copied_in() {
+    let from = TempRoot::new();
+    let src = DirStore::open(from.path()).unwrap();
+    let copied = src.insert(make_item("note", "copied")).unwrap();
+    let root = TempRoot::new();
+    let store = DirStore::open(root.path()).unwrap();
+    let first = store.insert(make_item("note", "first")).unwrap();
+    let (_, cursor) = feed_ids(&store, ArrivalCursor::START);
+    // rsync the one file across, as D4.4 has it.
+    let rel = format!("items/note/{copied}.json");
+    std::fs::create_dir_all(root.path().join("items/note")).unwrap();
+    std::fs::copy(from.path().join(&rel), root.path().join(&rel)).unwrap();
+    let (rows, _) = feed_ids(&store, cursor);
+    assert_eq!(rows, vec![copied], "the copied file is the next arrival");
+    assert_eq!(
+        feed_ids(&store, ArrivalCursor::START).0,
+        vec![first, copied]
+    );
+}
+
+#[test]
+fn arrivals_survive_a_torn_log_line_and_a_missing_log() {
+    let (root, store) = open();
+    let a = store.insert(make_item("note", "a")).unwrap();
+    let log = root.path().join("arrivals");
+    // A crash mid-append left half a line.
+    let mut text = std::fs::read_to_string(&log).unwrap();
+    text.push_str("0000");
+    std::fs::write(&log, text).unwrap();
+    let b = store.insert(make_item("note", "b")).unwrap();
+    assert_eq!(feed_ids(&store, ArrivalCursor::START).0, vec![a, b]);
+    // A store from before the log existed.
+    std::fs::remove_file(&log).unwrap();
+    let (ids, _) = feed_ids(&store, ArrivalCursor::START);
+    assert_eq!(ids.len(), 2);
+    assert!(ids.contains(&a) && ids.contains(&b));
 }

@@ -49,9 +49,9 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use impress_item::{
-    ActorKind, AttributedStore, BlobStore, EdgeType, FieldMutation, GuardedBatch, GuardedWrite,
-    Item, ItemEvent, ItemId, ItemQuery, ItemStore, OperationIntent, OperationSpec, RetentionTier,
-    StoreCapabilities, StoreError,
+    ActorKind, ArrivalCursor, AttributedStore, BlobStore, EdgeType, FieldMutation, GuardedBatch,
+    GuardedWrite, Item, ItemEvent, ItemId, ItemQuery, ItemStore, OperationIntent, OperationSpec,
+    RetentionTier, StoreCapabilities, StoreError,
 };
 use uuid::Uuid;
 
@@ -69,6 +69,8 @@ pub const CAPABILITIES: StoreCapabilities = StoreCapabilities {
     durable: false,
     shared: false,
     blobs: true,
+    text_search_indexed: false,
+    arrival_feed: true,
 };
 
 struct Subscriber {
@@ -358,6 +360,30 @@ impl ItemStore for MemoryStore {
         inner.blobs.retain(|(item, _), _| *item != id);
         inner.emit(Some(&schema), ItemEvent::Deleted(id));
         Ok(())
+    }
+
+    /// Arrival numbers start at 1 (`seq + 1`), so [`ArrivalCursor::START`] is
+    /// before the first row. A deleted row leaves a gap, never a reused number.
+    fn arrivals_after(
+        &self,
+        cursor: ArrivalCursor,
+        schema: Option<&str>,
+        limit: usize,
+    ) -> Result<(Vec<Item>, ArrivalCursor), StoreError> {
+        let guard = self.read()?;
+        let mut rows: Vec<&state::Row> = guard
+            .state
+            .rows
+            .values()
+            .filter(|r| r.seq + 1 > cursor.to_u64())
+            .filter(|r| schema.is_none_or(|s| r.item.schema.as_str() == s))
+            .collect();
+        rows.sort_by_key(|r| r.seq);
+        rows.truncate(limit);
+        let next = rows
+            .last()
+            .map_or(cursor, |r| ArrivalCursor::from_u64(r.seq + 1));
+        Ok((rows.into_iter().map(|r| r.item.clone()).collect(), next))
     }
 
     fn query(&self, q: &ItemQuery) -> Result<Vec<Item>, StoreError> {

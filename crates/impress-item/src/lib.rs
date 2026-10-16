@@ -14,6 +14,7 @@ pub mod query;
 pub mod reference;
 pub mod schema;
 pub mod store;
+pub mod text_search;
 
 pub use event::*;
 pub use item::*;
@@ -22,3 +23,6 @@ pub use query::*;
 pub use reference::*;
 pub use schema::{SchemaRef, UnknownSchemaRef};
 pub use store::*;
+pub use text_search::{
+    searchable_text, text_tokens, ArrivalCursor, TextHit, TEXT_FIELDS, TEXT_SEARCH_CANDIDATES,
+};

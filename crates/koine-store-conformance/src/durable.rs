@@ -134,6 +134,49 @@ pub fn reopen_keeps_the_clock_monotonic(probe: &dyn AttributedStore, open: Open<
     assert!(store.logical_clock_of(id).unwrap().unwrap() > last);
 }
 
+/// The arrival feed survives the process: a cursor taken before the store was
+/// closed still means the same place after it is opened again, rows keep their
+/// order, and a row inserted after reopening comes after them.
+pub fn reopen_keeps_the_arrival_feed(probe: &dyn AttributedStore, open: Open<'_>) {
+    let Some(open) = opener("reopen_keeps_the_arrival_feed", probe, open, false) else {
+        return;
+    };
+    if !probe.capabilities().arrival_feed {
+        skip(
+            "reopen_keeps_the_arrival_feed",
+            "the store declares arrival_feed: false",
+        );
+        return;
+    }
+    let (ids, cursor) = {
+        let store = open();
+        let ids: Vec<_> = ["a", "b", "c"]
+            .iter()
+            .map(|t| insert(store.as_ref(), "test", t))
+            .collect();
+        let (page, cursor) = store
+            .arrivals_after(impress_item::ArrivalCursor::START, Some("test"), 2)
+            .unwrap();
+        assert_eq!(page.len(), 2);
+        (ids, cursor)
+    };
+    let store = open();
+    let later = insert(store.as_ref(), "test", "d");
+    let (rest, _) = store.arrivals_after(cursor, Some("test"), 10).unwrap();
+    assert_eq!(
+        rest.iter().map(|r| r.id).collect::<Vec<_>>(),
+        vec![ids[2], later],
+        "the old cursor resumes where it was"
+    );
+    let (all, _) = store
+        .arrivals_after(impress_item::ArrivalCursor::START, Some("test"), 10)
+        .unwrap();
+    assert_eq!(
+        all.iter().map(|r| r.id).collect::<Vec<_>>(),
+        vec![ids[0], ids[1], ids[2], later]
+    );
+}
+
 /// Two handles open on one store at once see each other's committed writes,
 /// and the guard is honest across them: a writer holding a stale clock is
 /// refused no matter which handle wrote.
@@ -276,6 +319,11 @@ pub fn capabilities_are_coherent(store: &dyn AttributedStore) {
         !caps.shared || caps.durable,
         "a shared store outlives a process"
     );
+    if caps.arrival_feed {
+        store
+            .arrivals_after(impress_item::ArrivalCursor::START, None, 1)
+            .expect("arrival_feed: true means arrivals_after works");
+    }
     if caps.subscribe {
         store
             .subscribe(ItemQuery::default())

@@ -35,7 +35,7 @@
 //! # Skips are loud
 //!
 //! A case that needs a capability the store does not declare (`subscribe`,
-//! `durable`, `shared`, `cross_process_events`) prints `SKIPPED <case>: <why>` and returns. It never
+//! `durable`, `shared`, `cross_process_events`, `arrival_feed`) prints `SKIPPED <case>: <why>` and returns. It never
 //! passes without saying so. Run `cargo test -- --nocapture` to see them.
 //!
 //! # What the suite does not pin
@@ -64,6 +64,7 @@ pub mod graph;
 pub mod ops;
 pub mod port;
 pub mod query;
+pub mod search;
 
 pub use blobs::*;
 pub use crud::*;
@@ -73,6 +74,7 @@ pub use graph::*;
 pub use ops::*;
 pub use port::*;
 pub use query::*;
+pub use search::*;
 
 use impress_item::{AttributedStore, BlobStore};
 
@@ -167,6 +169,18 @@ macro_rules! __cases {
                 operations_for_lists_a_rows_history_oldest_first_with_limit,
                 metadata_round_trips_and_overwrites,
                 metadata_missing_is_none,
+                // the optional extensions (plan-koine-kit-moves KM-D3)
+                text_search_ranks_all_tokens_above_some,
+                text_search_reads_the_text_fields,
+                text_search_respects_schema_and_limit,
+                text_search_finds_nothing_for_unknown_tokens,
+                arrivals_come_in_insertion_order,
+                arrivals_page_with_the_cursor,
+                arrivals_filter_by_schema,
+                arrivals_include_a_row_inserted_later_with_an_older_created,
+                arrivals_do_not_repeat_updated_rows_and_forget_deleted_ones,
+                arrivals_include_operation_rows_under_their_schema,
+                arrival_cursors_round_trip_as_numbers,
                 // capabilities
                 capabilities_are_coherent,
             ],
@@ -183,6 +197,7 @@ macro_rules! __cases {
             reopen: [
                 reopen_keeps_items_operations_and_deletions,
                 reopen_keeps_the_clock_monotonic,
+                reopen_keeps_the_arrival_feed,
                 two_handles_share_one_store,
                 cross_process_write_reaches_another_handle,
             ],

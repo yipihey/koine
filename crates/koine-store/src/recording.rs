@@ -20,8 +20,8 @@ use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 
 use impress_item::{
-    AttributedStore, EdgeType, FieldMutation, GuardedBatch, GuardedWrite, Item, ItemEvent, ItemId,
-    ItemQuery, ItemStore, OperationSpec, StoreCapabilities, StoreError,
+    ArrivalCursor, AttributedStore, EdgeType, FieldMutation, GuardedBatch, GuardedWrite, Item,
+    ItemEvent, ItemId, ItemQuery, ItemStore, OperationSpec, StoreCapabilities, StoreError, TextHit,
 };
 use impress_service_core::pipeline::context;
 
@@ -113,6 +113,30 @@ impl ItemStore for RecordingStore {
 
     fn change_token(&self) -> Result<u64, StoreError> {
         self.inner.change_token()
+    }
+
+    fn search_text(
+        &self,
+        schema: Option<&str>,
+        text: &str,
+        limit: usize,
+    ) -> Result<Vec<TextHit>, StoreError> {
+        let hits = self.inner.search_text(schema, text, limit)?;
+        for hit in &hits {
+            context::note_read(hit.id.to_string());
+        }
+        Ok(hits)
+    }
+
+    fn arrivals_after(
+        &self,
+        cursor: ArrivalCursor,
+        schema: Option<&str>,
+        limit: usize,
+    ) -> Result<(Vec<Item>, ArrivalCursor), StoreError> {
+        let (items, next) = self.inner.arrivals_after(cursor, schema, limit)?;
+        read_all(&items);
+        Ok((items, next))
     }
 }
 

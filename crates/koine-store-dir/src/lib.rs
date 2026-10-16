@@ -36,6 +36,16 @@
 //!   [`DirStore::resolve_conflicts`] writes the winner, files the copy under
 //!   `conflicts/` and records a `merge-conflict` operation.
 //!
+//! - **Arrival feed** (`docs/plan-koine-kit-moves.md` KM-D3) `<root>/arrivals`
+//!   is an append-only log, one `<id>\t<schema>` line per row in the order
+//!   this store received it, appended under the writer lock by the commit that
+//!   creates the row (so two processes share one numbering). A row's arrival
+//!   number is its 1-based line; an [`ArrivalCursor`] is the number of the last
+//!   line read. A file that is on disk with no line (copied in by a file tool,
+//!   or from before the log) is appended, oldest file first, the first time the
+//!   feed is read. Each read lists the record directories to check for such
+//!   files: the feed is a scan, like the queries.
+//!
 //! Nothing is `fsync`ed: the store is durable across process exit, not across
 //! power loss.
 
@@ -66,10 +76,11 @@ use uuid::Uuid;
 use fsio::{is_temporary, record_id, remove_if_present, storage, write_atomic};
 pub use impress_fs_lock::FileLock;
 use impress_item::{
-    build_operation_payload, routine_retention_for_schema, ActorKind, AttributedStore, BlobStore,
-    EdgeType, FieldMutation, GuardedBatch, GuardedWrite, Item, ItemEvent, ItemId, ItemQuery,
-    ItemStore, OperationIntent, OperationSpec, OperationType, Priority, RetentionTier, SchemaRef,
-    StoreCapabilities, StoreError, TypedReference, Value, Visibility,
+    build_operation_payload, routine_retention_for_schema, ActorKind, ArrivalCursor,
+    AttributedStore, BlobStore, EdgeType, FieldMutation, GuardedBatch, GuardedWrite, Item,
+    ItemEvent, ItemId, ItemQuery, ItemStore, OperationIntent, OperationSpec, OperationType,
+    Priority, RetentionTier, SchemaRef, StoreCapabilities, StoreError, TypedReference, Value,
+    Visibility,
 };
 use koine_store_memory::eval;
 
@@ -708,6 +719,98 @@ impl DirStore {
         }
     }
 
+    // ── arrivals ────────────────────────────────────────────────────────────
+
+    /// The arrival log: one line `<id>\t<schema>` per row, in the order this
+    /// store received them; a row's arrival number is its 1-based line. A line
+    /// that does not parse (a torn append) keeps its number and names no row.
+    /// An unterminated last line is a write in flight and is not read yet.
+    fn read_arrivals(&self) -> Result<Vec<Option<(ItemId, String)>>, StoreError> {
+        let path = self.root.join("arrivals");
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(storage(format!("read {}", path.display()), e)),
+        };
+        let complete = text.rfind('\n').map_or("", |i| &text[..=i]);
+        Ok(complete
+            .lines()
+            .map(|line| {
+                let (id, schema) = line.split_once('\t')?;
+                Some((id.parse::<ItemId>().ok()?, schema.to_owned()))
+            })
+            .collect())
+    }
+
+    /// Append rows to the arrival log. The caller holds the writer lock.
+    fn append_arrivals(&self, rows: &[(ItemId, String)]) -> Result<(), StoreError> {
+        use std::io::Write;
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let path = self.root.join("arrivals");
+        let torn = std::fs::read(&path).is_ok_and(|b| !b.is_empty() && !b.ends_with(b"\n"));
+        let mut text = String::new();
+        if torn {
+            text.push('\n');
+        }
+        for (id, schema) in rows {
+            text.push_str(&format!("{id}\t{schema}\n"));
+        }
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut f| f.write_all(text.as_bytes()))
+            .map_err(|e| storage(format!("append {}", path.display()), e))
+    }
+
+    /// The arrival log with every record on disk that it does not name added
+    /// at the end: rows a file tool copied in (D4.4), rows from before the log
+    /// existed. They arrive when first seen, oldest file first.
+    fn reconciled_arrivals(&self) -> Result<Vec<Option<(ItemId, String)>>, StoreError> {
+        let mut log = self.read_arrivals()?;
+        let mut on_disk: Vec<(ItemId, PathBuf, bool)> = Vec::new();
+        for dir in self.item_dirs()? {
+            on_disk.extend(
+                Self::files_in(&dir)?
+                    .into_iter()
+                    .map(|(id, p)| (id, p, false)),
+            );
+        }
+        on_disk.extend(
+            Self::files_in(&self.root.join("operations"))?
+                .into_iter()
+                .map(|(id, p)| (id, p, true)),
+        );
+        let logged: HashSet<ItemId> = log.iter().flatten().map(|(id, _)| *id).collect();
+        if on_disk.iter().all(|(id, _, _)| logged.contains(id)) {
+            return Ok(log);
+        }
+        // Someone else may be reconciling too: look again under the lock.
+        let _lock = self.lock()?;
+        log = self.read_arrivals()?;
+        let logged: HashSet<ItemId> = log.iter().flatten().map(|(id, _)| *id).collect();
+        let mut fresh: Vec<(std::time::SystemTime, ItemId, String)> = Vec::new();
+        for (id, path, is_op) in on_disk
+            .into_iter()
+            .filter(|(id, _, _)| !logged.contains(id))
+        {
+            let Some(row) = Self::read_row_at(&path, is_op)? else {
+                continue;
+            };
+            let modified = std::fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .unwrap_or(UNIX_EPOCH);
+            fresh.push((modified, id, row.item.schema.to_string()));
+        }
+        fresh.sort();
+        let rows: Vec<(ItemId, String)> = fresh.into_iter().map(|(_, id, s)| (id, s)).collect();
+        self.append_arrivals(&rows)?;
+        log.extend(rows.into_iter().map(Some));
+        Ok(log)
+    }
+
     // ── reading ─────────────────────────────────────────────────────────────
 
     /// The directories that may hold item files, schema folders at any depth.
@@ -896,6 +999,7 @@ impl DirStore {
             removes: Vec::new(),
             blob_removals: Vec::new(),
             known_ids: None,
+            arrived: Vec::new(),
             events: Vec::new(),
         })
     }
@@ -932,6 +1036,8 @@ struct Txn<'a> {
     removes: Vec<String>,
     blob_removals: Vec<ItemId>,
     known_ids: Option<HashSet<ItemId>>,
+    /// Rows this call created, with their schema, for the arrival log.
+    arrived: Vec<(ItemId, String)>,
     events: Events,
 }
 
@@ -1035,6 +1141,7 @@ impl Txn<'_> {
             }
         }
         self.mark_dirty(id);
+        self.arrived.push((id, schema.clone()));
         self.events
             .push((Some(schema), ItemEvent::Created(Box::new(stored))));
         Ok(id)
@@ -1079,6 +1186,8 @@ impl Txn<'_> {
         );
         self.rows.insert(operation_id, Some(op_row));
         self.mark_dirty(operation_id);
+        self.arrived
+            .push((operation_id, OPERATION_SCHEMA.to_owned()));
 
         let row = self
             .rows
@@ -1188,6 +1297,13 @@ impl Txn<'_> {
             self.store.write_hlc(&self.hlc)?;
             self.hlc_before = self.hlc;
         }
+        // Before the documents too: an entry whose file never lands is skipped
+        // by readers, while a file with no entry is only found by a scan.
+        let arrived: Vec<(ItemId, String)> = std::mem::take(&mut self.arrived)
+            .into_iter()
+            .filter(|(id, _)| matches!(self.rows.get(id), Some(Some(_))))
+            .collect();
+        self.store.append_arrivals(&arrived)?;
         Ok((
             Journal {
                 batch: Uuid::new_v4().to_string(),
@@ -1418,7 +1534,55 @@ impl ItemStore for DirStore {
             durable: true,
             shared: true,
             blobs: true,
+            text_search_indexed: false,
+            arrival_feed: true,
         }
+    }
+
+    fn arrivals_after(
+        &self,
+        cursor: ArrivalCursor,
+        schema: Option<&str>,
+        limit: usize,
+    ) -> Result<(Vec<Item>, ArrivalCursor), StoreError> {
+        let log = self.reconciled_arrivals()?;
+        let mut last: HashMap<ItemId, usize> = HashMap::new();
+        for (i, entry) in log.iter().enumerate() {
+            if let Some((id, _)) = entry {
+                last.insert(*id, i);
+            }
+        }
+        let start = usize::try_from(cursor.to_u64()).unwrap_or(usize::MAX);
+        let mut out = Vec::new();
+        let mut next = cursor;
+        for (i, entry) in log.iter().enumerate().skip(start) {
+            if out.len() >= limit {
+                return Ok((out, next));
+            }
+            let Some((id, row_schema)) = entry else {
+                continue;
+            };
+            // A row deleted and arrived again is returned at its latest place.
+            if last.get(id) != Some(&i) || schema.is_some_and(|s| s != row_schema) {
+                continue;
+            }
+            let is_op = row_schema == OPERATION_SCHEMA;
+            let path = if is_op {
+                self.root.join(op_rel(*id))
+            } else {
+                to_path(&self.root, &schema_dir(row_schema)?).join(format!("{id}.json"))
+            };
+            // Gone since it arrived: no longer an item to hand out.
+            if let Some(row) = Self::read_row_at(&path, is_op)? {
+                out.push(row.item);
+                next = ArrivalCursor::from_u64(i as u64 + 1);
+            }
+        }
+        // Everything after `cursor` was seen: skip the deleted tail next time.
+        if log.len() as u64 > next.to_u64() {
+            next = ArrivalCursor::from_u64(log.len() as u64);
+        }
+        Ok((out, next))
     }
 
     fn insert(&self, item: Item) -> Result<ItemId, StoreError> {
