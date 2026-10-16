@@ -233,6 +233,34 @@ model (oMLX or llama.cpp) for reasoning and code, and a frontier model
 when the task needs it or the person asks. All three are providers behind
 the same port.
 
+### LM-D11. A desk request carries a category, and the desk routes by it
+
+Today the desk resolves one model per pass (`ResolveTarget::default()`), so
+every request goes to the device default and the task categories are unused.
+
+- `agent-service_ask` takes an optional `category` (a task-category id), kept
+  on the request row. The `/ask` page offers it as a short choice (default,
+  or "use the strongest model", which is `agent.frontier`).
+- The desk resolves each request on its own: `ResolveTarget { category }`
+  with the request's category, so preferences decide which model a category
+  gets, as they already do for the other categories.
+- A request with no category is triaged when the category `agent.route` is
+  assigned: that model (the on-device one, typically) answers one structured
+  call whose schema is an enum of the routable category ids, and the request
+  is resolved with the answer. With no `agent.route` assignment, or if triage
+  fails, the request uses the default, as today. The triage is recorded on
+  the request.
+- Two new built-in categories: `agent.route` (triage) and `agent.frontier`
+  (explicitly asked for the strongest model). A preset verb,
+  `impress-ai-service_apply-routing-preset {preset: "local-first"}`, writes the
+  three-tier assignment from what is ready on the device: `agent.route` →
+  apple-on-device; `agent` and its children → the largest ready local model
+  (oMLX or llama.cpp); `agent.frontier` → the first ready cloud provider. It
+  writes preferences only; a person can change any of them.
+- The executor's tool catalog follows the resolved provider: a provider whose
+  tool loop is Apple's gets the flat, Apple-lowered `InventoryTools`
+  (package 6 note), every other provider the grouped one.
+
 ## Work packages
 
 Each one is reviewable on its own and leaves the workspace green.
@@ -245,8 +273,8 @@ Each one is reviewable on its own and leaves the workspace green.
 | 4 | Flat `InventoryTools`; `output_schema` and `annotations` (LM-D4) | `inventory_tools.rs`, `types.rs` |
 | 5 | llama.cpp entry, `/props`, the tools-plus-schema rule; the llama.cpp milestone (LM-D7) | `catalogue.rs`, `providers/openai_compat.rs` |
 | 6 | `koine-ai-apple`, `register_native`; the Apple milestone on macOS 26, macOS 27 features behind `#available` (LM-D5) | new crate, `registry.rs`, `koine-host/src/tasks.rs` |
-| 7 | A response schema on a turn and a desk request | `store.rs`, `desk.rs`, `service.rs` |
-| Later | Spotlight as a tool (LM-D9), MLX through Apple (LM-D6), an MCP client adapter, routing presets (LM-D10) | |
+| 7 | A response schema on a turn and a desk request; per-request routing and triage (LM-D11); the executor's catalog follows the provider | `store.rs`, `desk.rs`, `service.rs`, `categories.rs`, `executor.rs`, `koine-agent`, `koine-web/src/ask_page.rs`, `koine-host/src/tasks.rs` |
+| Later | Spotlight as a tool (LM-D9), MLX through Apple (LM-D6), an MCP client adapter | |
 
 The milestone is reached at packages 5 and 6, with the same `ChatRequest`,
 `ToolDefinition`, `ToolRunner` and test fixture on both backends.
