@@ -126,6 +126,47 @@ checkout, and the affected crates build and test. At the end koine `main` is
 pushed, impress-apps pins that revision, the `[patch]` is removed, and the
 full impress-apps Rust gate runs.
 
+## How a move lands
+
+The same steps for every package, so each one is reviewable and both
+repositories stay green.
+
+**In koine** (`/Users/tabel/Projects/koine`, branch `kit-moves`):
+
+1. Copy the crate into `crates/<name>` with `git mv`-like fidelity (keep its
+   module layout, docs and tests), add it to the root `members` and
+   `[workspace.dependencies]`, and add `koine-workspace-hack.workspace = true`
+   to its dependencies like every other member.
+2. Replace every `impress-core` / `SqliteItemStore` use with the port
+   (`impress_item::store::{ItemStore, AttributedStore}`) per KM-D2; anything
+   that has no port equivalent yet is a KM3 extension, not a reason to keep
+   SQLite.
+3. Move its tests and add backend tests over `koine-store-memory` and
+   `koine-store-dir`. Heavy dependencies go behind features (KM-D4).
+4. `cargo test -p <crate>` (with and without its features),
+   `cargo clippy --workspace --all-targets -- -D warnings`,
+   `cargo fmt --all --check`; commit.
+
+**In impress-apps** (`/Users/tabel/Projects/impress-apps`, branch
+`koine-kit-moves`, which builds koine from `../koine` by path):
+
+1. Remove the moved crate from `members` and delete its directory; point its
+   `[workspace.dependencies]` entry at `{ path = "../koine/crates/<name>" }`
+   (KM8 turns every such path into the pushed git rev), and add the same
+   path entry to `.config/hakari.toml`'s `third-party` exclusions.
+2. A module that left `impress-core` is re-exported there with the same path
+   (`pub use koine_triage::ops as triage_ops;`), and SQLite's faster
+   implementation stays in impress-core as the port impl.
+3. `cargo hakari generate`, `cargo check --workspace --all-targets`, the
+   tests of every crate that used the moved one, `./scripts/rust-gate.sh fmt`,
+   `./scripts/rust-gate.sh clippy auto`, `./scripts/check-kit-deps.sh --strict`,
+   `./scripts/check-uniffi-bindings.sh`; update verb docs/tests that count
+   verbs (`docs/verb-coverage.md`, `docs/verb-safety.md`, `docs/verb-effects.md`,
+   `crates/impress-capabilities/tests/effects.rs`) only if the inventory
+   changed; commit. Never set a private `CARGO_TARGET_DIR`; never bypass hooks.
+   Run `cargo test -p impress-capabilities` alone (feature unification with
+   other crates changes its verb census).
+
 ## Work packages
 
 | # | Package | Repos |
