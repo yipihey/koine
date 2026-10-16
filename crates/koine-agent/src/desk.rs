@@ -55,6 +55,28 @@ pub fn is_category_id(id: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-')
 }
 
+/// Largest serialized response schema a request may carry.
+pub const MAX_RESPONSE_SCHEMA_BYTES: usize = 32 * 1024;
+
+/// A response schema must be a JSON object schema (`"type": "object"`) of at
+/// most [`MAX_RESPONSE_SCHEMA_BYTES`]. Whether a provider can express it is
+/// the desk agent's to say.
+pub fn check_response_schema(schema: &Value) -> Result<(), DeskError> {
+    if schema.get("type").and_then(Value::as_str) != Some("object") {
+        return Err(DeskError::new(
+            "invalid-argument",
+            "response_schema must be a JSON object schema (\"type\": \"object\")",
+        ));
+    }
+    if schema.to_string().len() > MAX_RESPONSE_SCHEMA_BYTES {
+        return Err(DeskError::new(
+            "invalid-argument",
+            format!("response_schema is larger than {MAX_RESPONSE_SCHEMA_BYTES} bytes"),
+        ));
+    }
+    Ok(())
+}
+
 fn schema() -> SchemaRef {
     SchemaRef::from_stored(REQUEST.to_owned())
 }
@@ -109,6 +131,8 @@ pub fn row_of(item: &Item, with_context: bool) -> RequestRow {
         category: text(&p, "category"),
         routed_category: text(&p, "routed_category"),
         triage_model: text(&p, "triage_model"),
+        response_schema: p.get("response_schema").filter(|v| v.is_object()).cloned(),
+        answer_json: p.get("answer_json").filter(|v| !v.is_null()).cloned(),
         releases: p.get("releases").and_then(Value::as_u64).unwrap_or(0),
         release_reason: text(&p, "release_reason"),
         context: if with_context {
@@ -120,12 +144,14 @@ pub fn row_of(item: &Item, with_context: bool) -> RequestRow {
 }
 
 /// File a request.
+#[allow(clippy::too_many_arguments)]
 pub fn file(
     kind: &str,
     prompt: &str,
     context: Value,
     call_id: Option<&str>,
     category: Option<&str>,
+    response_schema: Option<Value>,
     author: String,
     author_kind: ActorKind,
 ) -> Result<RequestRow, DeskError> {
@@ -141,6 +167,9 @@ pub fn file(
     }
     if let Some(category) = category {
         payload.insert("category".to_string(), ItemValue::String(category.into()));
+    }
+    if let Some(schema) = response_schema {
+        payload.insert("response_schema".to_string(), to_item_value(schema));
     }
     let item = Item {
         id: ItemId::new_v4(),

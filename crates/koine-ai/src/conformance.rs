@@ -170,3 +170,84 @@ pub fn check_weather_turn(
     }
     Ok(())
 }
+
+/// The weather question as a queued turn with the answer schema, run through
+/// `AiTaskExecutor` over `provider` (store, executor and tool adapter, as a
+/// host runs them). Answers the stored assistant message parsed as JSON.
+/// `native` also installs the fixture as the native adapter, for a provider
+/// that runs its own tool loop.
+#[cfg(feature = "executor")]
+pub async fn run_structured_task(
+    provider: std::sync::Arc<dyn crate::InferenceProvider>,
+    model: &str,
+    native: bool,
+) -> std::result::Result<(Value, usize), String> {
+    use impress_item::item::{ActorKind, Value as CoreValue};
+    use koine_tasks::TaskExecutor;
+    use std::sync::Arc;
+
+    let directory = std::env::temp_dir().join(format!("koine-structured-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    let result = async {
+        let ai = Arc::new(
+            crate::AiStore::open_dir(
+                &directory.join("impress.sqlite"),
+                "test:structured",
+                ActorKind::Agent,
+            )
+            .map_err(|e| e.to_string())?,
+        );
+        let blobs = Arc::new(
+            crate::FileBlobStore::open(directory.join("blobs")).map_err(|e| e.to_string())?,
+        );
+        let conversation = ai
+            .create_conversation(crate::ConversationDraft {
+                model: model.into(),
+                tool_policy: crate::ToolPolicy {
+                    enabled: vec!["conformance".into()],
+                },
+                ..Default::default()
+            })
+            .map_err(|e| e.to_string())?;
+        let queued = ai
+            .queue_user_turn_with_format(
+                conversation,
+                crate::MessageDraft::user("What is the temperature in Paris in celsius?"),
+                Some(answer_schema()),
+            )
+            .map_err(|e| e.to_string())?;
+        let fixture = Arc::new(FixtureTools::default());
+        let mut executor = crate::AiTaskExecutor::with_provider(ai.clone(), provider, blobs)
+            .with_tool_adapter(fixture.clone());
+        if native {
+            executor = executor.with_native_tool_adapter(fixture.clone());
+        }
+        let task = ai
+            .shared_store()
+            .get(queued.task_id)
+            .map_err(|e| e.to_string())?
+            .ok_or("task missing")?;
+        executor
+            .execute(&task, &koine_tasks::ItemTaskStore::new(ai.shared_store()))
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        let snapshot = ai.snapshot(conversation).map_err(|e| e.to_string())?;
+        let body = snapshot
+            .messages
+            .iter()
+            .rev()
+            .find(|m| m.payload.get("role") == Some(&CoreValue::String("assistant".into())))
+            .and_then(|m| match m.payload.get("body") {
+                Some(CoreValue::String(body)) => Some(body.clone()),
+                _ => None,
+            })
+            .ok_or("no assistant message")?;
+        let answer: Value = serde_json::from_str(body.trim())
+            .map_err(|e| format!("answer is not JSON ({e}): {body:?}"))?;
+        let calls = fixture.weather_calls.lock().unwrap().len();
+        Ok((answer, calls))
+    }
+    .await;
+    let _ = std::fs::remove_dir_all(&directory);
+    result
+}

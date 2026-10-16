@@ -19,6 +19,7 @@ tracing = { workspace = true }
 koine-workspace-hack.workspace = true
 
 [dev-dependencies]
+koine-ai = { workspace = true, features = ["executor"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 
 [lints]

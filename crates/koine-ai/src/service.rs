@@ -408,6 +408,8 @@ pub trait ImpressAiService: Send + Sync + 'static {
         conversation_id: String,
         body: String,
         attachment_ids: Vec<String>,
+        response_schema: Option<serde_json::Value>,
+        response_schema_name: Option<String>,
     ) -> QueuedMessageResult;
 
     /// Replace the conversation's enabled tool-capability policy.
@@ -732,13 +734,22 @@ impl ImpressAiService for DefaultImpressAiService {
         conversation_id: String,
         body: String,
         attachment_ids: Vec<String>,
+        response_schema: Option<serde_json::Value>,
+        response_schema_name: Option<String>,
     ) -> QueuedMessageResult {
         let result = parse_id(&conversation_id, "conversation").and_then(|conversation_id| {
             let attachment_ids = parse_ids(attachment_ids, "attachment")?;
             let mut draft = MessageDraft::user(body);
             draft.attachment_ids = attachment_ids;
+            let format = response_schema.map(|schema| crate::ResponseFormat::JsonSchema {
+                name: response_schema_name
+                    .filter(|name| !name.is_empty())
+                    .unwrap_or_else(|| "answer".into()),
+                schema,
+                strict: true,
+            });
             self.ai
-                .queue_user_turn(conversation_id, draft)
+                .queue_user_turn_with_format(conversation_id, draft, format)
                 .map_err(|error| error.to_string())
         });
         match result {
@@ -1075,7 +1086,11 @@ impress_service_impl! {
             /// User message text; private content is redacted from public tool logs.
             #[impress_private] body: String,
             /// Existing content-blob UUIDs to attach, or an empty list.
-            attachment_ids: Vec<String>
+            attachment_ids: Vec<String>,
+            /// Optional JSON Schema (`"type": "object"`, at most 32 KiB) the answer must follow; every backend honours it, and the answer is JSON text.
+            response_schema: Option<serde_json::Value>,
+            /// Name for the schema (letters, digits, `_`, `-`; at most 64); defaults to `answer`.
+            response_schema_name: Option<String>
         ) -> QueuedMessageResult,
         set_enabled_tools(
             /// UUID of the conversation whose tool policy changes.
@@ -1352,7 +1367,13 @@ mod tests {
             "nothing configured: the historical default provider is recorded"
         );
         let queued = service
-            .queue_message(conversation_id.to_string(), "Find papers".into(), vec![])
+            .queue_message(
+                conversation_id.to_string(),
+                "Find papers".into(),
+                vec![],
+                None,
+                None,
+            )
             .await;
         assert!(queued.success);
         let status = service

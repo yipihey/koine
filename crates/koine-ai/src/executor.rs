@@ -1023,6 +1023,110 @@ mod tests {
         assert_eq!(provenance.outputs.len(), 1);
     }
 
+    /// A turn with a response schema, on a provider that cannot combine
+    /// tools with a schema: the tool rounds run without it and the answer is
+    /// the final tools-free round's JSON.
+    #[tokio::test]
+    async fn a_turn_with_a_schema_ends_in_the_json_answer() {
+        let directory = tempfile::tempdir().unwrap();
+        let ai = Arc::new(
+            AiStore::open_dir(
+                &directory.path().join("impress.sqlite"),
+                "test:schema",
+                ActorKind::Agent,
+            )
+            .unwrap(),
+        );
+        let blobs = Arc::new(FileBlobStore::open(directory.path().join("blobs")).unwrap());
+        let conversation = ai
+            .create_conversation(ConversationDraft {
+                model: "scripted-model".into(),
+                tool_policy: ToolPolicy {
+                    enabled: vec!["scix".into()],
+                },
+                ..Default::default()
+            })
+            .unwrap();
+        let format = crate::ResponseFormat::JsonSchema {
+            name: "papers".into(),
+            schema: json!({
+                "type": "object",
+                "properties": {"count": {"type": "integer"}},
+                "required": ["count"]
+            }),
+            strict: true,
+        };
+        let queued = ai
+            .queue_user_turn_with_format(
+                conversation,
+                MessageDraft::user("How many papers?"),
+                Some(format.clone()),
+            )
+            .unwrap();
+        let done = |reason: &str| StreamEvent::Done {
+            finish_reason: Some(reason.into()),
+        };
+        let provider = Arc::new(ScriptedProvider {
+            rounds: Mutex::new(VecDeque::from([
+                vec![
+                    StreamEvent::ToolCallDelta {
+                        index: 0,
+                        id: Some("call-1".into()),
+                        name: Some("scix".into()),
+                        arguments: r#"{"query":"stars"}"#.into(),
+                    },
+                    done("tool_calls"),
+                ],
+                vec![
+                    StreamEvent::Token {
+                        text: "Three.".into(),
+                    },
+                    done("stop"),
+                ],
+                vec![
+                    StreamEvent::Token {
+                        text: r#"{"count":3}"#.into(),
+                    },
+                    done("stop"),
+                ],
+            ])),
+            requests: Mutex::new(vec![]),
+        });
+        let executor = AiTaskExecutor::with_provider(ai.clone(), provider.clone(), blobs)
+            .with_tool_adapter(Arc::new(ScriptedTools));
+        let task = ai.shared_store().get(queued.task_id).unwrap().unwrap();
+        assert_eq!(
+            executor
+                .execute(&task, &koine_tasks::ItemTaskStore::new(ai.shared_store()))
+                .await
+                .unwrap(),
+            ExecutionOutcome::Complete
+        );
+
+        let requests = provider.requests.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        // Tool rounds: tools, no schema. Last round: the schema, no tools.
+        for round in &requests[..2] {
+            assert!(!round.tools.is_empty());
+            assert_eq!(round.response_format, None);
+        }
+        assert!(requests[2].tools.is_empty());
+        assert_eq!(requests[2].response_format, Some(format));
+        drop(requests);
+
+        let snapshot = ai.snapshot(conversation).unwrap();
+        let reply = snapshot
+            .messages
+            .iter()
+            .rev()
+            .find(|m| m.payload.get("role") == Some(&CoreValue::String("assistant".into())))
+            .expect("assistant message");
+        assert_eq!(
+            reply.payload.get("body"),
+            Some(&CoreValue::String(r#"{"count":3}"#.into()))
+        );
+    }
+
     #[tokio::test]
     async fn tool_limit_forces_a_final_tools_disabled_response() {
         let directory = tempfile::tempdir().unwrap();

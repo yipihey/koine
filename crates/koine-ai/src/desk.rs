@@ -262,7 +262,18 @@ impl DeskBridge {
         };
         let mut turn = MessageDraft::user(turn_for(request));
         turn.from = format!("agent-desk:{id}");
-        self.ai.queue_user_turn(conversation, turn)?;
+        // A request that asked for a structured answer rides on the turn.
+        // Triage never sees it: it has its own schema.
+        let format =
+            request["response_schema"]
+                .is_object()
+                .then(|| crate::ResponseFormat::JsonSchema {
+                    name: "answer".into(),
+                    schema: request["response_schema"].clone(),
+                    strict: true,
+                });
+        self.ai
+            .queue_user_turn_with_format(conversation, turn, format)?;
         Ok(conversation)
     }
 
@@ -1005,5 +1016,89 @@ mod tests {
         let (used, row) = routed_to(&fixed, "y", Some("agent.frontier")).await;
         assert_eq!(used, "omlx/fixed-model");
         assert_eq!(row["category"], "agent.frontier");
+    }
+
+    /// A request with a `response_schema`: the conversation's turn carries
+    /// it, the model's JSON answer becomes the request's answer and
+    /// `answer_json`; a request without one gets no `answer_json`.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_response_schema_rides_the_turn_and_the_json_answer_is_parsed() {
+        use koine_tasks::TaskExecutor;
+        let _turn = TURN.lock().await;
+        let ai = fresh_desk();
+        let schema = json!({
+            "type": "object",
+            "properties": {"city": {"type": "string"}, "temperature": {"type": "integer"}},
+            "required": ["city", "temperature"]
+        });
+        let asked = call::call_async(
+            "agent-service_ask",
+            json!({"prompt": "Weather in Paris?", "with_context": false, "response_schema": schema}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(asked["request"]["response_schema"], schema, "{asked}");
+        let id = asked["request"]["id"].as_str().unwrap().to_string();
+        let plain = call::call_async(
+            "agent-service_ask",
+            json!({"prompt": "No schema", "with_context": false}),
+        )
+        .await
+        .unwrap();
+        assert!(plain["request"].get("response_schema").is_none());
+
+        let bridge =
+            DeskBridge::new(ai.clone(), "omlx".into(), "test-model".into()).as_agent("desk-test");
+        assert_eq!(bridge.pass().await.unwrap().started, 2);
+        let conversation = bridge.conversation_for(&id).unwrap().expect("tagged");
+        let snapshot = ai.snapshot(conversation.id).unwrap();
+        let provider = Triage::new(vec![Ok(r#"{"city":"Paris","temperature":18}"#)]);
+        let blobs = Arc::new(
+            crate::FileBlobStore::open(tempfile::tempdir().unwrap().keep().join("blobs")).unwrap(),
+        );
+        let executor = crate::AiTaskExecutor::with_provider(ai.clone(), provider.clone(), blobs);
+        let task = ai
+            .shared_store()
+            .get(snapshot.pending_tasks[0].id)
+            .unwrap()
+            .unwrap();
+        executor
+            .execute(&task, &koine_tasks::ItemTaskStore::new(ai.shared_store()))
+            .await
+            .unwrap();
+        // The scheduler marks the task done; here that is by hand.
+        impress_item::ItemStore::update(
+            ai.shared_store().as_ref(),
+            task.id,
+            vec![impress_item::FieldMutation::SetPayload(
+                "state".into(),
+                impress_item::Value::String("complete".into()),
+            )],
+        )
+        .unwrap();
+        match &provider.asked.lock().unwrap()[0].response_format {
+            Some(ResponseFormat::JsonSchema {
+                name,
+                schema: sent,
+                strict,
+            }) => {
+                assert_eq!(name, "answer");
+                assert_eq!(sent, &schema);
+                assert!(strict);
+            }
+            other => panic!("the turn did not carry the schema: {other:?}"),
+        }
+
+        assert_eq!(bridge.pass().await.unwrap().answered, 1);
+        let answered = call::call_async("agent-service_requests", json!({"status": "answered"}))
+            .await
+            .unwrap();
+        let row = &answered["rows"][0];
+        assert_eq!(row["id"], id.as_str());
+        assert_eq!(row["answer"], r#"{"city":"Paris","temperature":18}"#);
+        assert_eq!(
+            row["answer_json"],
+            json!({"city": "Paris", "temperature": 18})
+        );
     }
 }

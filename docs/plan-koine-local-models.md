@@ -293,10 +293,14 @@ Tests assert properties, not model wording.
 
 ## Open
 
+- Nothing of the plan's seven packages is undone. The live structured-turn test
+  runs at store and executor level, not through the desk bridge and a real model.
 - A llama.cpp CI job: the model is chosen (Qwen3-4B-Instruct-2507 Q4_K_M
   works, see package 5); the job itself, with a cached GGUF, is not added.
 
 ## Status
+
+All seven packages are done and merged to `main` (2026-10-16).
 
 - **Package 1 done** on branch `local-models`. `agent_loop.rs` holds the loop,
   with `ToolCall`, `ToolOutcome`, `ToolRunner`, `LoopObserver` and
@@ -415,7 +419,7 @@ Tests assert properties, not model wording.
     then `KOINE_TEST_LLAMACPP_URL` set for `cargo test -p koine-ai --test
     conformance live_llama_cpp`. CPU-only is slow but this fixture is a few
     short turns. Not added here.
-- **Package 7a done** (LM-D11; the response schema on a turn is still to come).
+- **Package 7a done** (LM-D11; the response schema on a turn came in 7b).
   `agent-service_ask` takes `category` (shape-checked in `koine-agent`, which
   cannot depend on `koine-ai`; the desk checks it against the table and the
   installed categories); `RequestRow` gains `category`, `routed_category` and
@@ -461,3 +465,40 @@ Tests assert properties, not model wording.
     `agent.frontier`), 0.4-0.9 s each.
   - **Downstream:** impress-apps keeps `DeskBridge::new` working; `impel-taskd`
     may move to `with_registry`. `TaskRuntime` and `Config` gain `native_tools`.
+- **Package 7b done** on branch `local-models`; package 7 is complete. A turn
+  carries a response schema: `AiStore::queue_user_turn_with_format(conversation,
+  draft, Option<ResponseFormat>)` stores it on the queued task
+  (`response_format`, a JSON string; old tasks without it read as none) and
+  `prepare_request` puts it on `ChatRequest.response_format`, so
+  `agent_loop` holds it back for the final tools-free round when
+  `structured_with_tools` is false and Apple takes it natively.
+  `queue_user_turn` is unchanged (no format). A `JsonSchema` is validated at
+  queue time (`store::validate_response_format`): name `[A-Za-z0-9_-]`, 1-64
+  characters, `type: object`, at most 32 KiB serialized, else `Error::Invalid`.
+  `impress-ai-service_queue-message` gains optional `response_schema` and
+  `response_schema_name` (default `answer`), mapped to `JsonSchema { strict:
+  true }`. `agent-service_ask` gains optional `response_schema` (koine-agent
+  checks the shape only: an object with `"type": "object"`, at most 32 KiB, else
+  `invalid-argument`); `RequestRow` gains `response_schema` and `answer_json`
+  (both skipped when absent). `DeskBridge` passes the request's schema into the
+  conversation's turn (name `answer`); triage never carries it. The answer is the
+  model's final content; `agent-service_answer` also stores it parsed as
+  `answer_json` when the request had a schema and the text is JSON (a request
+  with no schema never gets `answer_json`). `/ask` shows `answer_json`
+  pretty-printed in a code block. Tests: `koine-ai` with `--features
+  executor`: store round-trip and old-row read, invalid schemas refused, the
+  executor ends a schema turn in the JSON answer (tool rounds without the
+  schema, last round the schema and no tools), the desk end to end (ask with a
+  schema, the turn carries it, the scripted JSON answer becomes `answer` and
+  `answer_json`); `koine-agent`: shape check, parsed answer, old rows.
+  - **Live** (store and executor level, `conformance::run_structured_task`: a
+    queued weather turn with the answer schema and the fixture tool, run by
+    `AiTaskExecutor`; not at the desk): Apple on-device
+    (`KOINE_TEST_APPLE_FM=1`, `koine-ai-apple` test `structured`, 1.8 s, one
+    `weather_lookup`, `temperature` 18) and llama-server with Qwen3-4B
+    (`KOINE_TEST_LLAMACPP_URL`, `live_llama_cpp_structured_task`, 0.9 s, same).
+  - **Downstream:** impress-apps calls of `queue_message` (the trait method) need
+    two more arguments (`None, None`); `agent-service_ask` callers through the
+    trait need one more (`response_schema`); `RequestRow` struct literals need
+    `response_schema` and `answer_json`; `DeskRow` in the web page has
+    `answer_json`. Verb callers by name are unaffected (the arguments are optional).

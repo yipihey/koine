@@ -83,6 +83,9 @@ pub struct DeskRow {
     pub category: Option<String>,
     /// The category the desk's triage chose for a question with none.
     pub routed_category: Option<String>,
+    /// The answer parsed and pretty-printed, when the question asked for a
+    /// structured one.
+    pub answer_json: Option<String>,
 }
 
 impl DeskRow {
@@ -119,6 +122,10 @@ pub fn desk_rows(answer: &Value) -> Vec<DeskRow> {
                     claimed_by: text(row, "claimed_by"),
                     category: text(row, "category"),
                     routed_category: text(row, "routed_category"),
+                    answer_json: row
+                        .get("answer_json")
+                        .filter(|v| !v.is_null())
+                        .and_then(|v| serde_json::to_string_pretty(v).ok()),
                 })
                 .collect()
         })
@@ -299,7 +306,9 @@ pub fn AskPage(about: String) -> Element {
                                 }
                             }
                             div { "{row.prompt}" }
-                            if let Some(answer) = &row.answer {
+                            if let Some(json) = &row.answer_json {
+                                pre { class: "kw-desk-answer", code { "{json}" } }
+                            } else if let Some(answer) = &row.answer {
                                 p { class: "kw-desk-answer", "{answer}" }
                             }
                             if let Some(surface) = &row.surface_id {
@@ -366,5 +375,13 @@ mod tests {
         assert_eq!(placed[0].placed().as_deref(), Some("agent.frontier"));
         assert_eq!(placed[1].placed().as_deref(), Some("routed to agent"));
         assert!(desk_rows(&json!({"ok": true})).is_empty());
+        let structured = desk_rows(&json!({"rows": [
+            {"id": "r5", "answer": "{\"n\":3}", "answer_json": {"n": 3}}
+        ]}));
+        assert_eq!(
+            structured[0].answer_json.as_deref(),
+            Some("{\n  \"n\": 3\n}")
+        );
+        assert_eq!(rows[0].answer_json, None);
     }
 }

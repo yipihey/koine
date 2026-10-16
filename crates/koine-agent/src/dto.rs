@@ -100,6 +100,14 @@ pub struct RequestRow {
     /// The model that triaged it, as `provider/model`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub triage_model: Option<String>,
+    /// The JSON Schema (an object schema) the answer must follow; the desk
+    /// agent passes it to the model as the turn's response format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_schema: Option<Value>,
+    /// The answer parsed, when the request had a `response_schema` and the
+    /// answer is JSON.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer_json: Option<Value>,
     /// What the agent needs to act: the pointing context, a call record, the
     /// kinds and verbs to build with.
     #[serde(default)]

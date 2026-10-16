@@ -434,3 +434,36 @@ async fn live_llama_cpp() {
         outcome.content
     );
 }
+
+/// A queued turn with a response schema, through the store and the executor
+/// (not just the loop): the stored assistant message is the JSON answer.
+#[cfg(feature = "executor")]
+#[tokio::test]
+async fn live_llama_cpp_structured_task() {
+    let Ok(url) = std::env::var("KOINE_TEST_LLAMACPP_URL") else {
+        eprintln!("KOINE_TEST_LLAMACPP_URL not set; skipping");
+        return;
+    };
+    let client = OpenAiCompatibleClient::new(Dialect::LlamaCpp, url, None, "conformance")
+        .unwrap()
+        .with_provider_id(LLAMA_CPP_ID);
+    let model = match std::env::var("KOINE_TEST_MODEL") {
+        Ok(model) => model,
+        Err(_) => client.models().await.unwrap()[0].id.clone(),
+    };
+    let started = std::time::Instant::now();
+    let (answer, calls) =
+        conformance::run_structured_task(std::sync::Arc::new(client), &model, false)
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+    eprintln!(
+        "llama.cpp structured task: {:?}, {calls} call(s), {answer}",
+        started.elapsed()
+    );
+    assert!(calls >= 1, "the tool was never called");
+    assert!(
+        answer["city"].is_string() && answer["summary"].is_string(),
+        "{answer}"
+    );
+    assert_eq!(answer["temperature"].as_i64(), Some(18), "{answer}");
+}

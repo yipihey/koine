@@ -245,6 +245,73 @@ fn a_request_keeps_the_category_it_was_asked_with() {
     assert_eq!(old.category, None);
 }
 
+/// A request may carry a response schema; it is shape-checked, kept on the
+/// row, and an answer that is JSON is also given parsed. An old row without
+/// either still reads.
+#[test]
+fn a_request_keeps_its_response_schema_and_a_json_answer_is_parsed() {
+    let _turn = fresh();
+    let schema = json!({"type": "object", "properties": {"n": {"type": "integer"}}});
+    let asked = verb(
+        "agent-service_ask",
+        json!({"prompt": "How many?", "with_context": false, "response_schema": schema}),
+    );
+    assert_eq!(asked["ok"], true, "{asked}");
+    assert_eq!(asked["request"]["response_schema"], schema);
+    let id = asked["request"]["id"].as_str().unwrap().to_string();
+    let listed = verb("agent-service_requests", json!({"status": "open"}));
+    assert_eq!(listed["rows"][0]["response_schema"], schema);
+
+    let answered = verb(
+        "agent-service_answer",
+        json!({"id": id, "text": " {\"n\": 3} "}),
+    );
+    assert_eq!(answered["request"]["answer"], "{\"n\": 3}", "{answered}");
+    assert_eq!(answered["request"]["answer_json"], json!({"n": 3}));
+
+    // Prose from a request that wanted a schema: the text, no answer_json.
+    let asked = verb(
+        "agent-service_ask",
+        json!({"prompt": "Again", "with_context": false, "response_schema": schema}),
+    );
+    let id = asked["request"]["id"].as_str().unwrap().to_string();
+    let prose = verb("agent-service_answer", json!({"id": id, "text": "three"}));
+    assert!(prose["request"].get("answer_json").is_none(), "{prose}");
+
+    // A request without a schema never gets answer_json.
+    let asked = verb(
+        "agent-service_ask",
+        json!({"prompt": "Plain", "with_context": false}),
+    );
+    let id = asked["request"]["id"].as_str().unwrap().to_string();
+    let plain = verb(
+        "agent-service_answer",
+        json!({"id": id, "text": "{\"n\": 3}"}),
+    );
+    assert!(plain["request"].get("answer_json").is_none(), "{plain}");
+    assert!(plain["request"].get("response_schema").is_none());
+
+    for bad in [
+        json!({"type": "array"}),
+        json!(["type", "object"]),
+        json!({"properties": {}}),
+        json!({"type": "object", "description": "x".repeat(33 * 1024)}),
+    ] {
+        let refused = verb(
+            "agent-service_ask",
+            json!({"prompt": "x", "with_context": false, "response_schema": bad}),
+        );
+        assert_eq!(refused["code"], "invalid-argument", "{refused}");
+    }
+
+    let old: koine_agent::dto::RequestRow = serde_json::from_value(json!({
+        "id": "1", "kind": "ask", "prompt": "p", "status": "open",
+        "created_by": "me", "created_at": "now"
+    }))
+    .unwrap();
+    assert_eq!((old.response_schema, old.answer_json), (None, None));
+}
+
 /// An agent that could not start gives the request back instead of
 /// declining it: open again for any agent, with the try counted. Only the
 /// claimant may release, and only a claimed request.

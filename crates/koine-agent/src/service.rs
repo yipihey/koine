@@ -58,7 +58,10 @@ pub trait AgentService: Send + Sync + 'static {
     /// host's when absent. `category` names a task category (for example
     /// `agent.frontier`, the strongest model) whose assigned model answers
     /// it; without one the desk may route it. Refuses an empty prompt and a
-    /// malformed category.
+    /// malformed category. `response_schema` (an object schema, at most 32 KiB)
+    /// asks for a structured answer: the desk agent passes it to the model, the
+    /// answer is JSON text, and the request row also carries it parsed as
+    /// `answer_json`.
     #[impress_method(
         safety = mutating,
         effects(
@@ -82,6 +85,7 @@ pub trait AgentService: Send + Sync + 'static {
         surface_id: Option<String>,
         app_id: Option<String>,
         category: Option<String>,
+        response_schema: Option<Value>,
     ) -> RequestResult;
 
     /// Hand a call to an agent: a `diagnose` request whose context is the
@@ -256,6 +260,7 @@ fn file(
     context: Value,
     call_id: Option<&str>,
     category: Option<&str>,
+    response_schema: Option<Value>,
 ) -> RequestResult {
     let who = caller();
     filed(desk::file(
@@ -264,6 +269,7 @@ fn file(
         context,
         call_id,
         category,
+        response_schema,
         who.author(),
         actor_kind(&who),
     ))
@@ -294,6 +300,7 @@ impl AgentService for DefaultAgentService {
         surface_id: Option<String>,
         app_id: Option<String>,
         category: Option<String>,
+        response_schema: Option<Value>,
     ) -> RequestResult {
         let prompt = prompt.trim();
         if prompt.is_empty() {
@@ -312,6 +319,12 @@ impl AgentService for DefaultAgentService {
                 ))
             }
         };
+        let response_schema = response_schema.filter(|s| !s.is_null());
+        if let Some(schema) = &response_schema {
+            if let Err(e) = desk::check_response_schema(schema) {
+                return refused(e);
+            }
+        }
         let pointing = if with_context.unwrap_or(true) {
             let app_id = app_id
                 .filter(|a| !a.trim().is_empty())
@@ -335,6 +348,7 @@ impl AgentService for DefaultAgentService {
             ),
             None,
             category.as_deref(),
+            response_schema,
         )
     }
 
@@ -388,6 +402,7 @@ impl AgentService for DefaultAgentService {
             ),
             entry["call_id"].as_str(),
             None,
+            None,
         )
     }
 
@@ -434,6 +449,7 @@ impl AgentService for DefaultAgentService {
                     ],
                 }),
             ),
+            None,
             None,
             None,
         )
@@ -507,6 +523,12 @@ impl AgentService for DefaultAgentService {
         ];
         if let Some(surface) = surface_id.filter(|s| !s.trim().is_empty()) {
             fields.push(("surface_id", json!(surface.trim())));
+        }
+        // A request that asked for a schema gets the answer parsed too.
+        if desk::get(&id).is_ok_and(|i| desk::row_of(&i, false).response_schema.is_some()) {
+            if let Ok(parsed) = serde_json::from_str::<Value>(text.trim()) {
+                fields.push(("answer_json", parsed));
+            }
         }
         filed(desk::transition(
             &id,
@@ -602,7 +624,9 @@ impress_service_impl! {
             /// The app whose layout (focus, selection) is the context; this host's when absent.
             app_id: Option<String>,
             /// A task-category id (for example agent.frontier for the strongest model); the desk routes it when absent.
-            category: Option<String>
+            category: Option<String>,
+            /// A JSON object schema ("type": "object", at most 32 KiB) the answer must follow; the answer is then JSON text, also given parsed as answer_json.
+            response_schema: Option<serde_json::Value>
         ) -> RequestResult,
         /// Hand a logged call to an agent.
         diagnose(

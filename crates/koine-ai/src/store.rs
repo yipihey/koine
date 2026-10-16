@@ -19,8 +19,8 @@ use uuid::Uuid;
 use crate::blob::{BlobDescriptor, BlobStore};
 use crate::research::ResearchContext;
 use crate::types::{
-    ChatRequest, CompletionRecord, ImageUrl, InputAudio, ModelContentPart, ModelMessage, Role,
-    StoredAttachment, ToolDefinition, ToolInvocationRecord, ToolPolicy,
+    ChatRequest, CompletionRecord, ImageUrl, InputAudio, ModelContentPart, ModelMessage,
+    ResponseFormat, Role, StoredAttachment, ToolDefinition, ToolInvocationRecord, ToolPolicy,
 };
 use crate::{Error, Result};
 
@@ -549,8 +549,28 @@ impl AiStore {
     pub fn queue_user_turn(
         &self,
         conversation_id: ItemId,
-        mut draft: MessageDraft,
+        draft: MessageDraft,
     ) -> Result<QueuedTurn> {
+        self.queue_user_turn_with_format(conversation_id, draft, None)
+    }
+
+    /// [`Self::queue_user_turn`] with a response format the turn must answer
+    /// in. It is stored on the task, so a host that picks the task up later
+    /// still honours it. A `JsonSchema` is validated here (name, object
+    /// schema, size); `None` and `Text` store nothing.
+    pub fn queue_user_turn_with_format(
+        &self,
+        conversation_id: ItemId,
+        mut draft: MessageDraft,
+        response_format: Option<ResponseFormat>,
+    ) -> Result<QueuedTurn> {
+        let response_format = match response_format {
+            None | Some(ResponseFormat::Text) => None,
+            Some(format) => {
+                validate_response_format(&format)?;
+                Some(format)
+            }
+        };
         self.require_item(conversation_id, CONVERSATION_SCHEMA)?;
         if draft.role != Role::User {
             return Err(Error::Invalid("queued turns must have role=user".into()));
@@ -587,6 +607,15 @@ impl AiStore {
             "output_schema".into(),
             Value::String(CHAT_MESSAGE_SCHEMA.into()),
         );
+        if let Some(format) = &response_format {
+            task_payload.insert(
+                "response_format".into(),
+                Value::String(
+                    serde_json::to_string(format)
+                        .map_err(|error| Error::Invalid(error.to_string()))?,
+                ),
+            );
+        }
         let mut task = self.item(
             TASK_SCHEMA,
             task_payload,
@@ -846,6 +875,8 @@ impl AiStore {
             thinking: payload_bool(&conversation, "thinking").unwrap_or(false),
             tools,
             tool_policy,
+            response_format: payload_string(&task, "response_format")
+                .and_then(|text| serde_json::from_str(&text).ok()),
             ..Default::default()
         };
         request.validate()?;
@@ -1590,6 +1621,38 @@ fn normalized_conversation_title(title: &str) -> Result<String> {
     Ok(title)
 }
 
+/// Largest serialized schema a turn or desk request may carry.
+pub const MAX_RESPONSE_SCHEMA_BYTES: usize = 32 * 1024;
+
+/// A `JsonSchema` needs a short `[A-Za-z0-9_-]` name and an object schema
+/// within [`MAX_RESPONSE_SCHEMA_BYTES`].
+pub fn validate_response_format(format: &ResponseFormat) -> Result<()> {
+    let ResponseFormat::JsonSchema { name, schema, .. } = format else {
+        return Ok(());
+    };
+    if name.is_empty()
+        || name.len() > 64
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(Error::Invalid(
+            "response schema name must be 1-64 characters of A-Z a-z 0-9 _ -".into(),
+        ));
+    }
+    if schema.get("type").and_then(|t| t.as_str()) != Some("object") {
+        return Err(Error::Invalid(
+            "response schema must be an object schema (\"type\": \"object\")".into(),
+        ));
+    }
+    if schema.to_string().len() > MAX_RESPONSE_SCHEMA_BYTES {
+        return Err(Error::Invalid(format!(
+            "response schema is larger than {MAX_RESPONSE_SCHEMA_BYTES} bytes"
+        )));
+    }
+    Ok(())
+}
+
 fn insert_optional_string(payload: &mut BTreeMap<String, Value>, key: &str, value: Option<String>) {
     if let Some(value) = value.filter(|value| !value.is_empty()) {
         payload.insert(key.into(), Value::String(value));
@@ -1776,6 +1839,83 @@ mod tests {
             .iter()
             .any(|reference| reference.target == turn.message_id
                 && reference.edge_type == EdgeType::OperatesOn));
+    }
+
+    fn weather_format() -> ResponseFormat {
+        ResponseFormat::JsonSchema {
+            name: "weather".into(),
+            schema: serde_json::json!({
+                "type": "object",
+                "properties": {"temperature": {"type": "integer"}},
+                "required": ["temperature"]
+            }),
+            strict: true,
+        }
+    }
+
+    #[test]
+    fn a_queued_turn_keeps_its_response_format_and_old_rows_read_without_one() {
+        let (_directory, store, blobs) = harness();
+        let conversation = store
+            .create_conversation(ConversationDraft {
+                model: "m".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let plain = store
+            .queue_user_turn(conversation, MessageDraft::user("hi"))
+            .unwrap();
+        let prepared = store
+            .prepare_request(plain.task_id, &blobs, &BTreeMap::new())
+            .unwrap();
+        assert_eq!(prepared.request.response_format, None);
+
+        let structured = store
+            .queue_user_turn_with_format(
+                conversation,
+                MessageDraft::user("weather?"),
+                Some(weather_format()),
+            )
+            .unwrap();
+        let prepared = store
+            .prepare_request(structured.task_id, &blobs, &BTreeMap::new())
+            .unwrap();
+        assert_eq!(prepared.request.response_format, Some(weather_format()));
+        // The earlier turn is unaffected.
+        let prepared = store
+            .prepare_request(plain.task_id, &blobs, &BTreeMap::new())
+            .unwrap();
+        assert_eq!(prepared.request.response_format, None);
+    }
+
+    #[test]
+    fn invalid_response_schemas_are_refused() {
+        let (_directory, store, _blobs) = harness();
+        let conversation = store
+            .create_conversation(ConversationDraft {
+                model: "m".into(),
+                ..Default::default()
+            })
+            .unwrap();
+        let queue = |format: ResponseFormat| {
+            store.queue_user_turn_with_format(conversation, MessageDraft::user("x"), Some(format))
+        };
+        let with = |name: &str, schema: serde_json::Value| ResponseFormat::JsonSchema {
+            name: name.into(),
+            schema,
+            strict: true,
+        };
+        let object = serde_json::json!({"type": "object"});
+        assert!(queue(with("", object.clone())).is_err());
+        assert!(queue(with("has space", object.clone())).is_err());
+        assert!(queue(with(&"a".repeat(65), object.clone())).is_err());
+        assert!(queue(with("ok", serde_json::json!({"type": "array"}))).is_err());
+        assert!(queue(with("ok", serde_json::json!(true))).is_err());
+        let huge = serde_json::json!({"type": "object", "description": "x".repeat(33 * 1024)});
+        assert!(matches!(queue(with("ok", huge)), Err(Error::Invalid(_))));
+        assert!(queue(with("ok_1-2", object)).is_ok());
+        // Nothing was queued by the refusals.
+        assert_eq!(store.snapshot(conversation).unwrap().messages.len(), 1);
     }
 
     #[test]
