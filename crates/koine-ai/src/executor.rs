@@ -1,21 +1,22 @@
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use impress_item::item::{Item, Value as CoreValue};
+use impress_item::item::{Item, ItemId, Value as CoreValue};
 use koine_tasks::{ExecutionOutcome, TaskError, TaskExecutor, TaskStoreApi};
-use serde_json::{json, Value};
 
+use crate::agent_loop::{self, AdapterToolRunner, LoopError, LoopObserver, ToolRunner};
 use crate::blob::BlobStore;
 use crate::registry::{AiRegistry, ResolveTarget};
 use crate::research::ResearchContextProvider;
 use crate::store::{AiStore, PreparedTurn, INFERENCE_TASK_KIND, TITLE_SUGGESTION_TASK_KIND};
-use crate::tools::{ToolAdapter, ToolCallAccumulator};
+use crate::tools::ToolAdapter;
 use crate::types::{
-    CompletionRecord, ModelContentPart, ModelMessage, ModelToolCall, Role, StreamEvent,
-    ToolDefinition, ToolInvocationRecord,
+    CompletionRecord, ModelContentPart, ModelMessage, Role, StreamEvent, ToolDefinition,
+    ToolInvocationRecord,
 };
 use crate::{Error, InferenceProvider, OmlxClient};
 
@@ -286,182 +287,49 @@ impl TaskExecutor for AiTaskExecutor {
         }
 
         let started = Instant::now();
-        let mut request = prepared.request.clone();
-        let mut completion = CompletionRecord::default();
-        let mut completed = false;
-        let previews_allowed = request.tools.is_empty();
-        let mut preview_published = false;
-
-        // Allow the configured number of tool-using turns, then make one
-        // tools-disabled request so the model must synthesize a user-facing
-        // answer from the evidence it has already collected.
-        for round in 0..=self.max_tool_rounds {
-            let mut stream = match client.stream(request.clone()).await {
-                Ok(stream) => stream,
-                Err(error) => {
-                    let _ = self.ai.record_run_failure(run_id, &error.to_string());
-                    return Err(classify_transport(error));
-                }
-            };
-            let mut round_content = String::new();
-            let mut round_reasoning = String::new();
-            let mut calls = ToolCallAccumulator::default();
-            while let Some(event) = stream.next().await {
-                let event = match event {
-                    Ok(event) => event,
-                    Err(error) => {
-                        let _ = self.ai.record_run_failure(run_id, &error.to_string());
-                        return Err(classify_transport(error));
-                    }
-                };
-                match event {
-                    StreamEvent::Token { text } => {
-                        round_content.push_str(&text);
-                        if previews_allowed && !preview_published {
-                            if let Some(preview) = response_preview(&round_content) {
-                                self.ai
-                                    .record_run_preview(
-                                        run_id,
-                                        preview.text,
-                                        preview.paragraph_complete,
-                                    )
-                                    .map_err(permanent)?;
-                                preview_published = true;
-                            }
-                        }
-                    }
-                    StreamEvent::Reasoning { text } => round_reasoning.push_str(&text),
-                    StreamEvent::Usage { usage } => completion.usage = Some(usage),
-                    StreamEvent::Done { finish_reason } => {
-                        if finish_reason.is_some() {
-                            completion.finish_reason = finish_reason;
-                        }
-                    }
-                    StreamEvent::ToolCallDelta {
-                        index,
-                        id,
-                        name,
-                        arguments,
-                    } => calls.push(index, id, name, arguments),
-                    StreamEvent::Error { error } => {
-                        let _ = self.ai.record_run_failure(run_id, &error);
-                        return Err(TaskError::Retryable(error));
-                    }
-                }
+        let observer = RunObserver {
+            ai: &self.ai,
+            run_id,
+            task_id: task.id,
+            preview_published: AtomicBool::new(false),
+        };
+        let adapter_runner = self.tool_adapter.as_ref().map(|adapter| AdapterToolRunner {
+            adapter: adapter.as_ref(),
+            observer: &observer,
+        });
+        let runner = adapter_runner
+            .as_ref()
+            .map(|runner| runner as &dyn ToolRunner);
+        let outcome = agent_loop::run(
+            client.as_ref(),
+            prepared.request.clone(),
+            runner,
+            &observer,
+            self.max_tool_rounds,
+        )
+        .await
+        .map_err(|error| match error {
+            LoopError::Transport(error) => {
+                let _ = self.ai.record_run_failure(run_id, &error.to_string());
+                classify_transport(error)
             }
-            if !round_reasoning.is_empty() {
-                if !completion.reasoning.is_empty() {
-                    completion.reasoning.push_str("\n\n");
-                }
-                completion.reasoning.push_str(&round_reasoning);
-            }
-            let pending = calls.finish().map_err(permanent)?;
-            if pending.is_empty() {
-                completion.content = round_content;
-                completed = true;
-                break;
-            }
-            if round == self.max_tool_rounds {
-                let error = format!(
-                    "model requested a tool after the {}-round tool limit",
-                    self.max_tool_rounds
-                );
+            LoopError::Stream(error) => {
                 let _ = self.ai.record_run_failure(run_id, &error);
-                return Err(TaskError::Permanent(error));
+                TaskError::Retryable(error)
             }
-            let Some(adapter) = &self.tool_adapter else {
-                let error = "model requested a tool, but no tool execution adapter is installed";
-                let _ = self.ai.record_run_failure(run_id, error);
-                return Err(TaskError::Permanent(error.into()));
-            };
-
-            request.messages.push(ModelMessage {
-                role: Role::Assistant,
-                content: if round_content.is_empty() {
-                    vec![]
-                } else {
-                    vec![ModelContentPart::Text {
-                        text: round_content,
-                    }]
-                },
-                name: None,
-                tool_call_id: None,
-                tool_calls: pending
-                    .iter()
-                    .map(|call| ModelToolCall {
-                        id: call.id.clone(),
-                        name: call.name.clone(),
-                        arguments: call.arguments.clone(),
-                    })
-                    .collect(),
-            });
-
-            for call in pending {
-                let arguments: Value = serde_json::from_str(&call.arguments).map_err(|error| {
-                    permanent(Error::Invalid(format!(
-                        "{} returned invalid tool arguments: {error}",
-                        call.name
-                    )))
-                })?;
-                let call_started = Instant::now();
-                let outcome = adapter.call(&call.name, arguments.clone()).await;
-                let duration_ms = Some(
-                    call_started
-                        .elapsed()
-                        .as_millis()
-                        .try_into()
-                        .unwrap_or(u64::MAX),
-                );
-                let (tool_content, result, error) = match outcome {
-                    Ok(value) => {
-                        let content = value.to_string();
-                        (content, Some(json_object_to_core(value)), None)
-                    }
-                    Err(error) => {
-                        let message = error.to_string();
-                        (json!({ "error": message }).to_string(), None, Some(message))
-                    }
-                };
-                self.ai
-                    .record_tool_invocation(
-                        run_id,
-                        task.id,
-                        ToolInvocationRecord {
-                            tool: call.name.clone(),
-                            provider: adapter.provider_id(&call.name),
-                            arguments: json_object_to_core(arguments),
-                            result,
-                            result_summary: Some(tool_content.chars().take(500).collect()),
-                            error,
-                            duration_ms,
-                        },
-                    )
-                    .map_err(permanent)?;
-                request.messages.push(ModelMessage {
-                    role: Role::Tool,
-                    content: vec![ModelContentPart::Text { text: tool_content }],
-                    name: Some(call.name),
-                    tool_call_id: Some(call.id),
-                    tool_calls: vec![],
-                });
+            LoopError::Exhausted(error) => {
+                let _ = self.ai.record_run_failure(run_id, &error);
+                TaskError::Permanent(error)
             }
-
-            if round + 1 == self.max_tool_rounds {
-                request.tools.clear();
-                request.messages.push(ModelMessage::text(
-                    Role::System,
-                    "The tool-use limit has been reached. Answer the user now using the evidence \
-                     already collected. Do not request more tools. Clearly state any remaining \
-                     uncertainty.",
-                ));
-            }
-        }
-
-        if !completed {
-            let error = "model did not produce a terminal response";
-            let _ = self.ai.record_run_failure(run_id, error);
-            return Err(TaskError::Permanent(error.into()));
-        }
+            LoopError::Invalid(error) | LoopError::Tool(error) => permanent(error),
+        })?;
+        let mut completion = CompletionRecord {
+            content: outcome.content,
+            reasoning: outcome.reasoning,
+            usage: outcome.usage,
+            finish_reason: outcome.finish_reason,
+            ..CompletionRecord::default()
+        };
         completion.duration_ms = Some(started.elapsed().as_millis().try_into().unwrap_or(u64::MAX));
         self.ai
             .record_completion(&prepared, run_id, completion)
@@ -612,36 +480,6 @@ fn suggested_title(content: &str) -> crate::Result<String> {
     Ok(title.chars().take(120).collect())
 }
 
-fn json_object_to_core(value: Value) -> BTreeMap<String, CoreValue> {
-    match value {
-        Value::Object(values) => values
-            .into_iter()
-            .map(|(key, value)| (key, json_to_core(value)))
-            .collect(),
-        other => BTreeMap::from([("value".into(), json_to_core(other))]),
-    }
-}
-
-fn json_to_core(value: Value) -> CoreValue {
-    match value {
-        Value::Null => CoreValue::Null,
-        Value::Bool(value) => CoreValue::Bool(value),
-        Value::Number(value) => value
-            .as_i64()
-            .map(CoreValue::Int)
-            .or_else(|| value.as_f64().map(CoreValue::Float))
-            .unwrap_or(CoreValue::Null),
-        Value::String(value) => CoreValue::String(value),
-        Value::Array(values) => CoreValue::Array(values.into_iter().map(json_to_core).collect()),
-        Value::Object(values) => CoreValue::Object(
-            values
-                .into_iter()
-                .map(|(key, value)| (key, json_to_core(value)))
-                .collect(),
-        ),
-    }
-}
-
 #[derive(Debug, PartialEq, Eq)]
 struct ResponsePreview<'a> {
     text: &'a str,
@@ -731,6 +569,35 @@ fn preview_is_balanced(candidate: &str) -> bool {
         && candidate.matches("\\[").count() == candidate.matches("\\]").count()
 }
 
+/// Keeps the run record current while the loop runs: the first preview and
+/// each tool invocation.
+struct RunObserver<'a> {
+    ai: &'a AiStore,
+    run_id: ItemId,
+    task_id: ItemId,
+    preview_published: AtomicBool,
+}
+
+impl LoopObserver for RunObserver<'_> {
+    fn on_text(&self, round_text: &str) -> crate::Result<()> {
+        if self.preview_published.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        if let Some(preview) = response_preview(round_text) {
+            self.ai
+                .record_run_preview(self.run_id, preview.text, preview.paragraph_complete)?;
+            self.preview_published.store(true, Ordering::Relaxed);
+        }
+        Ok(())
+    }
+
+    fn on_tool_invocation(&self, record: ToolInvocationRecord) -> crate::Result<()> {
+        self.ai
+            .record_tool_invocation(self.run_id, self.task_id, record)
+            .map(|_| ())
+    }
+}
+
 fn permanent(error: Error) -> TaskError {
     TaskError::Permanent(error.to_string())
 }
@@ -746,6 +613,7 @@ fn classify_transport(error: Error) -> TaskError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{json, Value};
     use std::collections::VecDeque;
     use std::sync::Mutex;
 

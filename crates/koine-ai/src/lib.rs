@@ -14,6 +14,7 @@
 //! DTOs those verbs answer), `legacy-sqlite` (an error variant for a legacy
 //! SQLite import).
 
+pub mod agent_loop;
 pub mod blob;
 pub mod blocking;
 pub mod catalogue;
@@ -47,6 +48,10 @@ pub mod tools;
 pub mod types;
 pub mod worker;
 
+pub use agent_loop::{
+    AdapterToolRunner, LoopError, LoopObserver, LoopOutcome, NoObserver, ToolCall, ToolOutcome,
+    ToolRunner,
+};
 pub use blob::{BlobDescriptor, BlobStore, FileBlobStore};
 pub use catalogue::{ProviderDescriptor, CATALOGUE};
 pub use categories::{TaskCategory, TASK_CATEGORIES};
