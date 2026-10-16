@@ -246,3 +246,24 @@ repositories stay green.
   Tests: koine-triage 15 (kernel and service over `MemoryStore` and `DirStore`,
   the process-store default, package validity, digest stability, required
   verbs linked, review clean).
+- **KM3 done.** Both extensions are default methods on `ItemStore`:
+  `search_text(&self, schema: Option<&str>, text: &str, limit: usize) ->
+  Result<Vec<TextHit>, StoreError>` (`TextHit { id, score: f32 }`; default
+  tokenizes, narrows with `Contains` over the FTS field list
+  `impress_item::TEXT_FIELDS`, scores the fraction of query tokens present,
+  ties by occurrences then recency) and `arrivals_after(&self, cursor:
+  ArrivalCursor, schema: Option<&str>, limit: usize) -> Result<(Vec<Item>,
+  ArrivalCursor), StoreError>` (default `StoreError::Unsupported`, a new
+  variant). `ArrivalCursor` is a serde-transparent `u64` newtype
+  (`START`, `to_u64`, `from_u64`). `StoreCapabilities` gained
+  `text_search_indexed` and `arrival_feed`. Memory: the row's insertion
+  number; dir: an append-only `arrivals` log (`<id>\t<schema>`) appended under
+  the writer lock in `Txn::plan`, which also adopts files a sync tool copied
+  in; SQLite: bm25 over `items_fts` and the rowid keyset (`arrival_page`).
+  Conformance: 4 text-search cases, 7 arrival cases, `reopen_keeps_the_arrival_feed`;
+  memory, dir (koine) and SQLite memory + file (impress-core) pass all.
+  Known, not from KM3: `koine-host`'s `tests/host.rs` hangs under
+  `cargo test --workspace` (feature unification; reproduced on the commit
+  before KM3) and passes with `-p koine-host`; imbib-core's
+  `tag_count_effects_are_the_same_on_cold_and_warm_cache_reads` is flaky on the
+  global effects spy.
