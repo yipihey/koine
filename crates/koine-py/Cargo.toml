@@ -1,0 +1,29 @@
+[package]
+name = "koine-py"
+description = "A Python module builder over whatever #[impress_service] inventory is linked, plus the verb transport: list_verbs()/call(verb, args) (docs/plan-koine-kit-moves.md KM1)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+default = []
+# pyo3 is heavy and needs interpreter headers: a plain build never wants it
+# (KM-D4). The binary crate that ships the module turns it on and adds
+# `pyo3/extension-module` for its cdylib.
+python = ["dep:pyo3", "dep:pythonize"]
+
+[dependencies]
+impress-service-core = { workspace = true }
+impress-app-transport = { workspace = true }
+serde_json = { workspace = true }
+pyo3 = { workspace = true, optional = true }
+pythonize = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+# A real linked inventory to list and call.
+perf-service = { workspace = true }

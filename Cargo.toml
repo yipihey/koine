@@ -37,6 +37,10 @@ members = [
     "crates/koine-ai-apple",
     "crates/koine-host",
     "crates/koine-window",
+    "crates/perf-service",
+    "crates/impress-app-transport",
+    "crates/capabilities-service",
+    "crates/koine-py",
     "crates/koine-demo-mobile",
     "crates/koine-workspace-hack",
 ]
@@ -155,6 +159,12 @@ webbrowser = "1"
 wry = "0.53"
 tao = "0.34"
 impress-settings = { path = "crates/impress-settings" }
+# The capability and performance verbs, the verb transport's client, and the
+# Python module builder (docs/plan-koine-kit-moves.md KM1).
+perf-service = { path = "crates/perf-service" }
+impress-app-transport = { path = "crates/impress-app-transport" }
+capabilities-service = { path = "crates/capabilities-service" }
+koine-py = { path = "crates/koine-py" }
 
 # implore crates
 
@@ -224,13 +234,14 @@ dirs = "6"
 impress-service-core = { path = "crates/impress-service-core" }
 impress-service-macros = { path = "crates/impress-service-macros" }
 inventory = "0.3"
+# koine-py `python` feature. `extension-module` is the cdylib's choice, not the rlib's.
+pyo3 = "0.23"
+pythonize = "0.23"
 schemars = { version = "0.8", features = ["uuid1"] }
 syn = { version = "2", features = ["full"] }
 quote = "1"
 proc-macro2 = "1"
 darling = "0.20"
-pyo3 = { version = "0.23", features = ["extension-module"] }
-pythonize = "0.23"
 
 # Auto-generated CLI binaries (imbib-cli, imprint-cli) — clap built from
 # CliSubcommand inventory entries registered by `#[impress_service]`.

@@ -1,0 +1,40 @@
+[package]
+name = "capabilities-service"
+description = "impact analysis over the linked #[impress_service] inventory's own declared effects (ADR-0036 D-G2 spirit, plan-self-reflective-layer E3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+# `SurfaceStore::list()` is how `impact` finds the stored surfaces naming a
+# kind or a verb — the one already-linked reader of that table, rather than
+# a second `impress/ui/surface@1.0.0` reader this crate would have to keep
+# in step with `impress-surface-service`'s own.
+impress-surface-service = { workspace = true }
+# The store port and the process store (`koine_store::process`): `impact`
+# reads surfaces off the same store every other verb in the binary shares.
+# An impress host's lazy SQLite opener is what `acquire_or_stand_in` calls.
+impress-item = { workspace = true }
+koine-store = { workspace = true }
+# The generator (ADR-0035 D2, plan G4): `verb-surface` and `catalogue-surface`
+# hand back what `impress_verb_surface::verb_surface`/`catalogue` build —
+# pure, no store reach of its own.
+impress-verb-surface = { workspace = true }
+impress-surface = { workspace = true, features = ["schema"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+koine-store-memory = { workspace = true }
+koine-store-dir = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,28 @@
+[package]
+name = "impress-app-transport"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The P5 transport's client side: call(app, verb, args) over POST /api/verb/<name> (plan-verb-pipeline-and-transport.md § P5)"
+
+[dependencies]
+impress-service-core = { workspace = true }
+# Host-only P8 descriptor validation. This transport crate is not a pure kit;
+# no jsonschema runtime edge is added to impress-surface or another kit crate.
+jsonschema = { version = "0.33", default-features = false }
+reqwest = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+mockito = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
+
+[lints]
+workspace = true
