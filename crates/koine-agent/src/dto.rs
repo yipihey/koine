@@ -82,6 +82,14 @@ pub struct RequestRow {
     /// The call a `diagnose` request is about.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub call_id: Option<String>,
+    /// How many times an agent claimed it and gave it back
+    /// (`agent-service_release`), so the next agent can tell a request that
+    /// keeps failing from a fresh one.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub releases: u64,
+    /// Why it was last given back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_reason: Option<String>,
     /// What the agent needs to act: the pointing context, a call record, the
     /// kinds and verbs to build with.
     #[serde(default)]
@@ -123,4 +131,8 @@ pub struct ShowResult {
     pub code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }

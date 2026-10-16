@@ -74,7 +74,7 @@ fn every_verb_is_documented_and_every_example_answers_its_expect() {
     let verbs: Vec<VerbHandle> = call::descriptors()
         .filter(|v| v.service() == "agent-service")
         .collect();
-    assert_eq!(verbs.len(), 11);
+    assert_eq!(verbs.len(), 12);
     for verb in verbs {
         assert!(!verb.description().is_empty(), "{}", verb.name());
         assert!(
@@ -208,6 +208,53 @@ fn a_request_moves_from_ask_to_answer_and_its_surface_can_be_shown() {
     assert_eq!(listed["rows"][0]["context"], Value::Null);
     let shown = verb("agent-service_show", json!({"id": id}));
     assert_eq!(shown["ok"], true, "{shown}");
+}
+
+/// An agent that could not start gives the request back instead of
+/// declining it: open again for any agent, with the try counted. Only the
+/// claimant may release, and only a claimed request.
+#[test]
+fn a_claimed_request_can_be_given_back_by_its_claimant() {
+    let _turn = fresh();
+    let agent = |name: &str| impress_service_core::pipeline::CallerIdentity::agent(name);
+    let asked = verb("agent-service_ask", json!({"prompt": "Tidy my tags"}));
+    let id = asked["request"]["id"].as_str().unwrap().to_string();
+
+    let open = verb("agent-service_release", json!({"id": id, "reason": "x"}));
+    assert_eq!(open["code"], "conflict", "an open request: {open}");
+
+    call::call_as("agent-service_claim", agent("desk"), json!({"id": id})).unwrap();
+    let stranger = call::call_as(
+        "agent-service_release",
+        agent("claude"),
+        json!({"id": id, "reason": "not mine"}),
+    )
+    .unwrap();
+    assert_eq!(stranger["code"], "conflict", "{stranger}");
+
+    let released = call::call_as(
+        "agent-service_release",
+        agent("desk"),
+        json!({"id": id, "reason": "The store was busy."}),
+    )
+    .unwrap();
+    assert_eq!(released["ok"], true, "{released}");
+    assert_eq!(released["request"]["status"], "open");
+    assert!(released["request"]["claimed_by"].is_null());
+    assert_eq!(released["request"]["releases"], 1);
+    assert_eq!(released["request"]["release_reason"], "The store was busy.");
+
+    // Any agent can take it again; a second release counts again.
+    let next = verb("agent-service_next", json!({"timeout_ms": 0}));
+    assert_eq!(next["request"]["id"], id);
+    call::call_as("agent-service_claim", agent("claude"), json!({"id": id})).unwrap();
+    let twice = call::call_as(
+        "agent-service_release",
+        agent("claude"),
+        json!({"id": id, "reason": "again"}),
+    )
+    .unwrap();
+    assert_eq!(twice["request"]["releases"], 2, "{twice}");
 }
 
 #[test]

@@ -142,7 +142,9 @@ pub fn render(app: &AppInfo) -> String {
          People leave work for you on the agent desk. `agent-service_next` waits for an open \
          request (up to `timeout_ms`, at most 30000) and answers it; `agent-service_claim` \
          takes it; `agent-service_answer` resolves it (name a `surface_id` when you made a \
-         surface); `agent-service_decline` gives it back with a reason. Each request carries \
+         surface); `agent-service_decline` refuses it with a reason; `agent-service_release` \
+         puts a request you claimed but cannot do right now back on the desk for another \
+         try (its `releases` counts them). Each request carries \
          `context`: what the person was pointing at (`agent-service_context` answers the same \
          thing now), a failed call's record for a `diagnose` request, and for a \
          `make-surface` request the kinds and verbs to build with.\n\n",

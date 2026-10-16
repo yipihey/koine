@@ -95,6 +95,8 @@ pub fn row_of(item: &Item, with_context: bool) -> RequestRow {
         answer: text(&p, "answer"),
         surface_id: text(&p, "surface_id"),
         call_id: text(&p, "call_id"),
+        releases: p.get("releases").and_then(Value::as_u64).unwrap_or(0),
+        release_reason: text(&p, "release_reason"),
         context: if with_context {
             p.get("context").cloned().unwrap_or(Value::Null)
         } else {
@@ -223,6 +225,55 @@ pub fn transition(
     store.update(item.id, mutations).map_err(DeskError::store)?;
     let updated = get(id)?;
     Ok(row_of(&updated, true))
+}
+
+/// Give a claimed request back to the desk: `claimed` becomes `open`
+/// again, with no claimant, `releases` one higher and `reason` kept as
+/// `release_reason`. Only the agent that holds the claim may give it back.
+pub fn release(id: &str, by: &str, reason: &str) -> Result<RequestRow, DeskError> {
+    let item = get(id)?;
+    let row = row_of(&item, false);
+    if row.status != "claimed" {
+        return Err(DeskError::new(
+            "conflict",
+            format!(
+                "request {id} is {}; only a claimed request can be released",
+                row.status
+            ),
+        ));
+    }
+    if row.claimed_by.as_deref() != Some(by) {
+        return Err(DeskError::new(
+            "conflict",
+            format!(
+                "request {id} is claimed by {}, not {by}",
+                row.claimed_by.as_deref().unwrap_or("nobody")
+            ),
+        ));
+    }
+    let store = store(true)?;
+    store
+        .update(
+            item.id,
+            vec![
+                FieldMutation::SetPayload("status".into(), ItemValue::String("open".into())),
+                FieldMutation::RemovePayload("claimed_by".into()),
+                FieldMutation::SetPayload(
+                    "releases".into(),
+                    ItemValue::Int(row.releases as i64 + 1),
+                ),
+                FieldMutation::SetPayload(
+                    "release_reason".into(),
+                    ItemValue::String(reason.trim().into()),
+                ),
+                FieldMutation::SetPayload(
+                    "released_at".into(),
+                    ItemValue::String(Utc::now().to_rfc3339()),
+                ),
+            ],
+        )
+        .map_err(DeskError::store)?;
+    Ok(row_of(&get(id)?, true))
 }
 
 /// The oldest open request, if any.

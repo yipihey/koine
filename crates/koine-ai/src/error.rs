@@ -71,6 +71,14 @@ impl Error {
             Self::Provider { status, .. } => {
                 status.is_none_or(|status| status >= 500 || status == 408 || status == 429)
             }
+            // A store another connection is writing is busy, not broken: the
+            // port carries SQLite's busy/locked as text inside
+            // `StoreError::Storage`, so this reads the words SQLite uses.
+            // Every other store failure is permanent.
+            Self::Store(message) => {
+                let message = message.to_ascii_lowercase();
+                message.contains("database is locked") || message.contains("database is busy")
+            }
             _ => false,
         }
     }
@@ -128,6 +136,12 @@ mod tests {
             bundle_id: "app.omlx".into()
         }
         .is_retryable());
+        // The failure that declined a desk request on 2026-10-15.
+        assert!(
+            Error::Store("Storage error: update hlc_last_wall_ms: database is locked".into())
+                .is_retryable()
+        );
+        assert!(!Error::Store("Validation error: no such schema".into()).is_retryable());
     }
 
     #[test]

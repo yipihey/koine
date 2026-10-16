@@ -162,6 +162,15 @@ A reply that names `surface:<id>` answers with that view. koine-host runs
 it with `InventoryTools` when `Config::ai` is on. impel-taskd runs it with
 `impress-mcp`.
 
+A request whose conversation could not be started is released
+(`agent-service_release`) when the failure may pass (`Error::is_retryable`:
+transport, rate limits, 5xx, and a store another connection holds
+locked), up to `MAX_RELEASES` times, and declined otherwise. A released
+request is not taken again in the same pass. Starting is idempotent: a
+conversation already tagged for the request is reused, and its turn queued
+only if it has none. On 2026-10-15 a busy SQLite store declined a person's
+question outright; that is what this rules out.
+
 ### AI-D6. Heavy dependencies are opt-in
 
 The core crates, the grammar and the web bundle never link reqwest or
@@ -239,6 +248,7 @@ Each step leaves both repositories green.
 | A verb task runs the verb as the agent, records the result, fails on a refusal | `koine-tasks` verb executor tests |
 | A conversation round-trips over a non-SQLite store | `koine-ai` store tests over `MemoryStore` |
 | The desk bridge turns a request into a conversation and its reply into the answer | `koine-ai` `desk` test |
+| A start that may pass is released and retried, one that cannot is declined, and a retry reuses the conversation | `koine-ai` `desk` tests; `koine-agent` release test |
 | The model sees the linked verbs and a call is audited as the agent | `koine-ai` tools tests |
 | A host with `--tasks` runs an enqueued verb task | `koine-host` `tests/host.rs` |
 | A package's workflows install proposed and its categories list | `koine-packages` tests |

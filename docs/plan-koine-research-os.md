@@ -116,7 +116,8 @@ Koine runs no model (plan-koine-mobile M-D7). The desk is where a person
 leaves work for whatever agent is connected and where the agent answers:
 items of schema `koine/agent-request@1.0.0` with `kind` (`ask`,
 `diagnose`, `make-surface`), `prompt`, `context`, `status` (`open`,
-`claimed`, `answered`, `declined`), `claimed_by`, `answer` and `links`.
+`claimed`, `answered`, `declined`), `claimed_by`, `answer`, `releases`,
+`release_reason` and `links`.
 
 ### G-D1. Pointing is context
 
@@ -132,7 +133,11 @@ attaches it unless told not to.
 `agent-service_ask {prompt, with_context?}` files an `ask` request.
 `requests {status?}` lists them; `next {timeout_ms?}` waits (at most 30 s)
 for an open one, so an agent's loop is one call; `claim`, `answer {id,
-text, surface_id?}` and `decline {id, reason}` move one along. An answer
+text, surface_id?}` and `decline {id, reason}` move one along. `release
+{id, reason}` puts a request its claimant cannot do right now back to
+`open` for any agent, counting `releases` and keeping `release_reason`;
+only the claimant may release. `decline` is for a request no agent should
+retry. An answer
 that names a surface can be shown: `show {id}` puts it in a new pane beside
 the focused one, which is what the desk's "Show its surface" calls.
 

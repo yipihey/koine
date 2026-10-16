@@ -22,7 +22,7 @@ There is no second list.
 | `impress-surface-service` | impress-surface-service | 15 |
 | `surface-selftest-service` | impress-surface-service | 1 |
 | `notebook-service` | koine-notebook | 10 |
-| `agent-service` | koine-agent | 11 |
+| `agent-service` | koine-agent | 12 |
 | `package-service` | koine-packages | 15 |
 | `task-service` | koine-tasks | 5 |
 | `impress-ai-service` | koine-ai | 16 |

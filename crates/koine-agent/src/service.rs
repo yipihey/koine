@@ -173,6 +173,22 @@ pub trait AgentService: Send + Sync + 'static {
     )]
     async fn decline(&self, id: String, reason: String) -> RequestResult;
 
+    /// Give a claimed request back to the desk with `reason`, for a failure
+    /// that may pass (the store was busy, the model was unreachable): it is
+    /// `open` again for any agent, with `releases` counting the tries. Only
+    /// the agent holding the claim may release it (`conflict` otherwise);
+    /// `decline` is for a request no agent should retry.
+    #[impress_method(
+        safety = mutating,
+        effects(writes = [any("koine/agent-request@1.0.0")])
+    )]
+    #[impress_example(
+        name = "unknown",
+        args = r#"{"id": "00000000-0000-4000-8000-000000000000", "reason": "The store was busy."}"#,
+        expect = r#"{"ok": false, "code": "not-found"}"#
+    )]
+    async fn release(&self, id: String, reason: String) -> RequestResult;
+
     /// Show the surface an answered request names, in a new pane beside the
     /// focused one of this host's window. Refuses a request with no surface.
     #[impress_method(
@@ -487,6 +503,10 @@ impl AgentService for DefaultAgentService {
         ))
     }
 
+    async fn release(&self, id: String, reason: String) -> RequestResult {
+        filed(desk::release(&id, &caller().author(), &reason))
+    }
+
     async fn show(&self, id: String) -> ShowResult {
         let refuse = |e: DeskError| ShowResult {
             ok: false,
@@ -600,6 +620,13 @@ impress_service_impl! {
             /// The request's id.
             id: String,
             /// Why.
+            reason: String
+        ) -> RequestResult,
+        /// Give a claimed request back for another try.
+        release(
+            /// The request's id.
+            id: String,
+            /// Why it could not be done now.
             reason: String
         ) -> RequestResult,
         /// Show an answer's surface beside the focused pane.

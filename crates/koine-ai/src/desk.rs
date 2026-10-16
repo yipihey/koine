@@ -51,7 +51,14 @@ pub struct Pass {
     pub started: usize,
     pub answered: usize,
     pub declined: usize,
+    /// Given back to the desk after a failure that may pass.
+    pub released: usize,
 }
+
+/// How many times a request is given back after a failure that may pass
+/// before the bridge declines it instead. A request that keeps failing is
+/// not this agent's to keep retrying for ever.
+pub const MAX_RELEASES: u64 = 3;
 
 pub struct DeskBridge {
     ai: Arc<AiStore>,
@@ -177,35 +184,91 @@ impl DeskBridge {
             .find(|c| text(c, "summary").as_deref() == Some(tag.as_str())))
     }
 
-    /// Open a conversation for `request` and queue its turn.
-    fn start(&self, request: &Value) -> Result<ItemId, String> {
+    /// Open a conversation for `request` and queue its turn. Safe to call
+    /// again for the same request: a conversation already tagged for it is
+    /// reused, and its turn queued only if it has none, so a retry after a
+    /// failure between the two writes never opens a second conversation.
+    fn start(&self, request: &Value) -> crate::Result<ItemId> {
         let id = request["id"].as_str().unwrap_or_default();
-        let prompt = request["prompt"].as_str().unwrap_or("Agent desk request");
-        let title: String = prompt.chars().take(60).collect();
-        let conversation = self
+        let tag = format!("{TAG}{id}");
+        let existing = self
             .ai
-            .create_conversation(ConversationDraft {
-                title: if title.trim().is_empty() {
-                    "Agent desk request".into()
-                } else {
-                    title
-                },
-                summary: Some(format!("{TAG}{id}")),
-                system_prompt: Some(self.system_prompt.clone()),
-                provider: self.provider.clone(),
-                model: self.model.clone(),
-                tool_policy: ToolPolicy {
-                    enabled: self.tools.clone(),
-                },
-                ..ConversationDraft::default()
-            })
-            .map_err(|e| e.to_string())?;
+            .list_conversations(true)?
+            .into_iter()
+            .find(|c| text(c, "summary").as_deref() == Some(tag.as_str()));
+        let conversation = match existing {
+            Some(conversation) => {
+                if !self.ai.snapshot(conversation.id)?.messages.is_empty() {
+                    return Ok(conversation.id);
+                }
+                conversation.id
+            }
+            None => {
+                let prompt = request["prompt"].as_str().unwrap_or("Agent desk request");
+                let title: String = prompt.chars().take(60).collect();
+                self.ai.create_conversation(ConversationDraft {
+                    title: if title.trim().is_empty() {
+                        "Agent desk request".into()
+                    } else {
+                        title
+                    },
+                    summary: Some(tag),
+                    system_prompt: Some(self.system_prompt.clone()),
+                    provider: self.provider.clone(),
+                    model: self.model.clone(),
+                    tool_policy: ToolPolicy {
+                        enabled: self.tools.clone(),
+                    },
+                    ..ConversationDraft::default()
+                })?
+            }
+        };
         let mut turn = MessageDraft::user(turn_for(request));
         turn.from = format!("agent-desk:{id}");
-        self.ai
-            .queue_user_turn(conversation, turn)
-            .map_err(|e| e.to_string())?;
+        self.ai.queue_user_turn(conversation, turn)?;
         Ok(conversation)
+    }
+
+    /// After `start` failed for `request`: give it back to the desk when the
+    /// failure may pass and it has not come back too often
+    /// ([`MAX_RELEASES`]), else decline it with the error. Answers whether it
+    /// was released.
+    async fn after_failed_start(
+        &self,
+        request: &Value,
+        error: &crate::Error,
+        done: &mut Pass,
+    ) -> Result<bool, String> {
+        let caller = self.caller();
+        let id = request["id"].as_str().unwrap_or_default();
+        let releases = request["releases"].as_u64().unwrap_or(0);
+        if error.is_retryable() && releases < MAX_RELEASES {
+            verb(
+                &caller,
+                "agent-service_release",
+                json!({ "id": id, "reason": format!("the desk agent could not start yet: {error}") }),
+            )
+            .await?;
+            done.released += 1;
+            Ok(true)
+        } else {
+            verb(
+                &caller,
+                "agent-service_decline",
+                json!({ "id": id, "reason": format!("the desk agent could not start: {error}") }),
+            )
+            .await?;
+            done.declined += 1;
+            Ok(false)
+        }
+    }
+
+    /// Whether `conversation` has no message yet: `start` opened it but did
+    /// not get as far as queueing the request's turn.
+    fn turnless(&self, conversation: ItemId) -> bool {
+        self.ai
+            .snapshot(conversation)
+            .is_ok_and(|snapshot| snapshot.messages.is_empty())
     }
 
     /// The answer the conversation has, once its turn finished: `Ok(Some)`
@@ -248,12 +311,15 @@ impl DeskBridge {
             match self.start(&claimed["request"]) {
                 Ok(_) => done.started += 1,
                 Err(error) => {
-                    let _ = verb(
-                        "agent-service_decline",
-                        json!({ "id": id, "reason": format!("the desk agent could not start: {error}") }),
-                    )
-                    .await;
-                    done.declined += 1;
+                    // A request given back is the oldest open one again, so
+                    // this pass would take it straight back: stop here and
+                    // let the next pass, after the poll interval, try again.
+                    if self
+                        .after_failed_start(&claimed["request"], &error, &mut done)
+                        .await?
+                    {
+                        break;
+                    }
                 }
             }
         }
@@ -264,18 +330,25 @@ impl DeskBridge {
                 continue;
             }
             let id = request["id"].as_str().unwrap_or_default().to_string();
-            let conversation = match self.conversation_for(&id)? {
-                Some(c) => c.id,
-                // Claimed before a restart and never started: start it now.
-                None => {
-                    let full = verb("agent-service_claim", json!({ "id": id })).await;
-                    let request = full
-                        .map(|f| f["request"].clone())
-                        .unwrap_or(request.clone());
-                    self.start(&request)?;
-                    done.started += 1;
-                    continue;
+            let started = match self.conversation_for(&id)? {
+                // A conversation with its turn: wait for it below.
+                Some(c) if !self.turnless(c.id) => Some(c.id),
+                // Claimed before a restart and never started, or started
+                // only as far as the conversation: (re)start it now.
+                _ => None,
+            };
+            let Some(conversation) = started else {
+                let full = verb("agent-service_claim", json!({ "id": id })).await;
+                let request = full
+                    .map(|f| f["request"].clone())
+                    .unwrap_or(request.clone());
+                match self.start(&request) {
+                    Ok(_) => done.started += 1,
+                    Err(error) => {
+                        self.after_failed_start(&request, &error, &mut done).await?;
+                    }
                 }
+                continue;
             };
             match self.outcome(conversation) {
                 Ok(None) => {}
@@ -305,6 +378,119 @@ impl DeskBridge {
 mod tests {
     use super::*;
 
+    /// The desk is the process-wide store, so the tests that use it take
+    /// turns.
+    static TURN: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    fn fresh_desk() -> Arc<AiStore> {
+        koine_agent::ensure_linked();
+        let ai = Arc::new(AiStore::from_store(
+            Arc::new(koine_store_memory::MemoryStore::new()),
+            "desk-test",
+        ));
+        koine_store::process::install(ai.shared_store());
+        ai
+    }
+
+    async fn ask_and_claim(bridge: &DeskBridge, prompt: &str) -> Value {
+        let asked = call::call_async("agent-service_ask", json!({ "prompt": prompt }))
+            .await
+            .unwrap();
+        let id = asked["request"]["id"].as_str().unwrap().to_string();
+        verb(&bridge.caller(), "agent-service_claim", json!({ "id": id }))
+            .await
+            .unwrap()["request"]
+            .clone()
+    }
+
+    /// A start that failed because the store was busy gives the request back
+    /// for another pass; one that cannot work, or that has come back
+    /// MAX_RELEASES times, is declined. On 2026-10-15 a busy store declined
+    /// a person's question outright.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_failed_start_is_released_while_it_may_pass_and_declined_after() {
+        let _turn = TURN.lock().await;
+        let ai = fresh_desk();
+        let bridge = DeskBridge::new(ai, "omlx".into(), "test-model".into()).as_agent("desk-test");
+        let busy = crate::Error::Store("update hlc_last_wall_ms: database is locked".into());
+
+        let request = ask_and_claim(&bridge, "Which notes are drafts?").await;
+        let id = request["id"].as_str().unwrap().to_string();
+        let mut done = Pass::default();
+        assert!(bridge
+            .after_failed_start(&request, &busy, &mut done)
+            .await
+            .unwrap());
+        assert_eq!(done.released, 1);
+        let open = call::call_async("agent-service_requests", json!({"status": "open"}))
+            .await
+            .unwrap();
+        assert_eq!(open["rows"][0]["id"], id, "{open}");
+        assert_eq!(open["rows"][0]["releases"], 1);
+
+        // Back for the last time it may be: declined, not released again.
+        let mut again = verb(&bridge.caller(), "agent-service_claim", json!({ "id": id }))
+            .await
+            .unwrap()["request"]
+            .clone();
+        again["releases"] = json!(MAX_RELEASES);
+        let mut done = Pass::default();
+        assert!(!bridge
+            .after_failed_start(&again, &busy, &mut done)
+            .await
+            .unwrap());
+        assert_eq!(done.declined, 1);
+
+        // A failure that cannot pass is declined the first time.
+        let request = ask_and_claim(&bridge, "And this?").await;
+        let mut done = Pass::default();
+        let invalid = crate::Error::Invalid("no such provider".into());
+        assert!(!bridge
+            .after_failed_start(&request, &invalid, &mut done)
+            .await
+            .unwrap());
+        let declined = call::call_async("agent-service_requests", json!({"status": "declined"}))
+            .await
+            .unwrap();
+        assert_eq!(declined["rows"].as_array().unwrap().len(), 2, "{declined}");
+    }
+
+    /// Starting twice, or after a start that opened the conversation but
+    /// failed before queueing the turn, keeps one conversation with one turn.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn starting_a_request_again_reuses_its_conversation() {
+        let _turn = TURN.lock().await;
+        let ai = fresh_desk();
+        let bridge =
+            DeskBridge::new(ai.clone(), "omlx".into(), "test-model".into()).as_agent("desk-test");
+        let request = ask_and_claim(&bridge, "Summarise the open paper").await;
+        let id = request["id"].as_str().unwrap();
+
+        // What a failure between the two writes leaves: the tagged
+        // conversation and no turn.
+        let half = ai
+            .create_conversation(ConversationDraft {
+                title: "Summarise the open paper".into(),
+                summary: Some(format!("{TAG}{id}")),
+                provider: "omlx".into(),
+                model: "test-model".into(),
+                ..ConversationDraft::default()
+            })
+            .unwrap();
+        assert!(bridge.turnless(half));
+
+        assert_eq!(bridge.start(&request).unwrap(), half);
+        assert_eq!(bridge.start(&request).unwrap(), half);
+        let tagged = ai
+            .list_conversations(true)
+            .unwrap()
+            .into_iter()
+            .filter(|c| text(c, "summary").as_deref() == Some(format!("{TAG}{id}").as_str()))
+            .count();
+        assert_eq!(tagged, 1);
+        assert_eq!(ai.snapshot(half).unwrap().messages.len(), 1);
+    }
+
     #[test]
     fn a_turn_carries_the_prompt_the_kind_and_the_context() {
         let turn = turn_for(&json!({
@@ -327,12 +513,8 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn a_request_becomes_a_conversation_and_its_reply_the_answer() {
         use crate::Role;
-        koine_agent::ensure_linked();
-        let ai = Arc::new(AiStore::from_store(
-            Arc::new(koine_store_memory::MemoryStore::new()),
-            "desk-test",
-        ));
-        koine_store::process::install(ai.shared_store());
+        let _turn = TURN.lock().await;
+        let ai = fresh_desk();
 
         let asked = call::call_async(
             "agent-service_ask",
