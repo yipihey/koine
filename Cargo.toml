@@ -40,6 +40,9 @@ members = [
     "crates/perf-service",
     "crates/impress-app-transport",
     "crates/capabilities-service",
+    "crates/impress-tags",
+    "crates/impress-flags",
+    "crates/koine-triage",
     "crates/koine-py",
     "crates/koine-demo-mobile",
     "crates/koine-workspace-hack",
@@ -164,6 +167,9 @@ impress-settings = { path = "crates/impress-settings" }
 perf-service = { path = "crates/perf-service" }
 impress-app-transport = { path = "crates/impress-app-transport" }
 capabilities-service = { path = "crates/capabilities-service" }
+impress-tags = { path = "crates/impress-tags" }
+impress-flags = { path = "crates/impress-flags" }
+koine-triage = { path = "crates/koine-triage" }
 koine-py = { path = "crates/koine-py" }
 
 # implore crates

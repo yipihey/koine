@@ -1,0 +1,46 @@
+[package]
+name = "koine-triage"
+description = "Star, flag, tag and status over any item: the triage kernel and the triage-service verbs, over the store port (docs/plan-koine-kit-moves.md KM2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# The kernel (`ops`) is always there. `service` adds the verbs and `package`
+# the built-in package; a crate that wants only the kernel (impress-core)
+# turns both off and does not link the verb machinery or the package manager.
+default = ["service", "package"]
+service = [
+    "dep:impress-service-core",
+    "dep:impress-service-macros",
+    "dep:koine-store",
+    "dep:serde",
+    "dep:schemars",
+    "dep:async-trait",
+]
+package = ["service", "dep:koine-packages", "dep:serde_json"]
+
+[dependencies]
+impress-item = { workspace = true }
+uuid = { workspace = true }
+impress-service-core = { workspace = true, optional = true }
+impress-service-macros = { workspace = true, optional = true }
+koine-store = { workspace = true, optional = true }
+# The built-in `builtin:triage` package (KM-D5).
+koine-packages = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+serde_json = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+koine-store-memory = { workspace = true }
+koine-store-dir = { workspace = true }
+chrono = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

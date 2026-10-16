@@ -28,6 +28,7 @@ There is no second list.
 | `impress-ai-service` | koine-ai | 17 |
 | `perf-service` | perf-service | 4 |
 | `capabilities-service` | capabilities-service | 4 |
+| `triage-service` | koine-triage | 5 |
 <!-- verb-coverage:end -->
 
 `impress-settings` has no `impress_service_impl!` block in this repository,

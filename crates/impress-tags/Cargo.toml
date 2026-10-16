@@ -1,0 +1,30 @@
+[package]
+name = "impress-tags"
+description = "Hierarchical tag models, autocomplete, and query for impress apps"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "impress-tags"
+path = "src/main.rs"
+
+[features]
+default = []
+ffi = ["dep:uniffi"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["serde"] }
+chrono = { workspace = true }
+uniffi = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+rstest = "0.18"
+proptest = "1.4"
+
+[lints]
+workspace = true

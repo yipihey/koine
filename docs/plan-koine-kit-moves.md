@@ -226,3 +226,23 @@ repositories stay green.
   the lock has no koine git pin), impel-tools 14, impress-ai-tools 6,
   impress-mcp 49. `docs/verb-coverage.md` gained the two service rows (and the
   impress-ai-service count is corrected to 17).
+- **KM2 done.** `impress-tags` (14 + 48 + 27 + 3 tests, the rest doc tests) and
+  `impress-flags` moved under the same names; their UniFFI feature is now `ffi`
+  (was `native`, which nothing in impress-apps enabled on them but a
+  workspace-wide `--features native` clippy run). No UniFFI type of either
+  crosses into `imbib-core`'s interface (it calls plain functions), so no
+  dependent enables `ffi` and imbib-core's binding is unchanged. The tags
+  BibTeX `keywords` export is not in the crate (it is only the doc comment's
+  intent), nothing to leave behind. `koine-triage` is new: `ops` (the kernel,
+  generic over `S: ItemStore + ?Sized`, so a caller passes `&SqliteItemStore`,
+  `&dyn AttributedStore` or a `MemoryStore` alike), `service` (the five
+  `triage-service_set-starred|set-flag|add-tag|remove-tag|set-status` verbs,
+  names unchanged; `DefaultTriageService::with_store(Arc<dyn AttributedStore>)`,
+  default `koine_store::process::acquire_or_stand_in`) and `package()`
+  (`builtin:triage`, one `SKILL.md`, `requires.verbs` the five verbs). Features
+  `service` and `package` are on by default; impress-core takes
+  `default-features = false` so it links only the kernel, not the verb
+  machinery or the package manager. Not yet wired into koine-host (KM7).
+  Tests: koine-triage 15 (kernel and service over `MemoryStore` and `DirStore`,
+  the process-store default, package validity, digest stability, required
+  verbs linked, review clean).

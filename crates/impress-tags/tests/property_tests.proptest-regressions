@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a453f1f88b20867c368295e41d5548a88af0319efc55e339f64e9329e8dd80d7 # shrinks to paths = {"a", "a/a", "a/a/a", "a/b", "b", "b/a", "b/a/a"}, colors = [None, None, None, None, Some(TagColor { light: "#0f0", dark: "#0f0" }), Some(TagColor { light: "#f00", dark: "#f00" }), None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]
+cc 743f71a20e4bdab8c26f2eda4a93761715d7f493eca44d69028ab43919222113 # shrinks to input = "¡\u{b}-"
