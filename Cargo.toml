@@ -34,6 +34,7 @@ members = [
     "crates/koine-packages",
     "crates/koine-tasks",
     "crates/koine-ai",
+    "crates/koine-ai-apple",
     "crates/koine-host",
     "crates/koine-window",
     "crates/koine-demo-mobile",
@@ -145,6 +146,7 @@ koine-packages = { path = "crates/koine-packages" }
 koine-tasks = { path = "crates/koine-tasks", default-features = false }
 # The AI kernel (docs/plan-koine-ai-tasks.md AI-D1); features are opt-in per member.
 koine-ai = { path = "crates/koine-ai", default-features = false }
+koine-ai-apple = { path = "crates/koine-ai-apple" }
 # Package digests (plan-koine-research-os P-D1).
 sha2 = "0.10"
 koine-window = { path = "crates/koine-window" }

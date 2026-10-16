@@ -83,6 +83,13 @@ pub fn start(runtime: TaskRuntime, store: Arc<dyn AttributedStore>) -> Running {
             format!("agent:{}", AI_AGENT),
         ));
         let registry = AiRegistry::for_daemon(runtime.workspace.clone());
+        #[cfg(feature = "apple-fm")]
+        {
+            let ready = koine_ai_apple::install(&registry);
+            tracing::info!(target: "koine-host",
+                "Apple on-device model: {}",
+                if ready { "available" } else { "not available" });
+        }
         let blob_root = runtime.workspace.join("ai").join("blobs");
         match FileBlobStore::open(&blob_root) {
             Ok(blobs) => {

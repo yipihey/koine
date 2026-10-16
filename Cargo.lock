@@ -3499,6 +3499,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "koine-ai-apple"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "koine-ai",
+ "koine-workspace-hack",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "koine-demo-mobile"
 version = "0.1.0"
 dependencies = [
@@ -3541,6 +3556,7 @@ dependencies = [
  "impress-verb-surface",
  "koine-agent",
  "koine-ai",
+ "koine-ai-apple",
  "koine-mcp-host",
  "koine-notebook",
  "koine-packages",

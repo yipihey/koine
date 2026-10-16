@@ -101,6 +101,9 @@ pub struct AiRegistry {
     health_cache: Mutex<HashMap<String, (ProviderHealth, std::time::Instant)>>,
     models_cache: Mutex<HashMap<String, Vec<ModelSummary>>>,
     foreign_available: RwLock<HashMap<String, bool>>,
+    /// Providers a host linked in process (`register_native`); they win over
+    /// the catalogue's `Foreign` executor.
+    native: RwLock<BTreeMap<String, Arc<dyn InferenceProvider>>>,
 }
 
 impl AiRegistry {
@@ -113,6 +116,7 @@ impl AiRegistry {
             health_cache: Mutex::new(HashMap::new()),
             models_cache: Mutex::new(HashMap::new()),
             foreign_available: RwLock::new(HashMap::new()),
+            native: RwLock::new(BTreeMap::new()),
         })
     }
 
@@ -186,6 +190,17 @@ impl AiRegistry {
             self.descriptor(id)?,
             self.credentials.as_ref(),
         ))
+    }
+
+    /// Install an in-process provider for catalogue entry `id` (Apple
+    /// Foundation Models, LM-D5). `provider(id)` answers it before looking at
+    /// the entry's `Foreign` host; `readiness` still follows the flag set by
+    /// `set_foreign_available`.
+    pub fn register_native(&self, id: &str, provider: Arc<dyn InferenceProvider>) {
+        self.native
+            .write()
+            .unwrap()
+            .insert(id.to_string(), provider);
     }
 
     pub fn set_foreign_available(&self, id: &str, available: bool) {
@@ -262,6 +277,9 @@ impl AiRegistry {
     /// endpoint and the current credentials; cached until either changes.
     pub fn provider(&self, id: &str) -> Result<Arc<dyn InferenceProvider>> {
         let descriptor = self.descriptor(id)?;
+        if let Some(native) = self.native.read().unwrap().get(id) {
+            return Ok(native.clone());
+        }
         if descriptor.host == ExecutionHost::Foreign {
             return Err(Error::ForeignExecutor(id.into()));
         }
@@ -1049,6 +1067,44 @@ mod tests {
             registry.provider("apple-on-device"),
             Err(Error::ForeignExecutor(_))
         ));
+    }
+
+    struct Scripted;
+
+    #[async_trait::async_trait]
+    impl InferenceProvider for Scripted {
+        fn provider_id(&self) -> &str {
+            "apple-on-device"
+        }
+        fn endpoint_id(&self) -> &str {
+            "system"
+        }
+        async fn models(&self) -> Result<Vec<ModelSummary>> {
+            Ok(vec![ModelSummary::new("scripted")])
+        }
+        async fn stream(&self, _request: crate::ChatRequest) -> Result<crate::EventStream> {
+            Err(Error::Invalid("scripted".into()))
+        }
+    }
+
+    #[test]
+    fn a_native_provider_replaces_the_foreign_executor() {
+        let memory = InMemoryCredentials::new();
+        let (_directory, registry) = registry_with(&memory);
+        assert!(matches!(
+            registry.provider("apple-on-device"),
+            Err(Error::ForeignExecutor(_))
+        ));
+        registry.register_native("apple-on-device", Arc::new(Scripted));
+        let provider = registry.provider("apple-on-device").unwrap();
+        assert_eq!(provider.endpoint_id(), "system");
+        // Readiness still follows the flag the host sets.
+        assert_eq!(
+            registry.readiness("apple-on-device"),
+            HealthState::Foreign { available: false }
+        );
+        registry.set_foreign_available("apple-on-device", true);
+        assert!(registry.readiness("apple-on-device").is_ready());
     }
 
     #[test]

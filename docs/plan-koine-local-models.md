@@ -319,3 +319,37 @@ Tests assert properties, not model wording.
     `crates/impress-ai-tools/src/lib.rs` and
     `crates/impress-store-ffi/src/ai_registry.rs`; on the next koine pin those
     need `..Default::default()` or `ToolDefinition::new`.
+- **Package 6 done** on branch `local-models`. New crate `koine-ai-apple`: a
+  SwiftPM static library `KoineFM` (`swift/`, 275 lines) behind a C ABI of
+  JSON strings and callbacks (`koine_fm_availability`, `_respond`,
+  `_tool_result`, `_cancel`, `_free`), built by `build.rs`; `wire.rs` builds the
+  request JSON and parses events on every OS; `macos.rs` is the FFI.
+  `AppleFoundationModels` reports `ToolLoop::Provider` and live capabilities
+  (`structured_with_tools = true`). `AiRegistry::register_native(id, provider)`
+  makes `provider(id)` answer it before the `Foreign` check; the Apple catalogue
+  entry and model now say tools + json_schema + `structured_with_tools`. A
+  guardrail or refusal is `LoopError::Exhausted("apple-on-device refused: ...")`
+  (no new `Error` variant). A turn dropped mid-flight cancels the Swift task and
+  leaks its few-byte callback context on purpose. Live on macOS 27.0.1
+  (`KOINE_TEST_APPLE_FM=1`, 6 tests, 6.4-7.2 s in total, repeated 4 times, all
+  pass): the weather milestone (one `weather_lookup` call with `{"unit":"c",
+  "city":"Paris"}`, answer `temperature: 18` in the schema, 1.4 s), the
+  refused `deny_me` (the model reports the refusal, 1.0 s), the round limit (the
+  call gets `tool_limit` and the model still answers), a plain `stream()`
+  title, and three turns cut at 50 ms followed by a full turn. `koine-ai` tests
+  with `--features executor`: 127 lib (126 before, plus 1), 6 conformance,
+  5 inventory_tools, 4 schema_lowering; `koine-ai-apple`: 8 unit tests.
+  - **Run it in the host:** `cargo run -p koine-host --features apple-fm -- ...`
+    (off by default: it adds a Swift build, and the binary links
+    FoundationModels, so it needs macOS 26 or later). The host logs whether the
+    on-device model is available.
+  - **Package 7 gets the desk's tools for Apple.** The desk uses the grouped
+    `InventoryTools`, whose namespace tools carry a free-form `args` object that
+    Apple cannot express, so with Apple selected the desk runs without tools.
+    The executor should pick a flat, Apple-lowered catalog
+    (`InventoryTools::flat(.., Profile::AppleGuided)`) when the resolved
+    provider is Apple.
+  - **Review fix:** a turn Rust cancels never frees its callback context,
+    even after its terminal event. Cancelling resumes a tool call Swift may
+    have parked but not yet announced, which would then reach a freed
+    context. The context of a turn that ends on its own is freed.

@@ -47,11 +47,17 @@ koine-ai = { workspace = true, features = ["executor"] }
 # The demo verbs the binary links (the library itself names no domain).
 surface-demo-service = { workspace = true }
 koine-window = { workspace = true }
+# Apple Foundation Models as a native provider (`--features apple-fm`; adds a
+# Swift build, macOS only; docs/plan-koine-local-models.md LM-D5).
+koine-ai-apple = { workspace = true, optional = true }
 koine-workspace-hack.workspace = true
 
 [features]
 # A native `--window` (webkit2gtk on Linux); without it `--window` opens the browser.
 window-webview = ["koine-window/webview"]
+# The on-device Apple model as a provider. Off by default: it builds a Swift
+# package, and the binary then needs macOS 26 or later.
+apple-fm = ["dep:koine-ai-apple"]
 
 [dev-dependencies]
 reqwest = { workspace = true }

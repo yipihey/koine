@@ -312,6 +312,15 @@ const OLLAMA_MODELS: &[StaticModel] = &[
     },
 ];
 
+/// Foundation Models does tools and guided generation, and combines them,
+/// since macOS 26.
+const APPLE_CAPABILITIES: Capabilities = Capabilities {
+    tools: true,
+    json_schema: true,
+    structured_with_tools: true,
+    ..Capabilities::CHAT
+};
+
 const APPLE_MODELS: &[StaticModel] = &[StaticModel {
     id: APPLE_ON_DEVICE_ID,
     display_name: "Apple Intelligence",
@@ -319,7 +328,7 @@ const APPLE_MODELS: &[StaticModel] = &[StaticModel {
     context_window: Some(8_000),
     max_output_tokens: Some(4_000),
     is_default: true,
-    capabilities: Capabilities::CHAT,
+    capabilities: APPLE_CAPABILITIES,
     sampling_params: true,
 }];
 
@@ -651,7 +660,7 @@ pub const CATALOGUE: [ProviderDescriptor; 8] = [
         default_endpoint: None,
         endpoint_editable: false,
         registration_url: None,
-        capabilities: Capabilities::CHAT,
+        capabilities: APPLE_CAPABILITIES,
         static_models: APPLE_MODELS,
         discovery: Discovery::None,
         can_auto_start: false,
