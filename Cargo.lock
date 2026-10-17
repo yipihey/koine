@@ -3558,6 +3558,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
+ "impress-item",
  "impress-schema-ref-codegen",
  "impress-service-macros",
  "inventory",
@@ -4195,6 +4196,7 @@ dependencies = [
  "koine-memory",
  "koine-notebook",
  "koine-packages",
+ "koine-providers",
  "koine-store",
  "koine-store-memory",
  "koine-store-query",
@@ -4329,6 +4331,28 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "koine-providers"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "koine-store-dir",
+ "koine-store-memory",
+ "koine-workspace-hack",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

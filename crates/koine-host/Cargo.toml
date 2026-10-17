@@ -48,6 +48,8 @@ koine-ai = { workspace = true, features = ["executor"] }
 koine-memory = { workspace = true, features = ["package"] }
 # Get, browse, search and relate any item (KM9).
 koine-store-query = { workspace = true }
+# Review and trust runtime providers (KM12).
+koine-providers = { workspace = true }
 # The demo verbs the binary links (the library itself names no domain).
 surface-demo-service = { workspace = true }
 koine-window = { workspace = true }

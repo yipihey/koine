@@ -36,6 +36,7 @@ There is no second list.
 | `impress-workflow-service` | impress-workflow-service | 7 |
 | `memory-service` | koine-memory | 7 |
 | `store-query-service` | koine-store-query | 4 |
+| `provider-service` | koine-providers | 2 |
 <!-- verb-coverage:end -->
 
 `impress-settings` is the registry library and has no `impress_service_impl!`

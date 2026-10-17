@@ -1,0 +1,30 @@
+[package]
+name = "koine-providers"
+description = "P8 runtime providers: the registry's persistence over the store port and the provider-service trust verbs (docs/plan-koine-kit-moves.md KM12)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-item = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true, features = ["v5"] }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+koine-store-memory = { workspace = true }
+koine-store-dir = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

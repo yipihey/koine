@@ -53,6 +53,7 @@ members = [
     "crates/koine-package-format",
     "crates/koine-store-query",
     "crates/koine-store-spy",
+    "crates/koine-providers",
     "crates/koine-py",
     "crates/koine-demo-mobile",
     "crates/koine-workspace-hack",
@@ -190,6 +191,7 @@ impress-helix = { path = "crates/impress-helix" }
 koine-package-format = { path = "crates/koine-package-format" }
 koine-store-query = { path = "crates/koine-store-query" }
 koine-store-spy = { path = "crates/koine-store-spy" }
+koine-providers = { path = "crates/koine-providers" }
 koine-py = { path = "crates/koine-py" }
 
 # implore crates
