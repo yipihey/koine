@@ -1,0 +1,35 @@
+[package]
+name = "koine-embeddings"
+description = "Suite-level embedding stack: sidecar vector/chunk store, HNSW index, text embedder"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# The sidecar store and the index are what every consumer wants; the embedder
+# pulls fastembed (~100MB of model download at first run) and is opt-in.
+default = ["store", "index"]
+store = ["dep:rusqlite"]
+index = ["dep:hnsw_rs", "dep:bincode"]
+embedder = ["dep:fastembed"]
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+
+# Sidecar persistence (feature `store`).
+rusqlite = { workspace = true, optional = true }
+# ANN index + its serialization (feature `index`).
+hnsw_rs = { version = "0.3", optional = true }
+bincode = { version = "1.3", optional = true }
+# Text embedding model (feature `embedder`).
+fastembed = { version = "4", optional = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

@@ -47,6 +47,8 @@ members = [
     "crates/koine-settings-service",
     "crates/impress-scenario-service",
     "crates/impress-workflow-service",
+    "crates/koine-embeddings",
+    "crates/koine-memory",
     "crates/koine-py",
     "crates/koine-demo-mobile",
     "crates/koine-workspace-hack",
@@ -178,6 +180,8 @@ koine-collections = { path = "crates/koine-collections" }
 koine-settings-service = { path = "crates/koine-settings-service" }
 impress-scenario-service = { path = "crates/impress-scenario-service" }
 impress-workflow-service = { path = "crates/impress-workflow-service" }
+koine-embeddings = { path = "crates/koine-embeddings", default-features = false }
+koine-memory = { path = "crates/koine-memory" }
 koine-py = { path = "crates/koine-py" }
 
 # implore crates

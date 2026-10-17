@@ -1,0 +1,69 @@
+[package]
+name = "koine-memory"
+description = "Suite-scoped memory over the store port: the kernel, the memory-service verbs, the embedding and consolidation executors (docs/plan-koine-kit-moves.md KM5)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# The kernel (`ops`) is always there; `service` adds the verbs.
+default = ["service"]
+service = [
+    "dep:impress-service-core",
+    "dep:impress-service-macros",
+    "dep:koine-store",
+    "dep:serde",
+    "dep:schemars",
+    "dep:async-trait",
+]
+# The vector tier: the `koine-embeddings` sidecar (SQLite). Off by default;
+# recall is text search alone without it (KM-D4).
+embeddings = ["service", "dep:koine-embeddings", "koine-embeddings/store", "dep:dirs"]
+# The local embedding model (fastembed, ~100MB on first use).
+embedder = ["embeddings", "koine-embeddings/embedder"]
+# The embedding-backfill and consolidation task executors and their spawner.
+executors = [
+    "embeddings",
+    "koine-embeddings/index",
+    "koine-embeddings/embedder",
+    "dep:koine-tasks",
+    "koine-tasks/runtime",
+    "dep:koine-ai",
+    "dep:async-trait",
+    "dep:sha2",
+    "dep:tokio",
+]
+
+[dependencies]
+impress-item = { workspace = true }
+uuid = { workspace = true, features = ["v4", "v5"] }
+chrono = { workspace = true }
+impress-service-core = { workspace = true, optional = true }
+impress-service-macros = { workspace = true, optional = true }
+koine-store = { workspace = true, optional = true }
+koine-embeddings = { workspace = true, optional = true }
+koine-tasks = { workspace = true, optional = true }
+koine-ai = { workspace = true, optional = true }
+dirs = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+serde_json = { workspace = true }
+schemars = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+koine-store-memory = { workspace = true }
+koine-store-dir = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "memory_executors"
+required-features = ["executors"]

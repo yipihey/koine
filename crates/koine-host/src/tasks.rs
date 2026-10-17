@@ -41,6 +41,8 @@ pub const DESK_POLL: Duration = Duration::from_secs(3);
 /// the set is small and [`NATIVE_TOOLS_MAX_CHARS`] caps it further.
 pub const DEFAULT_NATIVE_TOOLS: &[&str] = &[
     "notebook-service_timeline",
+    // What the person and earlier sessions taught it (KM-D6).
+    "memory-service_recall",
     "task-service_list",
     "notebook-service_entry",
     "impress-surface-service_surface-list",
