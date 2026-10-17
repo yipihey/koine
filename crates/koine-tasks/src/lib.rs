@@ -23,6 +23,8 @@ pub mod dto;
 #[cfg(feature = "runtime")]
 pub mod executor;
 #[cfg(feature = "runtime")]
+pub mod inline;
+#[cfg(feature = "runtime")]
 pub mod scheduler;
 #[cfg(feature = "runtime")]
 pub mod service;
