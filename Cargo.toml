@@ -54,6 +54,9 @@ members = [
     "crates/koine-store-query",
     "crates/koine-store-spy",
     "crates/koine-providers",
+    "crates/koine-plot-typst",
+    "crates/koine-plot-matplotlib",
+    "crates/koine-plot-veusz",
     "crates/koine-py",
     "crates/koine-demo-mobile",
     "crates/koine-workspace-hack",
@@ -192,6 +195,9 @@ koine-package-format = { path = "crates/koine-package-format" }
 koine-store-query = { path = "crates/koine-store-query" }
 koine-store-spy = { path = "crates/koine-store-spy" }
 koine-providers = { path = "crates/koine-providers" }
+koine-plot-typst = { path = "crates/koine-plot-typst" }
+koine-plot-matplotlib = { path = "crates/koine-plot-matplotlib" }
+koine-plot-veusz = { path = "crates/koine-plot-veusz" }
 koine-py = { path = "crates/koine-py" }
 
 # implore crates

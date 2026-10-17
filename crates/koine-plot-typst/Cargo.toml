@@ -1,0 +1,19 @@
+[package]
+name = "koine-plot-typst"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "koine-plot's Typst backend: declarative plots to Typst source (with raster assets for big N), no external plotting process; was impress-plot (docs/plan-koine-kit-moves.md KM13)"
+
+[dependencies]
+koine-plot = { workspace = true }
+png = "0.17"
+koine-workspace-hack.workspace = true
+
+# The Typst compile check lives with a Typst engine (imprint-core's
+# tests/plot_render_typst.rs in impress-apps), not here: compiling Typst would
+# pull an engine into this crate's tests.
+
+[lints]
+workspace = true

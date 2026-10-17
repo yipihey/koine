@@ -23,6 +23,92 @@ pub enum SeriesStyle {
     LineScatter,
     Bar,
     Step,
+    /// Density contours of the (x, y) point cloud: binned, smoothed and
+    /// contoured. Levels, labels and line styles are [`PlotSpec::contours`];
+    /// the colormap is [`PlotSpec::colormap`]. A renderer that cannot draw
+    /// contours draws the points and says so (`PlotRenderer::unsupported`).
+    Contour,
+}
+
+// ── Colormap, line styles, strategy, contours ───────────────────────
+
+/// A perceptual colormap, for contours and the raster path.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum Colormap {
+    #[default]
+    Viridis,
+    Magma,
+    Plasma,
+    Inferno,
+    Cividis,
+    Turbo,
+    Greys,
+}
+
+impl Colormap {
+    /// matplotlib's name for it.
+    pub fn matplotlib_name(self) -> &'static str {
+        match self {
+            Colormap::Viridis => "viridis",
+            Colormap::Magma => "magma",
+            Colormap::Plasma => "plasma",
+            Colormap::Inferno => "inferno",
+            Colormap::Cividis => "cividis",
+            Colormap::Turbo => "turbo",
+            Colormap::Greys => "Greys",
+        }
+    }
+}
+
+/// A line's dash pattern.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum LineStyle {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+    DashDotted,
+}
+
+/// Vector or raster, for a renderer that can do both (big point clouds draw
+/// faster as a raster under vector axes).
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum RenderStrategy {
+    /// Raster above [`PlotSpec::raster_threshold`] points, vector below.
+    #[default]
+    Auto,
+    Vector,
+    Raster,
+}
+
+/// How density contours are drawn. Missing fields take their default.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ContourOptions {
+    /// How many levels (default 7); ignored when `level_values` is given.
+    pub levels: u32,
+    /// Explicit level values (normalized density), for levels comparable
+    /// across figures.
+    pub level_values: Vec<f64>,
+    /// Inline level labels on the rings.
+    pub labels: bool,
+    /// A line-style cycle over the levels (empty: all solid).
+    pub line_styles: Vec<LineStyle>,
+}
+
+impl Default for ContourOptions {
+    fn default() -> Self {
+        Self {
+            levels: 7,
+            level_values: vec![],
+            labels: false,
+            line_styles: vec![],
+        }
+    }
 }
 
 // ── Color ───────────────────────────────────────────────────────────
@@ -236,6 +322,19 @@ pub struct PlotSpec {
     /// Annotations: reference lines, text labels, arrows, fill-between regions.
     #[serde(default)]
     pub annotations: Vec<Annotation>,
+    /// The colormap for contours and the raster path.
+    #[serde(default)]
+    pub colormap: Colormap,
+    /// Vector, raster, or chosen by point count.
+    #[serde(default)]
+    pub strategy: RenderStrategy,
+    /// Points above which `Auto` draws a raster (a renderer's own default
+    /// when absent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raster_threshold: Option<u32>,
+    /// How [`SeriesStyle::Contour`] series are drawn.
+    #[serde(default)]
+    pub contours: ContourOptions,
 }
 
 impl Default for PlotSpec {
@@ -250,6 +349,10 @@ impl Default for PlotSpec {
             legend: PlotLegend::default(),
             show_grid: true,
             annotations: vec![],
+            colormap: Colormap::default(),
+            strategy: RenderStrategy::default(),
+            raster_threshold: None,
+            contours: ContourOptions::default(),
         }
     }
 }

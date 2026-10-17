@@ -131,7 +131,9 @@ pub fn render_svg(spec: &PlotSpec) -> String {
                     render_scatter(&mut svg, series, &css_color, &to_px);
                 }
             }
-            SeriesStyle::Scatter => {
+            // The SVG renderer draws a contour series as its point cloud
+            // (render::SvgRenderer::unsupported says so).
+            SeriesStyle::Scatter | SeriesStyle::Contour => {
                 render_scatter(&mut svg, series, &css_color, &to_px);
             }
             SeriesStyle::Step => {
@@ -719,7 +721,7 @@ fn render_legend(
             SeriesStyle::Line | SeriesStyle::Step => {
                 svg.line(x_sym, y, x_sym + 18.0, y, &css, series.line_width, None);
             }
-            SeriesStyle::Scatter => {
+            SeriesStyle::Scatter | SeriesStyle::Contour => {
                 svg.circle(x_sym + 9.0, y, series.point_radius, &css, None);
             }
             SeriesStyle::LineScatter => {

@@ -4334,6 +4334,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "koine-plot-matplotlib"
+version = "0.1.0"
+dependencies = [
+ "koine-plot",
+ "koine-workspace-hack",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "koine-plot-typst"
+version = "0.1.0"
+dependencies = [
+ "koine-plot",
+ "koine-workspace-hack",
+ "png 0.17.16",
+]
+
+[[package]]
+name = "koine-plot-veusz"
+version = "0.1.0"
+dependencies = [
+ "koine-plot",
+ "koine-workspace-hack",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "koine-providers"
 version = "0.1.0"
 dependencies = [

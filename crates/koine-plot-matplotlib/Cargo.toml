@@ -1,0 +1,21 @@
+[package]
+name = "koine-plot-matplotlib"
+description = "A koine-plot renderer that writes a self-contained matplotlib script, and with exec runs it to PNG, PDF or SVG (docs/plan-koine-kit-moves.md KM-D13)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# Run the script with the person's own `python3` (matplotlib installed) to
+# write PNG, PDF or SVG. Off: the renderer writes the script only.
+exec = ["dep:tempfile"]
+
+[dependencies]
+koine-plot = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[lints]
+workspace = true

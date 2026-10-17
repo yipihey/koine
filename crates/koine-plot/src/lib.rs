@@ -23,6 +23,10 @@
 //!   `<line>`, one `<g class="koine-graph-node" data-id>` per node, labels up
 //!   to 500 nodes). The JSON forms are [`graph::parse_graph`] and
 //!   [`graph::render_graph_svg_json`].
+//! - [`render`]: the renderer registry. [`render::PlotRenderer`] is one way
+//!   to draw a spec; SVG and text are built in, and each further backend
+//!   (Typst, matplotlib, Veusz, …) is its own crate that registers itself
+//!   ([`render::register_renderer`]). [`render::render`] draws with one by id.
 //! - [`parse_spec`], [`render_svg_json`], [`render_text_json`]: the same for a
 //!   spec held as JSON, answering a typed [`PlotError`] when it does not parse.
 //!
@@ -37,6 +41,7 @@
 
 pub mod axis;
 pub mod graph;
+pub mod render;
 pub mod spec;
 pub mod svg;
 pub mod text;
@@ -52,6 +57,12 @@ pub enum PlotError {
     /// The JSON is not a `PlotSpec`; the message names the offending field.
     #[error("plot spec: {0}")]
     Spec(String),
+    /// The renderer cannot write what was asked (a format, a feature).
+    #[error("unsupported: {0}")]
+    Unsupported(String),
+    /// The renderer failed (a tool it runs, a file it writes).
+    #[error("render: {0}")]
+    Render(String),
 }
 
 /// Parse a spec held as JSON.

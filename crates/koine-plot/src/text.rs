@@ -243,7 +243,7 @@ fn draw_series(grid: &mut [Vec<char>], frame: &Frame, s: &crate::spec::PlotSerie
         }
     };
     match s.style {
-        SeriesStyle::Scatter => {
+        SeriesStyle::Scatter | SeriesStyle::Contour => {
             for &(c, r) in &points {
                 put(c, r);
             }

@@ -76,6 +76,7 @@ mod tests {
         assert!(series.get("x").is_some() && series.get("y").is_some());
         assert!(series.get("xs").is_none() && series.get("ys").is_none());
         assert!(series.get("kind").is_none());
-        assert!(value.get("x_axis").is_some() && value.get("colormap").is_none());
+        // imprint's FFI shape names its axes `x`/`y`; koine's are `x_axis`/`y_axis`.
+        assert!(value.get("x_axis").is_some() && value.get("x").is_none());
     }
 }
