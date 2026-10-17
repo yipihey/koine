@@ -1,0 +1,20 @@
+[package]
+name = "koine-store-spy"
+description = "A store-port wrapper that records the record kinds each call read and wrote, for checking verbs' declared effects on any backend (docs/plan-koine-kit-moves.md KM14)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-item = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+koine-store-memory = { workspace = true }
+koine-store-conformance = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

@@ -65,6 +65,10 @@ apple-fm = ["dep:koine-ai-apple"]
 
 [dev-dependencies]
 reqwest = { workspace = true }
+# koine's own effects check (tests/effects.rs, KM14).
+koine-store-spy = { workspace = true }
+koine-store-memory = { workspace = true }
+serde_json = { workspace = true }
 tempfile = { workspace = true }
 impress-surface = { workspace = true, features = ["schema"] }
 tokio = { workspace = true }

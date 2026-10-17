@@ -110,7 +110,7 @@ pub trait PackageService: Send + Sync + 'static {
     #[impress_method(
         safety = mutating,
         supports(reversibly),
-        effects(writes = ["impress/ui/surface@1.0.0", any("koine/shipped@1.0.0")])
+        effects(reads = [any("koine/shipped@1.0.0")], writes = ["impress/ui/surface@1.0.0", any("koine/shipped@1.0.0")])
     )]
     #[impress_example(
         name = "unknown",
@@ -125,7 +125,7 @@ pub trait PackageService: Send + Sync + 'static {
     #[impress_method(
         safety = mutating,
         supports(reversibly),
-        effects(writes = ["impress/ui/surface@1.0.0", any("koine/shipped@1.0.0")])
+        effects(reads = [any("koine/shipped@1.0.0")], writes = ["impress/ui/surface@1.0.0", any("koine/shipped@1.0.0")])
     )]
     #[impress_example(
         name = "unknown",
@@ -139,7 +139,7 @@ pub trait PackageService: Send + Sync + 'static {
     /// nothing waiting (`conflict`).
     #[impress_method(
         safety = mutating,
-        effects(writes = [any("koine/shipped@1.0.0")])
+        effects(reads = [any("koine/shipped@1.0.0")], writes = [any("koine/shipped@1.0.0")])
     )]
     #[impress_example(
         name = "unknown",
@@ -171,7 +171,7 @@ pub trait PackageService: Send + Sync + 'static {
     /// Forget a registry (by URL or name). Packages installed from it stay.
     #[impress_method(
         safety = mutating,
-        effects(writes = [any("koine/registry@1.0.0")])
+        effects(reads = [any("koine/registry@1.0.0")], writes = [any("koine/registry@1.0.0")])
     )]
     #[impress_example(
         name = "missing",

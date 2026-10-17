@@ -4196,7 +4196,9 @@ dependencies = [
  "koine-notebook",
  "koine-packages",
  "koine-store",
+ "koine-store-memory",
  "koine-store-query",
+ "koine-store-spy",
  "koine-tasks",
  "koine-window",
  "koine-workspace-hack",
@@ -4435,6 +4437,18 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "koine-store-spy"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "impress-item",
+ "koine-store-conformance",
+ "koine-store-memory",
+ "koine-workspace-hack",
  "uuid",
 ]
 

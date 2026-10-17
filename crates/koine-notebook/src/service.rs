@@ -33,7 +33,7 @@ pub trait NotebookService: Send + Sync + 'static {
     /// recorded too while it is open. Refuses an empty name.
     #[impress_method(
         safety = mutating,
-        effects(writes = [any("koine/run@1.0.0")])
+        effects(reads = [any("koine/run@1.0.0")], writes = [any("koine/run@1.0.0")])
     )]
     #[impress_example(
         name = "default",
@@ -45,7 +45,7 @@ pub trait NotebookService: Send + Sync + 'static {
     /// open (not a refusal).
     #[impress_method(
         safety = mutating,
-        effects(writes = [any("koine/run@1.0.0")])
+        effects(reads = [any("koine/run@1.0.0")], writes = [any("koine/run@1.0.0")])
     )]
     #[impress_example(name = "default", args = r#"{}"#, expect = r#"{"ok": true}"#)]
     async fn run_stop(&self) -> RunResult;

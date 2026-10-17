@@ -185,7 +185,9 @@ pub fn references_to_filters_by_edge_type(store: &dyn AttributedStore) {
         vec![(g.c, EdgeType::Supersedes)]
     );
     assert_eq!(
-        store.references_to(g.a, std::slice::from_ref(&custom)).unwrap(),
+        store
+            .references_to(g.a, std::slice::from_ref(&custom))
+            .unwrap(),
         vec![(g.d, custom.clone())]
     );
     assert_eq!(
