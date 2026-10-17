@@ -379,11 +379,10 @@ repositories stay green.
 ### Left open by the moves
 
 - `history_service` and `audit` against koine-notebook's call log (above).
-- impress-apps' `scripts/check-verb-coverage.sh` still scans only
-  `crates/*/src` for `impress_service_impl!`, so every service that moved to
-  koine since K3b fails it (171 rows before KM6). The census test in
-  impress-capabilities is the check that holds; the script needs to read the
-  koine source cargo resolved, as `check-uniffi-bindings.sh` now does.
+- ~~impress-apps' `scripts/check-verb-coverage.sh` failed every moved
+  service while koine was built from `../koine`~~: it exempted only git
+  dependencies on yipihey/koine; it now counts a `../koine` path and an
+  alias's package name too (impress-apps `koine-kit-moves`).
 - imprint's `FfiPlotSpec` and koine-plot's spec disagree (the `plot_shape`
   tests).
 - The memory kernel's heads are computed from every memory row's references
