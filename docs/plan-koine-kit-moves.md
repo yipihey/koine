@@ -361,3 +361,32 @@ repositories stay green.
   links no rusqlite, fastembed, HNSW or pyo3. The scenario, workflow,
   settings, capabilities, perf and transport crates carry no content, so no
   package.
+- **KM8 done.** koine `main` fast-forwarded to `kit-moves` and pushed
+  (`767a261`); impress-apps `koine-kit-moves` pins that rev for every koine
+  dependency and in hakari's third-party list (no `../koine` path is left),
+  `01174688`. Full gate on impress-apps: fmt, clippy `rest` and `imprint`
+  clean, `check-kit-deps --strict` OK, UniFFI bindings match. Tests: `rest`
+  green but for `effects_spy::a_window_records_reads_and_writes_and_closes_clean`,
+  which failed once under the workspace-wide run and passes alone and across
+  impress-core (the global spy, known flaky); `imprint` green but for
+  `imprint-core/tests/plot_shape.rs`'s two cases, which predate the kit
+  moves: surface-demo-service's histogram emits a koine-plot spec
+  (`"color": "Blue"`) that imprint's `FfiPlotSpec` does not read, and
+  neither crate changed between `6a4172f` and `767a261`. koine: the
+  workspace (143 test binaries), koine-host and the `new-app.sh` e2e
+  (75/75) pass.
+
+### Left open by the moves
+
+- `history_service` and `audit` against koine-notebook's call log (above).
+- impress-apps' `scripts/check-verb-coverage.sh` still scans only
+  `crates/*/src` for `impress_service_impl!`, so every service that moved to
+  koine since K3b fails it (171 rows before KM6). The census test in
+  impress-capabilities is the check that holds; the script needs to read the
+  koine source cargo resolved, as `check-uniffi-bindings.sh` now does.
+- imprint's `FfiPlotSpec` and koine-plot's spec disagree (the `plot_shape`
+  tests).
+- The memory kernel's heads are computed from every memory row's references
+  on each recall; SQLite lost its `NOT EXISTS` fast path. Fine at today's
+  sizes; an `incoming edges` predicate on the port would restore it.
+- The memory executors' integration test runs on `MemoryStore` only.
