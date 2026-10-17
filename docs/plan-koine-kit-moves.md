@@ -493,3 +493,58 @@ shares the `Observed` type.
 | KM13 | The plot renderer registry; the spec's additions; `koine-plot-typst`, `koine-plot-matplotlib`, `koine-plot-veusz`; imprint on the koine spec (KM-D13) | both |
 | KM14 | `koine-store-spy` and koine's own effects check (KM-D14) | koine (impress shares the type) |
 | KM15 | Pin and full gates, as KM8 | both |
+
+### Second wave status
+
+- **KM9 done.** `ItemStore::references_to(target, edge_types)` (sources of
+  every edge into an item, by `HasReference` queries or one scan when no type
+  is named; three conformance cases; SQLite answers from `item_references`).
+  The memory kernel's heads probe it per candidate. `koine-store-query`
+  carries `store-query-service_{search-all, related-items, get-item,
+  list-items}` (kernels in `ops`, verbs behind a default `service` feature):
+  retrieval through `search_text`, terms ANDed and prefix-matched as before,
+  buckets capped per kind, snippets from the text fields. The default
+  `search_text` now matches a token against every word it prefixes, as
+  SQLite's FTS does. Not done from KM-D9: a registered kind table — the
+  hybrid publication ranking (author and cite-key boosts) turned out to be
+  imbib's palette, not grouped search, and stays in impress-core.
+- **KM10 done.** koine-notebook's sink is the one call-log writer: a scoped
+  call's record goes to its own store (`koine_store::process::widen`), the
+  row's `batch_id` is the call id, channel drops are counted, `health()`
+  reports the writer, `install_with` opens the host's store lazily on the
+  first record. The history verbs are `koine_notebook::history`; the
+  notebook's own verbs are behind a default `notebook` feature that impress
+  turns off. The port gains `impress_item::ambient_batch`: every pipeline
+  call scope registers its call id, and the memory and directory stores stamp
+  it on an operation written without a batch, as SQLite does — without it
+  `why` could not join an operation to its call on koine's backends.
+  koine-agent's notebook dependency, unused outside its tests, became a
+  dev-dependency (it linked the notebook verbs into every desk host).
+- **KM11 done.** `koine_tasks::inline` (runtime): `start_inline`,
+  `JobContext<S>` (the caller's store type kept), `drain_inline`, `wait`,
+  `wait_until_done`, `result_of`, `cli_finish`. impress keeps its fallback
+  refusal and `cli_finish` over the suite store.
+- **KM12 done.** `koine-providers`: `StoreProviderPersistence` over the port,
+  `build_registry`/`install_for_store`, `provider-service_*`. The persistence
+  was already rows in the item store plus hash-addressed token files, so no
+  JSON store was needed (KM-D12's trait already existed in service-core);
+  impress keeps SQLite's sync exclusion and the selected-store entry points.
+- **KM13 done.** `koine_plot::render`: `PlotRenderer`, `Rendered`, `Format`,
+  the registry, SVG and text built in. The spec grew a `Contour` style,
+  `colormap`, `strategy`, `raster_threshold` and `contours`, all optional.
+  `koine-plot-typst` (impress-plot moved, plus `TypstRenderer`),
+  `koine-plot-matplotlib` (script; `exec` runs python3), `koine-plot-veusz`
+  (`.vsz`; `exec` runs `veusz --export`). impress-plot is an alias of
+  koine-plot-typst; imprint gains `render_koine_plot_svg`, and the two
+  `plot_shape` tests that predated the moves now pass by rendering the demo's
+  koine spec through it. imprint's `FfiPlotSpec` stays: it is also the stored
+  `.plot.json` format. Not verified here: the `exec` paths (no matplotlib or
+  Veusz on this machine; they are `--ignored` tests). Next candidates for the
+  registry: implore's lilaq and kuva renderers (its `kuva` feature does not
+  build today: kuva's prelude exports its own `SeriesStyle`).
+- **KM14 done.** `koine-store-spy` (`SpyStore<S>`, the whole conformance
+  suite passes through it) and koine-host's `tests/effects.rs`: every linked
+  verb's Tier A examples (133) on a spied memory store, second run measured.
+  It found reads the notebook's run verbs and the package manager's shipped
+  and registry verbs made without declaring; they declare them now.
+  impress-core's SQLite spy shares `Observed`/`ANY`.
