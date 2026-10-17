@@ -7,6 +7,7 @@
 //! `Item`. Moving the types out is what lets that database stay in
 //! impress-apps when koine leaves (`docs/plan-koine-separation.md`, K1b).
 
+pub mod ambient;
 pub mod event;
 pub mod item;
 pub mod operation;
@@ -16,6 +17,7 @@ pub mod schema;
 pub mod store;
 pub mod text_search;
 
+pub use ambient::{ambient_batch, set_ambient_batch};
 pub use event::*;
 pub use item::*;
 pub use operation::*;

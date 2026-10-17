@@ -12,6 +12,8 @@ impress-service-macros = { workspace = true }
 impress-item = { workspace = true }
 koine-store = { workspace = true }
 koine-plot = { workspace = true }
+# Workflows the history miner proposes and save-macro writes (KM10).
+impress-workflow = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 schemars = { workspace = true }
@@ -22,6 +24,11 @@ tracing = { workspace = true }
 koine-workspace-hack.workspace = true
 
 [dev-dependencies]
+# The history tests drive the triage verbs through the pipeline.
+koine-triage = { workspace = true }
+tempfile = { workspace = true }
+# The proof that a mined proposal never runs through the workflow engine.
+impress-workflow-service = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 koine-store-memory = { workspace = true }
 impress-surface = { workspace = true }

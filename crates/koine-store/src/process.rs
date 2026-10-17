@@ -172,8 +172,20 @@ fn register_widener<T: AttributedStore + 'static>(wideners: &mut Vec<(TypeId, Wi
     }));
 }
 
+/// A call-scoped store (the erased value a caller put in `Call::store`) as
+/// the port, when its concrete type is one this process accepts
+/// ([`accept_override_of`]; `MemoryStore` and `DirStore` always). How the
+/// call log writes a scoped call's record to the store the call ran on.
+pub fn widen(erased: Arc<dyn Any + Send + Sync>) -> Option<Arc<dyn AttributedStore>> {
+    widen_erased(erased)
+}
+
 fn scoped_store() -> Option<Arc<dyn AttributedStore>> {
     let erased = impress_service_core::pipeline::context::store_override_erased()?;
+    widen_erased(erased)
+}
+
+fn widen_erased(erased: Arc<dyn Any + Send + Sync>) -> Option<Arc<dyn AttributedStore>> {
     // Copy the table out so no lock is held while a widener runs.
     let mut wideners: Vec<Widener> = read().wideners.iter().map(|(_, w)| *w).collect();
     let mut builtin = Vec::new();
@@ -188,6 +200,9 @@ fn scoped_store() -> Option<Arc<dyn AttributedStore>> {
 /// installed one, opened lazily through [`set_opener`] when none is real yet.
 /// `None` when the host installed nothing and registered no opener.
 pub fn acquire() -> Option<(Arc<dyn AttributedStore>, bool)> {
+    // Operations a verb writes without a batch carry its call id, on every
+    // backend (KM10).
+    impress_item::set_ambient_batch(impress_service_core::pipeline::context::current_call_id);
     if let Some(store) = scoped_store() {
         return Some((store, false));
     }

@@ -1374,7 +1374,7 @@ fn operation_row(
         message_type: None,
         produced_by: None,
         version: None,
-        batch_id: spec.batch_id.clone(),
+        batch_id: spec.batch_id.clone().or_else(impress_item::ambient_batch),
         references: vec![],
         parent: None,
     };

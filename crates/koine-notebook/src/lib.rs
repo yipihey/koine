@@ -12,6 +12,7 @@
 
 pub mod analysis;
 pub mod dto;
+pub mod history;
 pub mod records;
 pub mod runs;
 pub mod service;
@@ -61,6 +62,28 @@ pub fn install(store: Arc<dyn AttributedStore>, config: SinkConfig) -> Arc<Store
     sink
 }
 
+/// The call log's writer as numbers: rows written, dropped for a full
+/// channel and refused by the store; calls that found no sink at all
+/// (the pipeline's count, which includes the drops); the channel's size.
+pub fn health() -> serde_json::Value {
+    use std::sync::atomic::Ordering;
+    let (written, dropped, failed) = installed_sink().map_or((0, 0, 0), |sink| {
+        let stats = sink.stats();
+        (
+            stats.written.load(Ordering::Relaxed),
+            stats.dropped.load(Ordering::Relaxed),
+            stats.failed.load(Ordering::Relaxed),
+        )
+    });
+    serde_json::json!({
+        "written": written,
+        "dropped": dropped,
+        "failed": failed,
+        "no_sink": impress_service_core::pipeline::audit::dropped(),
+        "channel_capacity": sink::CHANNEL_CAP,
+    })
+}
+
 /// The installed sink, if a host installed one.
 pub fn installed_sink() -> Option<Arc<StoreSink>> {
     INSTALLED
@@ -96,4 +119,5 @@ pub(crate) fn stamp() -> (String, Value) {
 /// Reference the service so the linker keeps its registrations.
 pub fn ensure_linked() {
     std::hint::black_box(DefaultNotebookService::new as *const ());
+    std::hint::black_box(history::DefaultHistoryService::new as *const ());
 }

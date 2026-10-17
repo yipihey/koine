@@ -10,7 +10,9 @@
 //! What is not written:
 //!
 //! - a record of a call that ran on a per-call store override (a Tier A
-//!   scenario's store): counted in [`SinkStats::skipped`];
+//!   scenario's store) whose type this process cannot name
+//!   (`koine_store::process::widen`): counted in [`SinkStats::skipped`]. One
+//!   it can name is written to that store, not the host's;
 //! - a successful read-only record of the notebook's own plumbing (the
 //!   surface wait loop and the notebook's read verbs, [`is_quiet`]), which
 //!   would otherwise fill the log while a run records reads: counted in
@@ -31,7 +33,7 @@ use serde_json::{json, Value};
 use crate::records;
 
 /// Records waiting for the writer before a new one is dropped.
-pub const CHANNEL_CAP: usize = 1024;
+pub const CHANNEL_CAP: usize = 4096;
 /// Records outside any run kept by the sink's own pruning (N-D9).
 pub const DEFAULT_KEEP: usize = 5000;
 /// The sink prunes after this many writes.
@@ -69,6 +71,8 @@ impl SinkConfig {
 #[derive(Debug, Default)]
 pub struct SinkStats {
     pub written: AtomicU64,
+    /// Records refused for a full channel.
+    pub dropped: AtomicU64,
     pub skipped: AtomicU64,
     pub quiet: AtomicU64,
     pub failed: AtomicU64,
@@ -83,6 +87,8 @@ pub struct StoreSink {
 
 enum Message {
     Record(Box<VerbCallRecord>),
+    /// A call that ran on a scoped store: its record goes to that store.
+    RecordTo(Box<VerbCallRecord>, Arc<dyn AttributedStore>),
     Flush(SyncSender<()>),
 }
 
@@ -126,17 +132,28 @@ impl audit::Sink for StoreSink {
     }
 
     fn record(&self, record: VerbCallRecord) {
-        if record.store_override.is_some() {
-            self.stats.skipped.fetch_add(1, Ordering::Relaxed);
-            return;
-        }
         if is_quiet(&record) {
             self.stats.quiet.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        match self.sender.try_send(Message::Record(Box::new(record))) {
+        // A call that ran on a scoped store (a scenario's scratch store, a
+        // test's) is recorded there, when this process can name that store's
+        // type; otherwise it is counted and dropped, never written to the
+        // host's store, which it did not touch.
+        let message = match record.store_override.clone() {
+            Some(erased) => match koine_store::process::widen(erased) {
+                Some(scoped) => Message::RecordTo(Box::new(record), scoped),
+                None => {
+                    self.stats.skipped.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+            },
+            None => Message::Record(Box::new(record)),
+        };
+        match self.sender.try_send(message) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                self.stats.dropped.fetch_add(1, Ordering::Relaxed);
                 audit::count_dropped();
             }
         }
@@ -169,6 +186,19 @@ fn write_loop(
         match message {
             Message::Flush(done) => {
                 let _ = done.send(());
+            }
+            Message::RecordTo(record, scoped) => {
+                let item = item_of(&record, &config);
+                match scoped.insert(item) {
+                    Ok(_) => {
+                        stats.written.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(error) => {
+                        stats.failed.fetch_add(1, Ordering::Relaxed);
+                        tracing::warn!(target: "notebook", call_id = %record.call_id,
+                            "call record not written to its scoped store: {error}");
+                    }
+                }
             }
             Message::Record(record) => {
                 let item = item_of(&record, &config);
@@ -212,7 +242,7 @@ pub fn item_of(record: &VerbCallRecord, config: &SinkConfig) -> impress_item::It
     let created = chrono::DateTime::parse_from_rfc3339(&record.started_at)
         .map(|t| t.with_timezone(&Utc))
         .unwrap_or_else(|_| Utc::now());
-    records::new_item(
+    let mut item = records::new_item(
         records::record_id(&record.call_id),
         records::VERB_CALL,
         payload,
@@ -220,7 +250,10 @@ pub fn item_of(record: &VerbCallRecord, config: &SinkConfig) -> impress_item::It
         records::actor_kind(&record.caller),
         created,
         None,
-    )
+    );
+    // The call's own id: the join key its operations carry.
+    item.batch_id = Some(record.call_id.clone());
+    item
 }
 
 /// Delete the oldest call records outside any run beyond `keep`, with their
