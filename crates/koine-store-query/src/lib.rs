@@ -3,15 +3,18 @@
 //! docs/plan-koine-kit-moves.md KM9).
 //!
 //! * [`ops`]: the kernels over the store port.
-//! * [`service`]: `StoreQueryService`, the four `store-query-service_*`
+//! * [`service`] (feature `service`, default): `StoreQueryService`, the four `store-query-service_*`
 //!   verbs. Its default deployment reads the process store
 //!   (`koine_store::process`).
 
 pub mod ops;
+#[cfg(feature = "service")]
 pub mod service;
 
+#[cfg(feature = "service")]
 pub use service::{DefaultStoreQueryService, StoreQueryService};
 
+#[cfg(feature = "service")]
 /// Keep the verbs' inventory registrations in a host that names nothing
 /// else of this crate.
 pub fn ensure_linked() {

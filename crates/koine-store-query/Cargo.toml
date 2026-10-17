@@ -6,15 +6,28 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+# The kernels (`ops`) are always there; `service` adds the verbs. A crate that
+# wants only the kernels (impress-core) turns it off.
+default = ["service"]
+service = [
+    "dep:impress-service-core",
+    "dep:impress-service-macros",
+    "dep:koine-store",
+    "dep:serde",
+    "dep:schemars",
+    "dep:async-trait",
+]
+
 [dependencies]
 impress-item = { workspace = true }
-impress-service-core = { workspace = true }
-impress-service-macros = { workspace = true }
-koine-store = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-schemars = { workspace = true }
-async-trait = { workspace = true }
+impress-service-core = { workspace = true, optional = true }
+impress-service-macros = { workspace = true, optional = true }
+koine-store = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+schemars = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
 koine-workspace-hack.workspace = true
 
 [dev-dependencies]
@@ -27,3 +40,7 @@ uuid = { workspace = true }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "backends"
+required-features = ["service"]
