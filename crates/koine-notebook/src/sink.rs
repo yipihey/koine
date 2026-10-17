@@ -92,16 +92,50 @@ enum Message {
     Flush(SyncSender<()>),
 }
 
+/// How the writer reaches the host's store, opened on its first record when
+/// the host opens it lazily. `None`: there is no store a record would
+/// survive in (an in-memory stand-in); the record is dropped and counted.
+pub type StoreOpener = fn() -> Option<Arc<dyn AttributedStore>>;
+
+enum Source {
+    Ready(Arc<dyn AttributedStore>),
+    Lazy(StoreOpener),
+}
+
+impl Source {
+    fn get(&mut self) -> Option<Arc<dyn AttributedStore>> {
+        match self {
+            Source::Ready(store) => Some(store.clone()),
+            Source::Lazy(open) => {
+                let store = open()?;
+                *self = Source::Ready(store.clone());
+                Some(store)
+            }
+        }
+    }
+}
+
 impl StoreSink {
     /// Start the writer thread over `store`. Install the result with
     /// `audit::install`.
     pub fn start(store: Arc<dyn AttributedStore>, config: SinkConfig) -> Arc<Self> {
+        Self::start_from(Source::Ready(store), config)
+    }
+
+    /// Start the writer thread over the store `open` yields, asked on the
+    /// first record rather than now, so a host that opens its store lazily
+    /// does not open it at install.
+    pub fn start_lazy(open: StoreOpener, config: SinkConfig) -> Arc<Self> {
+        Self::start_from(Source::Lazy(open), config)
+    }
+
+    fn start_from(source: Source, config: SinkConfig) -> Arc<Self> {
         let (sender, receiver) = sync_channel(CHANNEL_CAP);
         let stats = Arc::new(SinkStats::default());
         let writer_stats = stats.clone();
         std::thread::Builder::new()
             .name("koine-call-log".into())
-            .spawn(move || write_loop(receiver, store, config, writer_stats))
+            .spawn(move || write_loop(receiver, source, config, writer_stats))
             .expect("spawn the call-log writer");
         Arc::new(Self { sender, stats })
     }
@@ -177,7 +211,7 @@ pub fn is_quiet(record: &VerbCallRecord) -> bool {
 
 fn write_loop(
     receiver: Receiver<Message>,
-    store: Arc<dyn AttributedStore>,
+    mut source: Source,
     config: SinkConfig,
     stats: Arc<SinkStats>,
 ) {
@@ -201,6 +235,11 @@ fn write_loop(
                 }
             }
             Message::Record(record) => {
+                let Some(store) = source.get() else {
+                    stats.dropped.fetch_add(1, Ordering::Relaxed);
+                    audit::count_dropped();
+                    continue;
+                };
                 let item = item_of(&record, &config);
                 match store.insert(item) {
                     Ok(_) => {

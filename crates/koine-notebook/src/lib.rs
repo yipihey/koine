@@ -84,6 +84,21 @@ pub fn health() -> serde_json::Value {
     })
 }
 
+/// [`install`] for a host that opens its store lazily: the writer asks
+/// `open` on its first record (`None` drops and counts it). An open run is
+/// not re-opened, since that would open the store now.
+pub fn install_with(open: sink::StoreOpener, config: SinkConfig) -> Arc<StoreSink> {
+    let sink = StoreSink::start_lazy(open, config.clone());
+    audit::install(sink.clone());
+    if let Ok(mut slot) = INSTALLED.write() {
+        *slot = Some(Installed {
+            sink: sink.clone(),
+            config,
+        });
+    }
+    sink
+}
+
 /// The installed sink, if a host installed one.
 pub fn installed_sink() -> Option<Arc<StoreSink>> {
     INSTALLED
