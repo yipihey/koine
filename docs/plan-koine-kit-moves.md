@@ -267,3 +267,39 @@ repositories stay green.
   before KM3) and passes with `-p koine-host`; imbib-core's
   `tag_count_effects_are_the_same_on_cold_and_warm_cache_reads` is flaky on the
   global effects spy.
+- **KM4 done.** `koine-collections` (kernel `ops` over `&dyn AttributedStore`,
+  the generic `collection@1.0.0` binding, the marker `is_migrated_on`; the
+  twelve `collection-service_*` verbs behind `service`; `builtin:collections`
+  behind `package`) and `koine-settings-service` (the six `settings-service_*`
+  verbs over `impress-settings`; settings files in the process workspace,
+  `koine_store::process::set_workspace`). An app registers its bindings by
+  name (`register_binding`) and may offer the convergence verbs
+  (`set_migration`, a `CollectionMigration`); impress registers its three
+  bindings and `SqliteCollectionMigration` from `register_process_ports`. The
+  port gained `ItemStore::default_author` (the author a kernel stamps when the
+  caller names none). `impress-scenario-service` and `impress-workflow-service`
+  moved under the same names, verbs unchanged. Two port-level pieces came with
+  them: `koine_store::process::CallStore` (a store as the port and as the
+  concrete-typed call override, so a verb that downcasts the call's store to
+  its backend still finds it) and `Sink::flush` / `audit::flush` on the
+  pipeline's audit sink (both sinks answer it; scenario recording drains the
+  call log through it). A Tier A scenario runs on a scratch `CallStore`, a
+  `MemoryStore` unless the host calls `tier_a::set_scratch_store_factory`;
+  impress-capabilities' `scenario` feature points it at an in-memory SQLite
+  store (`impress_store_service::scratch_call_store`). The workflow runner's
+  `store`/`message`/`job`/`call` triggers read `arrivals_after`;
+  `WorkflowEngine::run_once` takes a `CallStore` (re-exported from the crate),
+  and its three hosts (impress-store-ffi's tick, impel-taskd, imbib-service's
+  retention test) wrap their `Arc<SqliteItemStore>`. Stayed in impress-apps:
+  `interpreter.gaps.json` (it drives the store-query verbs; now under
+  `impress-store-service/scenarios`, run by impress-capabilities'
+  `scenario_catalogue` test with the whole inventory) and the history-miner
+  half of "a proposed workflow never runs" (impress-store-service's
+  `history_service` tests). Callers that held `&Arc<SqliteItemStore>` pass
+  `&*store` to the port-typed collection kernel. Tests (koine):
+  koine-collections 60 + 10 kernel (+14 with `package`), koine-settings-service
+  7, impress-scenario-service 18 + 10 (memory and dir backends),
+  impress-workflow-service 3 + 9 (the engine over memory and dir).
+  impress-apps: impress-core 525, impress-store-service 132 (+2), imbib-core
+  988, impress-capabilities all green with `KOINE_CHECKOUT`. `check-kit-deps
+  --strict` reports only the expected path-dependency entries until KM8.
