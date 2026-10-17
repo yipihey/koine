@@ -1,0 +1,47 @@
+[package]
+name = "impress-workflow-service"
+description = "W1 (plan-self-reflective-layer): the workflow verbs, over impress-workflow's pure spec/validate/plan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+autotests = false
+
+[dependencies]
+# The store port: workflow rows, and the arrival feed the `store`, `message`,
+# `job` and `call` triggers read (docs/plan-koine-kit-moves.md KM-D3).
+impress-item = { workspace = true }
+# The process store the verbs default to, and `CallStore` for the runner.
+koine-store = { workspace = true }
+# The `task@1.0.0` field names the `job` trigger matches.
+koine-tasks = { workspace = true }
+# The pure vocabulary this crate stores, dry-runs and reviews: spec,
+# validate, plan. `schema` so `WorkflowSpec` publishes its JSON schema.
+impress-workflow = { workspace = true, features = ["schema"] }
+impress-surface = { workspace = true, features = ["schema"] }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+# W2: the daemon-vs-app lease (`WorkflowLease`), impel's `WorkerLease` pattern
+# lifted the same way settings and preferences already share it (D-R8).
+impress-fs-lock = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true, features = ["v4", "serde"] }
+chrono = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+tempfile = { workspace = true }
+koine-store-memory = { workspace = true }
+koine-store-dir = { workspace = true }
+
+# One integration-test binary, tests/main.rs, with a `mod` per file in
+# tests/ (plan-verb-pipeline-and-transport § Build cost, B1).
+[[test]]
+name = "main"
+path = "tests/main.rs"
+
+[lints]
+workspace = true

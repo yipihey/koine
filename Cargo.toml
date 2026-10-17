@@ -46,6 +46,7 @@ members = [
     "crates/koine-collections",
     "crates/koine-settings-service",
     "crates/impress-scenario-service",
+    "crates/impress-workflow-service",
     "crates/koine-py",
     "crates/koine-demo-mobile",
     "crates/koine-workspace-hack",
@@ -176,6 +177,7 @@ koine-triage = { path = "crates/koine-triage" }
 koine-collections = { path = "crates/koine-collections" }
 koine-settings-service = { path = "crates/koine-settings-service" }
 impress-scenario-service = { path = "crates/impress-scenario-service" }
+impress-workflow-service = { path = "crates/impress-workflow-service" }
 koine-py = { path = "crates/koine-py" }
 
 # implore crates

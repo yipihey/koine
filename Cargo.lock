@@ -3316,6 +3316,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-workflow-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-fs-lock",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-surface",
+ "impress-workflow",
+ "koine-store",
+ "koine-store-dir",
+ "koine-store-memory",
+ "koine-tasks",
+ "koine-workspace-hack",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
