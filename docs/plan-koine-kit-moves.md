@@ -303,3 +303,61 @@ repositories stay green.
   impress-apps: impress-core 525, impress-store-service 132 (+2), imbib-core
   988, impress-capabilities all green with `KOINE_CHECKOUT`. `check-kit-deps
   --strict` reports only the expected path-dependency entries until KM8.
+- **KM5 done.** `koine-embeddings` is `impress-embeddings` unchanged (`store`,
+  `index`, `embedder` features). `koine-memory` carries the kernel (`ops`,
+  over `&dyn AttributedStore`: near-duplicate and query retrieval are the
+  port's `search_text`; heads are computed from the memory rows' own
+  `Supersedes` references instead of a `NOT EXISTS` over SQLite's edge table;
+  `memory_status` counts through `ItemStore::count`), the seven
+  `memory-service_*` verbs (`service`, default), the vector tier in its own
+  module behind `embeddings` (`embedder` adds the local model; without it
+  `memory_status` reports the tier `off` and recall keeps the text order), and
+  impel-memory's executors and spawner behind `executors` (koine-tasks
+  `runtime`, koine-ai; the candidate keyset scan is one port query per
+  embeddable schema, merged; tasks are created through
+  `koine_tasks::store::kernel::create_item`). koine-host links koine-memory
+  without embeddings, and `DEFAULT_NATIVE_TOOLS` gains
+  `memory-service_recall` (still under the cap). impress-apps keeps the old
+  crate names as workspace aliases (`impress-memory-service` and
+  `impel-memory` are `koine-memory`, the latter with `executors`;
+  `impress-embeddings` is `koine-embeddings`), so no `use` changed except
+  impel-taskd's `impel_memory::executors::` paths; `vector-embedder` is now
+  `embedder`. impress-core re-exports the kernel as `memory_ops` and keeps
+  `tests/prop_memory_ops.rs` over SQLite. The memory verbs read the process
+  store, so impress-capabilities' `memory` feature and the MCP brief resource
+  register the process ports. `memory-service_memory-status` is now visible
+  to the effects spy (its exception row is gone). Found on the way: the
+  default `search_text` retrieves by any token where SQLite's FTS ANDs them,
+  so a gate fixture whose bodies differed by one token that the fixture also
+  used (`Tokens: 42` vs run 42) confirmed on the memory store; the fixture now
+  names runs `r{i}`. Tests (koine): koine-embeddings 24, koine-memory 67
+  (75 with `embeddings`, 86 + 37 executors with `executors`) + 2 backends
+  (memory, dir), koine-host 43 + 34. impress-apps: impress-core with the
+  SQLite memory property tests, impress-mcp, impel-taskd, impel-tools,
+  impress-cli, imbib-semantic-service, imbib-core 988, impress-capabilities.
+  Not carried: the executors' 2k-line integration test now runs on
+  `MemoryStore` only; impress-apps has no SQLite run of it.
+- **KM6 done.** `impress-helix` moved unchanged (UniFFI behind `ffi`).
+  impress-apps keeps `crates/impress-helix` as the `impress-helix-ffi`
+  package (`pub use impress_helix::*`, `ffi` turns on the koine crate's), so
+  the xcframework build, CI path filters, the xcframework action and
+  `Package.swift` did not move. Cargo writes `libimpress_helix_ffi.a`; the
+  xcframework keeps `libimpress_helix.a` in every slice. A macOS build was
+  run: 34 `uniffi_impress_helix` exports in the archive and the generated
+  Swift byte-identical to the committed binding. `check-uniffi-bindings.sh`
+  reads helix's exports from the source cargo resolved.
+- **KM7 done.** `koine-package-format` (serde, serde_json, sha2) holds
+  `Manifest`, `Package` (`from_parts`, `load`, `load_path`, bundles,
+  `digest`), the entry types, `category_errors`, `sha256` and
+  `ShippedError`; koine-packages re-exports them under the old paths, and
+  `Package::workflow_spec` became `package::workflow_spec` (it needs
+  impress-workflow). koine-triage, koine-collections and koine-memory carry
+  their packages against the format alone (`cargo tree -p koine-triage
+  --features package` reaches no koine-packages, notebook or agent);
+  koine-packages is their dev-dependency for the review test. koine-memory
+  ships `builtin:memory` (`SKILL.md`, `requires.verbs` its seven verbs), and
+  koine-host installs `builtin_packages()` beside the kit at start
+  (`the_kit_the_call_log_and_the_skill_are_served` checks it). koine-host
+  links no rusqlite, fastembed, HNSW or pyo3. The scenario, workflow,
+  settings, capabilities, perf and transport crates carry no content, so no
+  package.
