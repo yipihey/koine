@@ -12,7 +12,6 @@ impress-service-macros = { workspace = true }
 impress-item = { workspace = true }
 impress-pane-query = { workspace = true }
 koine-store = { workspace = true }
-koine-notebook = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 schemars = { workspace = true }
@@ -24,6 +23,8 @@ tracing = { workspace = true }
 koine-workspace-hack.workspace = true
 
 [dev-dependencies]
+# The desk test records its calls through the notebook's sink.
+koine-notebook = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 koine-store-memory = { workspace = true }
 impress-surface = { workspace = true }
