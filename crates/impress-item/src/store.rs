@@ -149,10 +149,11 @@ pub trait ItemStore: Send + Sync {
     /// kind when `None`): the fields SQLite's FTS indexes
     /// ([`TEXT_FIELDS`](crate::TEXT_FIELDS)). Best first, at most `limit`.
     ///
-    /// The default tokenizes `text` (lowercase alphanumeric, tokens under two
-    /// characters dropped), narrows with a `Contains` query, and scores by the
-    /// fraction of query tokens an item holds (ties: more occurrences, then
-    /// newer). [`StoreCapabilities::text_search_indexed`] says a store
+    /// A token matches every word it prefixes ("scal" finds "Scaling"), on
+    /// every backend. The default tokenizes `text` (lowercase alphanumeric,
+    /// tokens under two characters dropped), narrows with a `Contains` query,
+    /// and scores by the fraction of query tokens an item holds (ties: more
+    /// occurrences, then newer). [`StoreCapabilities::text_search_indexed`] says a store
     /// answers from an index instead; scores are not comparable across stores.
     fn search_text(
         &self,
@@ -161,6 +162,55 @@ pub trait ItemStore: Send + Sync {
         limit: usize,
     ) -> Result<Vec<TextHit>, StoreError> {
         crate::text_search::default_search_text(self, schema, text, limit)
+    }
+
+    /// The sources of every edge into `target`, as `(source, edge type)`,
+    /// ordered by source id then edge type; only edges of `edge_types` when
+    /// it is non-empty. An edge whose source is deleted is gone with it.
+    ///
+    /// The default asks [`query`](Self::query) with
+    /// [`Predicate::HasReference`] for each named type, or reads every row's
+    /// references when none is named; a store with an edge index answers
+    /// from it (SQLite's `item_references`, indexed on the target).
+    fn references_to(
+        &self,
+        target: ItemId,
+        edge_types: &[EdgeType],
+    ) -> Result<Vec<(ItemId, EdgeType)>, StoreError> {
+        let predicates = if edge_types.is_empty() {
+            vec![]
+        } else {
+            vec![Predicate::Or(
+                edge_types
+                    .iter()
+                    .map(|e| Predicate::HasReference(e.clone(), target))
+                    .collect(),
+            )]
+        };
+        let rows = self.query(&ItemQuery {
+            predicates,
+            include_tags: false,
+            include_references: true,
+            ..Default::default()
+        })?;
+        let mut found: Vec<(ItemId, EdgeType)> = rows
+            .iter()
+            .flat_map(|item| {
+                item.references
+                    .iter()
+                    .filter(|r| {
+                        r.target == target
+                            && (edge_types.is_empty() || edge_types.contains(&r.edge_type))
+                    })
+                    .map(move |r| (item.id, r.edge_type.clone()))
+            })
+            .collect();
+        found.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| format!("{:?}", a.1).cmp(&format!("{:?}", b.1)))
+        });
+        found.dedup();
+        Ok(found)
     }
 
     /// Items in the order this store received them, after `cursor`

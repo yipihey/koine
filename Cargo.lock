@@ -4196,6 +4196,7 @@ dependencies = [
  "koine-notebook",
  "koine-packages",
  "koine-store",
+ "koine-store-query",
  "koine-tasks",
  "koine-window",
  "koine-workspace-hack",
@@ -4413,6 +4414,27 @@ dependencies = [
  "koine-store-conformance",
  "koine-workspace-hack",
  "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "koine-store-query"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "koine-store",
+ "koine-store-dir",
+ "koine-store-memory",
+ "koine-workspace-hack",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
  "uuid",
 ]
 

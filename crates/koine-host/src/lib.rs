@@ -619,6 +619,7 @@ pub fn ensure_linked() {
     koine_ai::ensure_linked();
     // The desk agent remembers (docs/plan-koine-kit-moves.md KM-D6).
     koine_memory::ensure_linked();
+    koine_store_query::ensure_linked();
 }
 
 #[cfg(test)]

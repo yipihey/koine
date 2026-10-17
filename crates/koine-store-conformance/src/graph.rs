@@ -150,3 +150,70 @@ pub fn neighbors_forget_deleted_items(store: &dyn AttributedStore) {
     assert_eq!(walk(store, g.a, &[], 3), [g.d].into_iter().collect());
     assert!(walk(store, g.c, &[], 3).is_empty());
 }
+
+// ------------------------------------------------- references_to (KM-D8)
+
+/// Every source of an edge into an item, whatever kind or edge type, each
+/// edge once, ordered by source then edge type.
+pub fn references_to_finds_every_source_of_an_edge_into_an_item(store: &dyn AttributedStore) {
+    let g = graph(store);
+    // B is cited by A and by E.
+    let mut want = vec![(g.a, EdgeType::Cites), (g.e, EdgeType::Cites)];
+    want.sort_by_key(|x| x.0);
+    assert_eq!(store.references_to(g.b, &[]).unwrap(), want);
+    // A is the target of D's custom edge only; C of B's citation only.
+    assert_eq!(
+        store.references_to(g.a, &[]).unwrap(),
+        vec![(g.d, EdgeType::Custom("fixture-link".into()))]
+    );
+    assert_eq!(
+        store.references_to(g.c, &[]).unwrap(),
+        vec![(g.b, EdgeType::Cites)]
+    );
+    // Nothing points at D or E.
+    assert!(store.references_to(g.d, &[]).unwrap().is_empty());
+    assert!(store.references_to(g.e, &[]).unwrap().is_empty());
+}
+
+/// Naming edge types keeps only edges of those types.
+pub fn references_to_filters_by_edge_type(store: &dyn AttributedStore) {
+    let g = graph(store);
+    link(store, g.c, g.a, EdgeType::Supersedes);
+    let custom = EdgeType::Custom("fixture-link".into());
+    assert_eq!(
+        store.references_to(g.a, &[EdgeType::Supersedes]).unwrap(),
+        vec![(g.c, EdgeType::Supersedes)]
+    );
+    assert_eq!(
+        store.references_to(g.a, std::slice::from_ref(&custom)).unwrap(),
+        vec![(g.d, custom.clone())]
+    );
+    assert_eq!(
+        store
+            .references_to(g.a, &[EdgeType::Supersedes, custom])
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(store
+        .references_to(g.a, &[EdgeType::Cites])
+        .unwrap()
+        .is_empty());
+}
+
+/// A deleted source takes its edges with it; removing an edge removes it.
+pub fn references_to_forgets_deleted_sources_and_removed_edges(store: &dyn AttributedStore) {
+    let g = graph(store);
+    store.delete(g.e).unwrap();
+    assert_eq!(
+        store.references_to(g.b, &[]).unwrap(),
+        vec![(g.a, EdgeType::Cites)]
+    );
+    store
+        .update(
+            g.a,
+            vec![FieldMutation::RemoveReference(g.b, EdgeType::Cites)],
+        )
+        .unwrap();
+    assert!(store.references_to(g.b, &[]).unwrap().is_empty());
+}

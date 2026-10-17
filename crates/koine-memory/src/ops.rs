@@ -511,17 +511,23 @@ pub fn claim_heads(
     limit: u32,
 ) -> Result<Vec<ItemId>, StoreError> {
     let limit = clamp_limit(limit) as usize;
-    // Heads are rows no `Supersedes` edge points at. The edge lives on the
-    // NEW memory, so the superseded set is read off the memory rows' own
-    // references (both ends are always memory rows, see [`supersede`]).
-    let superseded = superseded_set(store)?;
+    // Heads are rows no `Supersedes` edge points at (the edge lives on the
+    // NEW memory): one `references_to` probe per row, which SQLite answers
+    // from its edge index (KM-D8).
     let mut rows = store.query(&ItemQuery {
         schema: Some(schema_ref),
         include_tags: false,
         include_references: false,
         ..Default::default()
     })?;
-    rows.retain(|item| !no_recall(item) && !superseded.contains(&item.id));
+    rows.retain(|item| !no_recall(item));
+    let mut heads = Vec::with_capacity(rows.len());
+    for item in rows {
+        if !is_superseded(store, item.id)? {
+            heads.push(item);
+        }
+    }
+    let mut rows = heads;
     rows.sort_by(|a, b| b.modified.cmp(&a.modified).then_with(|| a.id.cmp(&b.id)));
     Ok(rows.into_iter().map(|item| item.id).take(limit).collect())
 }
@@ -1182,30 +1188,7 @@ pub fn brief(
 
 /// Whether anything supersedes `id`.
 fn is_superseded(store: &dyn AttributedStore, id: ItemId) -> Result<bool, StoreError> {
-    Ok(!superseded_ids(store, &[id.to_string()])?.is_empty())
-}
-
-/// Every memory some other memory supersedes: the targets of the
-/// `Supersedes` edges the memory rows carry.
-fn superseded_set(store: &dyn AttributedStore) -> Result<BTreeSet<ItemId>, StoreError> {
-    let mut found = BTreeSet::new();
-    for schema in memory_schemas() {
-        let rows = store.query(&ItemQuery {
-            schema: Some(schema),
-            include_tags: false,
-            include_references: true,
-            ..Default::default()
-        })?;
-        for item in rows {
-            found.extend(
-                item.references
-                    .iter()
-                    .filter(|r| r.edge_type == EdgeType::Supersedes)
-                    .map(|r| r.target),
-            );
-        }
-    }
-    Ok(found)
+    Ok(!store.references_to(id, &[EdgeType::Supersedes])?.is_empty())
 }
 
 /// Which of `ids` have an incoming `Supersedes` edge.
@@ -1213,15 +1196,15 @@ fn superseded_ids(
     store: &dyn AttributedStore,
     ids: &[String],
 ) -> Result<BTreeSet<String>, StoreError> {
-    if ids.is_empty() {
-        return Ok(BTreeSet::new());
+    let mut found = BTreeSet::new();
+    for raw in ids {
+        if let Ok(id) = Uuid::parse_str(raw) {
+            if is_superseded(store, id)? {
+                found.insert(raw.clone());
+            }
+        }
     }
-    let superseded = superseded_set(store)?;
-    Ok(ids
-        .iter()
-        .filter(|id| Uuid::parse_str(id).is_ok_and(|id| superseded.contains(&id)))
-        .cloned()
-        .collect())
+    Ok(found)
 }
 
 /// Ids of one schema by recency, superseded rows included — the

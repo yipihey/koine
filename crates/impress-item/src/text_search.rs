@@ -103,7 +103,11 @@ pub(crate) fn default_search_text<S: ItemStore + ?Sized>(
         let mut present = 0usize;
         let mut occurrences = 0usize;
         for token in &query_tokens {
-            let n = words.iter().filter(|w| **w == token).count();
+            // A token matches a word it prefixes, as SQLite's FTS (`"tok"*`) does.
+            let n = words
+                .iter()
+                .filter(|w| w.starts_with(token.as_str()))
+                .count();
             present += usize::from(n > 0);
             occurrences += n;
         }

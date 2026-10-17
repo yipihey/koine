@@ -1,0 +1,29 @@
+[package]
+name = "koine-store-query"
+description = "Store-generic reads over the store port: grouped search, relations both ways, get and browse any item (docs/plan-koine-kit-moves.md KM9)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-item = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+koine-store = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+koine-store-memory = { workspace = true }
+koine-store-dir = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

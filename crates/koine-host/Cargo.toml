@@ -46,6 +46,8 @@ koine-tasks = { workspace = true, features = ["runtime"] }
 koine-ai = { workspace = true, features = ["executor"] }
 # The memory verbs, text search only: the desk agent recalls (KM-D6).
 koine-memory = { workspace = true, features = ["package"] }
+# Get, browse, search and relate any item (KM9).
+koine-store-query = { workspace = true }
 # The demo verbs the binary links (the library itself names no domain).
 surface-demo-service = { workspace = true }
 koine-window = { workspace = true }

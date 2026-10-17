@@ -138,6 +138,10 @@ macro_rules! __cases {
                 neighbors_never_return_the_start_item_even_in_a_cycle,
                 neighbors_return_whole_items,
                 neighbors_forget_deleted_items,
+                // references_to (plan-koine-kit-moves KM-D8)
+                references_to_finds_every_source_of_an_edge_into_an_item,
+                references_to_filters_by_edge_type,
+                references_to_forgets_deleted_sources_and_removed_edges,
                 // events
                 subscribe_hears_created_applied_and_deleted,
                 subscribe_hears_each_item_of_a_batch,
