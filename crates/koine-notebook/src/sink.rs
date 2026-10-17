@@ -117,6 +117,14 @@ impl StoreSink {
 }
 
 impl audit::Sink for StoreSink {
+    fn flush(&self, timeout: std::time::Duration) -> Result<(), String> {
+        if StoreSink::flush(self, timeout) {
+            Ok(())
+        } else {
+            Err("timed out waiting for the call-log writer".into())
+        }
+    }
+
     fn record(&self, record: VerbCallRecord) {
         if record.store_override.is_some() {
             self.stats.skipped.fetch_add(1, Ordering::Relaxed);

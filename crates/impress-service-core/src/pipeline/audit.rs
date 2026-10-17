@@ -148,6 +148,13 @@ impl VerbCallRecord {
 /// to a bounded channel and return.
 pub trait Sink: Send + Sync {
     fn record(&self, record: VerbCallRecord);
+
+    /// Wait, up to `timeout`, until every record handed to this sink so far
+    /// is written, so a verb that reads the call log sees the calls that just
+    /// finished. A sink that writes synchronously has nothing to wait for.
+    fn flush(&self, _timeout: std::time::Duration) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 static SINK: RwLock<Option<Arc<dyn Sink>>> = RwLock::new(None);
@@ -182,6 +189,15 @@ pub fn current_run() -> Option<RunTag> {
 pub fn install(sink: Arc<dyn Sink>) {
     if let Ok(mut slot) = SINK.write() {
         *slot = Some(sink);
+    }
+}
+
+/// [`Sink::flush`] on the installed sink; nothing to wait for when none is.
+pub fn flush(timeout: std::time::Duration) -> Result<(), String> {
+    let sink = SINK.read().ok().and_then(|slot| slot.clone());
+    match sink {
+        Some(sink) => sink.flush(timeout),
+        None => Ok(()),
     }
 }
 

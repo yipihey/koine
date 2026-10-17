@@ -128,6 +128,37 @@ pub fn accept_override_of<T: AttributedStore + 'static>() {
     register_widener::<T>(&mut slot.wideners);
 }
 
+/// A store a caller runs a pipeline call against (`Call::store`) and keeps
+/// for itself: the port, and the same value erased as its concrete type, which
+/// is what a verb resolving the call's store downcasts (a [`acquire`] widener,
+/// or a host's own resolver for its backend). Built from the concrete store so
+/// the erasure never loses the type.
+#[derive(Clone)]
+pub struct CallStore {
+    port: Arc<dyn AttributedStore>,
+    erased: Arc<dyn Any + Send + Sync>,
+}
+
+impl CallStore {
+    /// `store` as both the port and the call-scoped override.
+    pub fn of<T: AttributedStore + 'static>(store: Arc<T>) -> Self {
+        Self {
+            port: store.clone(),
+            erased: store,
+        }
+    }
+
+    /// The store, through the port.
+    pub fn port(&self) -> &Arc<dyn AttributedStore> {
+        &self.port
+    }
+
+    /// The value for `Call::store`.
+    pub fn erased(&self) -> Arc<dyn Any + Send + Sync> {
+        self.erased.clone()
+    }
+}
+
 fn register_widener<T: AttributedStore + 'static>(wideners: &mut Vec<(TypeId, Widener)>) {
     let id = TypeId::of::<T>();
     if wideners.iter().any(|(known, _)| *known == id) {

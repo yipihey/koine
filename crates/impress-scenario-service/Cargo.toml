@@ -1,0 +1,50 @@
+[package]
+name = "impress-scenario-service"
+description = "The scenario verbs, `impress/scenario@1.0.0` records, and the Tier A/B runners, over the store port (docs/plan-self-reflective-layer.md S1; docs/plan-koine-kit-moves.md KM4)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+autotests = false
+
+[dependencies]
+# The store port: a scenario row, the call log it records from, and the
+# scratch store a Tier A run seeds (docs/plan-koine-kit-moves.md KM4).
+impress-item = { workspace = true }
+# The process store the verbs default to (`koine_store::process`).
+koine-store = { workspace = true }
+# A Tier A run's default scratch store; a host can open another backend.
+koine-store-memory = { workspace = true }
+impress-scenario = { workspace = true }
+impress-surface = { workspace = true }
+impress-layout-service = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+chrono = { workspace = true }
+tracing = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+# A recorded call names `triage-service_set-starred`; replay refuses a verb the
+# inventory does not have, so the record test links it.
+koine-triage = { workspace = true }
+koine-store-dir = { workspace = true }
+tempfile = { workspace = true }
+impress-service-core = { workspace = true, features = ["cli"] }
+# force-linked by tests/proof_scenarios.rs so `surface.http.routes`'s verb
+# resolves — this crate's own production code never depends on
+# impress-surface-service.
+impress-surface-service = { workspace = true }
+
+[[test]]
+name = "main"
+path = "tests/main.rs"
+
+[lints]
+workspace = true

@@ -31,6 +31,7 @@ There is no second list.
 | `triage-service` | koine-triage | 5 |
 | `collection-service` | koine-collections | 12 |
 | `settings-service` | koine-settings-service | 6 |
+| `impress-scenario-service` | impress-scenario-service | 6 |
 <!-- verb-coverage:end -->
 
 `impress-settings` is the registry library and has no `impress_service_impl!`

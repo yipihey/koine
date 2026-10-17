@@ -3142,6 +3142,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-scenario-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-layout-service",
+ "impress-scenario",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-surface",
+ "impress-surface-service",
+ "koine-store",
+ "koine-store-dir",
+ "koine-store-memory",
+ "koine-triage",
+ "koine-workspace-hack",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "impress-schema-ref-codegen"
 version = "0.1.0"
 dependencies = [
