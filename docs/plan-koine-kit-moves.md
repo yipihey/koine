@@ -389,3 +389,107 @@ repositories stay green.
   on each recall; SQLite lost its `NOT EXISTS` fast path. Fine at today's
   sizes; an `incoming edges` predicate on the port would restore it.
 - The memory executors' integration test runs on `MemoryStore` only.
+
+## Second wave: KM9–KM14
+
+A review of the 61 crates left in impress-apps (same test: no app domain,
+the store port or SQLite only as a fast path) found six more pieces that are
+koine's. The same rules hold (KM-D1 names and verbs unchanged, KM-D2 kernel
+over the port, KM-D7 both repositories green at every step, building koine
+from `../koine` until the pin).
+
+### KM-D8. The port can ask what points at an item
+
+`ItemStore::references_to(&self, target, edge_types) -> Vec<(ItemId, EdgeType)>`:
+the sources of every edge into `target`, optionally of the given types. The
+default scans rows with `include_references`; the memory and directory
+backends answer from an index they keep beside the rows; SQLite from
+`item_references` (indexed on `target_id`). A conformance case pins it on
+every backend. `related-items` needs it for its incoming half, and the
+memory kernel's heads (KM5) go back to one indexed probe per candidate.
+
+### KM-D9. The store-query verbs are kind-blind; an app names its kinds
+
+`koine-store-query` carries `store-query-service_{search-all, related-items,
+get-item, list-items}` over the port: `search_text` across every schema,
+grouped and capped per kind; the walk both ways through `references_to`;
+envelope projections. Search ranking boosts (authors, cite keys) and kind
+labels are a registered table an app supplies (`register_kind(schema, label,
+boosts)`), as collection bindings are (KM4); without one a kind is its
+schema ref and every field weighs the same. SQLite keeps its FTS ranking as
+its `search_text`.
+
+### KM-D10. koine-notebook owns the call log
+
+One writer of `core/verb-call@1.0.0`: koine-notebook's sink. impress-apps
+installs it (with its host and build stamp) instead of its own audit sink,
+and the notebook sink learns what the impress one did: a record whose call
+ran on a scoped store is written to that store when the process can widen
+it (`koine_store::process` wideners), not skipped. The history verbs
+(`history-service_{calls, why, trace, replay, save-macro,
+propose-workflows, health}`) move into koine-notebook as a second service
+over the same rows. This closes the KM "Open" item.
+
+### KM-D11. The job runner is the task kernel's
+
+koine-tasks (`runtime`) gains the inline job runner: `start_inline`,
+`JobContext` (progress events, cancel flag), `drain_inline` and the CLI
+helpers, over the port and `koine_store::process`. impress-core's `job`
+module stays only as the `&SqliteItemStore` shims; impress-store-service's
+`job` re-exports the runner.
+
+### KM-D12. Provider trust is the host's
+
+`koine-providers` carries the P8 runtime-provider registry (descriptors,
+the person's trust decision, credential hashes, hash-addressed token files)
+and `provider-service_*`. Its persistence is a small trait; koine's default
+is a JSON file in the workspace, and impress-apps keeps its existing SQLite
+file as its implementation so no person's trust decisions are re-asked.
+
+### KM-D13. One plot spec, many renderers
+
+`plot-spec@1.0.0` (koine-plot) is the only plot model. It grows, additively,
+what impress-plot and imprint's `FfiPlotSpec` draw and it lacks — 2-D
+histograms, contours, a colormap, the raster strategy and its threshold — so
+every existing document still parses. Drawing is a registry:
+
+```rust
+pub trait PlotRenderer: Send + Sync {
+    fn id(&self) -> &'static str;                // "svg", "text", "typst", "matplotlib", "veusz"
+    fn formats(&self) -> &'static [Format];      // Svg, Text, Typst, Python, Vsz, Png, Pdf
+    fn unsupported(&self, spec: &PlotSpec) -> Vec<String>; // what it would drop, said not silently
+    fn render(&self, spec: &PlotSpec, opts: &RenderOptions) -> Result<Rendered, PlotError>;
+}
+pub struct Rendered { pub format: Format, pub body: Vec<u8>, pub assets: BTreeMap<String, Vec<u8>> }
+```
+
+`koine_plot::renderers()` lists what is linked; `koine_plot::render(spec,
+renderer, opts)` picks one. SVG and text are built in. Each further backend
+is its own crate, linked only by the app that wants it:
+`koine-plot-typst` (impress-plot's Typst lowering, moved), 
+`koine-plot-matplotlib` (a self-contained Python script; behind `exec`, run
+with the person's `python3` to PNG/PDF), `koine-plot-veusz` (a `.vsz`
+document; behind `exec`, exported with `veusz --export`). A new backend is a
+new crate implementing the trait; nothing in the spec or the registry
+changes. imprint renders the koine spec through `koine-plot-typst`, and its
+`FfiPlotSpec` converts into it, which is what the `plot_shape` tests assert.
+
+### KM-D14. The effects spy wraps any store
+
+`koine-store-spy`: `SpyStore<S: AttributedStore>` records the kinds each call
+read and wrote (the rules effects_spy.rs documents) for the window a test
+opens, over any backend, so koine checks its own verbs' declared effects.
+impress-core's SQLite hook stays as its fast, singleton-reachable spy and
+shares the `Observed` type.
+
+### Work packages
+
+| # | Package | Repos |
+|---|---|---|
+| KM9 | `references_to` on the port and in the conformance suite (KM-D8); `koine-store-query` (KM-D9); the memory kernel's heads use it | both |
+| KM10 | koine-notebook as the one call-log writer, scoped stores honoured; the history verbs move (KM-D10) | both |
+| KM11 | The inline job runner into koine-tasks (KM-D11) | both |
+| KM12 | `koine-providers` with a persistence trait (KM-D12) | both |
+| KM13 | The plot renderer registry; the spec's additions; `koine-plot-typst`, `koine-plot-matplotlib`, `koine-plot-veusz`; imprint on the koine spec (KM-D13) | both |
+| KM14 | `koine-store-spy` and koine's own effects check (KM-D14) | koine (impress shares the type) |
+| KM15 | Pin and full gates, as KM8 | both |
