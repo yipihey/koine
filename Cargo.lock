@@ -3399,6 +3399,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "impress-helix"
+version = "0.1.0"
+dependencies = [
+ "koine-workspace-hack",
+ "uniffi",
+]
+
+[[package]]
 name = "impress-item"
 version = "0.1.0"
 dependencies = [

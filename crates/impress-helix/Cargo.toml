@@ -1,0 +1,23 @@
+[package]
+name = "impress-helix"
+description = "Helix-style modal editing for terminal text interfaces"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+# `lib` only; an app that ships it as an xcframework builds the staticlib on
+# demand (`cargo rustc --lib --crate-type staticlib`), as impress-apps does.
+crate-type = ["lib"]
+
+[dependencies]
+uniffi = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[features]
+default = []
+ffi = ["uniffi"]
+
+[lints]
+workspace = true
