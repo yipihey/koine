@@ -4118,6 +4118,7 @@ dependencies = [
  "impress-item",
  "impress-service-core",
  "impress-service-macros",
+ "koine-package-format",
  "koine-packages",
  "koine-store",
  "koine-store-dir",
@@ -4234,6 +4235,8 @@ dependencies = [
  "impress-service-macros",
  "koine-ai",
  "koine-embeddings",
+ "koine-package-format",
+ "koine-packages",
  "koine-store",
  "koine-store-dir",
  "koine-store-memory",
@@ -4271,6 +4274,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "koine-package-format"
+version = "0.1.0"
+dependencies = [
+ "koine-workspace-hack",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "koine-packages"
 version = "0.1.0"
 dependencies = [
@@ -4286,6 +4299,7 @@ dependencies = [
  "koine-agent",
  "koine-ai",
  "koine-notebook",
+ "koine-package-format",
  "koine-store",
  "koine-store-memory",
  "koine-workspace-hack",
@@ -4293,7 +4307,6 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "sha2",
  "tempfile",
  "tokio",
  "tracing",
@@ -4446,6 +4459,7 @@ dependencies = [
  "impress-item",
  "impress-service-core",
  "impress-service-macros",
+ "koine-package-format",
  "koine-packages",
  "koine-store",
  "koine-store-dir",

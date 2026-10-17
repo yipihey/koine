@@ -1,7 +1,6 @@
 //! Canonical JSON, spec normalisation and digests.
 
 use serde_json::{Map, Value};
-use sha2::{Digest, Sha256};
 
 /// `value` with every object's keys sorted, recursively.
 pub fn canonical(value: &Value) -> Value {
@@ -68,11 +67,7 @@ pub fn normalize_spec(spec: &Value) -> Value {
 }
 
 /// `sha256:<hex>` of `bytes`.
-pub fn sha256(bytes: &[u8]) -> String {
-    let hash = Sha256::digest(bytes);
-    let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
-    format!("sha256:{hex}")
-}
+pub use koine_package_format::sha256;
 
 /// The digest of a spec: of its normalised canonical text.
 pub fn spec_digest(spec: &Value) -> String {

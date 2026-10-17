@@ -11,6 +11,8 @@
 //! * Feature `embeddings` adds the vector tier (the `koine-embeddings`
 //!   sidecar); `embedder` adds the local model that writes and queries it.
 //!   Without them recall is text search alone.
+//! * [`package`] (feature `package`) is the capability's content as the
+//!   built-in package `builtin:memory` (KM-D5).
 //! * [`executors`] (feature `executors`) are the two task-kernel executors —
 //!   embedding backfill and consolidation — and the spawner that keeps them
 //!   fed.
@@ -23,6 +25,11 @@ pub mod service;
 #[cfg(feature = "embeddings")]
 mod vector;
 
+#[cfg(feature = "package")]
+mod pkg;
+
+#[cfg(feature = "package")]
+pub use pkg::{package, PACKAGE, SKILL, VERBS};
 #[cfg(feature = "service")]
 pub use service::{DefaultMemoryService, MemoryService};
 

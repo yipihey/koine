@@ -2079,6 +2079,17 @@ async fn the_kit_the_call_log_and_the_skill_are_served() {
     assert_eq!(names, ["Notebook", "Agent desk", "Packages"], "{shipped}");
     assert!(rows.iter().all(|r| r["status"] == "pristine"), "{shipped}");
 
+    // KM-D5: the packages of the capabilities the host links are installed
+    // beside the kit, from their built-in source.
+    let (_, listed) = host.post("/api/verb/package-service_list", json!({})).await;
+    let memory = listed["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "memory")
+        .unwrap_or_else(|| panic!("builtin:memory is installed: {listed}"));
+    assert_eq!(memory["source"], "builtin:memory", "{listed}");
+
     // N-D5: a run groups what is called over HTTP while it is open.
     let (_, run) = host
         .post(

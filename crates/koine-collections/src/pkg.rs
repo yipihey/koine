@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use koine_packages::package::Package;
+use koine_package_format::Package;
 use serde_json::json;
 
 /// The package's name; its source is `builtin:collections`.
@@ -31,7 +31,7 @@ pub const VERBS: [&str; 12] = [
 /// `requires.verbs` naming its own verbs.
 pub fn package() -> Package {
     let manifest = json!({
-        "package": koine_packages::package::FORMAT,
+        "package": koine_package_format::FORMAT,
         "name": PACKAGE,
         "version": env!("CARGO_PKG_VERSION"),
         "description": "Nested collections of any items: create, move, file and count.",

@@ -17,6 +17,8 @@ service = [
     "dep:schemars",
     "dep:async-trait",
 ]
+# The built-in `builtin:memory` package: the package format only (KM7).
+package = ["service", "dep:koine-package-format"]
 # The vector tier: the `koine-embeddings` sidecar (SQLite). Off by default;
 # recall is text search alone without it (KM-D4).
 embeddings = ["service", "dep:koine-embeddings", "koine-embeddings/store", "dep:dirs"]
@@ -42,6 +44,7 @@ chrono = { workspace = true }
 impress-service-core = { workspace = true, optional = true }
 impress-service-macros = { workspace = true, optional = true }
 koine-store = { workspace = true, optional = true }
+koine-package-format = { workspace = true, optional = true }
 koine-embeddings = { workspace = true, optional = true }
 koine-tasks = { workspace = true, optional = true }
 koine-ai = { workspace = true, optional = true }
@@ -55,6 +58,8 @@ tokio = { workspace = true, optional = true }
 koine-workspace-hack.workspace = true
 
 [dev-dependencies]
+# Reviews the carried package the way a host installs it.
+koine-packages = { workspace = true }
 koine-store-memory = { workspace = true }
 koine-store-dir = { workspace = true }
 tempfile = { workspace = true }

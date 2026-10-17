@@ -37,21 +37,9 @@ const DELETE: &str = "impress-surface-service_surface-delete";
 /// The tag every shipped surface carries.
 pub const TAG: &str = "shipped";
 
-/// Why a shipped-surface operation did not happen.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ShippedError {
-    pub code: &'static str,
-    pub message: String,
-}
-
-impl ShippedError {
-    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-        }
-    }
-}
+/// Why a shipped-surface operation did not happen (the package format's
+/// error, so a package and its install share one).
+pub use koine_package_format::ShippedError;
 
 /// One baseline, read.
 #[derive(Debug, Clone, PartialEq)]

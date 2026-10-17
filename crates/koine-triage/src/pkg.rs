@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use koine_packages::package::Package;
+use koine_package_format::Package;
 use serde_json::json;
 
 /// The package's name; its source is `builtin:triage`.
@@ -24,7 +24,7 @@ pub const VERBS: [&str; 5] = [
 /// `requires.verbs` naming its own verbs.
 pub fn package() -> Package {
     let manifest = json!({
-        "package": koine_packages::package::FORMAT,
+        "package": koine_package_format::FORMAT,
         "name": PACKAGE,
         "version": env!("CARGO_PKG_VERSION"),
         "description": "Star, flag, tag and set the status of any item.",

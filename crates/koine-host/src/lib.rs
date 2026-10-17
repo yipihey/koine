@@ -415,6 +415,18 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
                 tracing::warn!(target: "koine-host", "kit not installed: {}", error.message)
             }
         }
+        // KM-D5: the packages of the capabilities this host links, through
+        // the same path the kit takes.
+        for package in builtin_packages() {
+            let name = package.manifest.name.clone();
+            match koine_packages::package::install(&package).await {
+                Ok(installed) => {
+                    tracing::debug!(target: "koine-host", "{name} {}", installed.version)
+                }
+                Err(error) => tracing::warn!(target: "koine-host",
+                    "built-in package {name} not installed: {}", error.message),
+            }
+        }
     }
     // Q-D5, AI-D5: the scheduler, and with AI the model executors and the
     // desk agent.
@@ -582,8 +594,14 @@ fn check_network_config(config: &Config) -> Result<(), HostError> {
     Ok(())
 }
 
+/// The built-in packages of the capabilities this host links (KM-D5), which
+/// it installs at start beside the kit.
+pub fn builtin_packages() -> Vec<koine_packages::package::Package> {
+    vec![koine_memory::package()]
+}
+
 /// Reference the two runtime crates, the kit's three (the notebook, the
-/// agent desk, packages), the task verbs and the AI verbs so the linker keeps their `#[impress_service]`
+/// agent desk, packages), the task, AI and memory verbs so the linker keeps their `#[impress_service]`
 /// registrations: an unreferenced crate that only
 /// contains `inventory::submit!` statics is dropped from the final binary.
 /// Call this from `main` (and from any test that expects their verbs).

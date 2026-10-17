@@ -19,7 +19,7 @@ service = [
     "dep:schemars",
     "dep:async-trait",
 ]
-package = ["service", "dep:koine-packages", "dep:serde_json"]
+package = ["service", "dep:koine-package-format", "dep:serde_json"]
 
 [dependencies]
 impress-item = { workspace = true }
@@ -28,7 +28,9 @@ chrono = { workspace = true }
 impress-service-core = { workspace = true, optional = true }
 impress-service-macros = { workspace = true, optional = true }
 koine-store = { workspace = true, optional = true }
-koine-packages = { workspace = true, optional = true }
+# The package format only, so carrying the package does not link the
+# package manager (KM7).
+koine-package-format = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 serde_json = { workspace = true, optional = true }
 schemars = { workspace = true, optional = true }
@@ -36,6 +38,8 @@ async-trait = { workspace = true, optional = true }
 koine-workspace-hack.workspace = true
 
 [dev-dependencies]
+# Reviews the carried package the way a host installs it.
+koine-packages = { workspace = true }
 koine-store-memory = { workspace = true }
 koine-store-dir = { workspace = true }
 tempfile = { workspace = true }

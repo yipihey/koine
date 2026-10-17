@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# The format itself: manifest, Package, bundle, digest (KM7).
+koine-package-format = { workspace = true }
 impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
 impress-item = { workspace = true }
@@ -25,7 +27,6 @@ schemars = { workspace = true }
 async-trait = { workspace = true }
 uuid = { workspace = true, features = ["v5"] }
 chrono = { workspace = true }
-sha2 = { workspace = true }
 # Fetching registry indexes and bundles over HTTP(S) (P-D5).
 reqwest = { workspace = true }
 tracing = { workspace = true }

@@ -35,32 +35,7 @@ pub const WORKFLOW: SchemaRef = impress_item::schema::refs::IMPRESS_WORKFLOW;
 /// An AI task category a package declares (read by `koine_ai::categories`).
 pub const AI_CATEGORY: &str = "koine/ai-category@1.0.0";
 
-/// A workflow the package ships.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WorkflowEntry {
-    pub name: String,
-    pub file: String,
-}
-
-/// An AI task category the package declares: an id the preferences file
-/// assigns a model to (`<parent>.<leaf>` under a parent).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CategoryEntry {
-    pub id: String,
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent: Option<String>,
-    /// A symbol name a GUI may show.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub icon: Option<String>,
-    /// The apps that offer it; empty is every app.
-    #[serde(default)]
-    pub apps: Vec<String>,
-}
+pub use koine_package_format::{category_errors, CategoryEntry, WorkflowEntry};
 
 fn fail(code: &'static str, message: impl Into<String>) -> ShippedError {
     ShippedError::new(code, message)
@@ -83,34 +58,6 @@ pub fn workflow_errors(spec: &WorkflowSpec) -> Vec<String> {
         .filter(|p| p.severity == impress_surface::Severity::Error)
         .map(|p| format!("{}: {}", p.path, p.message))
         .collect()
-}
-
-/// A category entry's problems: a malformed id, a leaf not under its parent.
-pub fn category_errors(entry: &CategoryEntry) -> Vec<String> {
-    let mut errors = Vec::new();
-    let well_formed = !entry.id.is_empty()
-        && entry
-            .id
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.');
-    if !well_formed {
-        errors.push(format!(
-            "category id '{}' must be lowercase letters, digits, '-' and '.'",
-            entry.id
-        ));
-    }
-    if let Some(parent) = &entry.parent {
-        if !entry.id.starts_with(&format!("{parent}.")) {
-            errors.push(format!(
-                "category '{}' is under '{parent}', so its id starts '{parent}.'",
-                entry.id
-            ));
-        }
-    }
-    if entry.name.trim().is_empty() {
-        errors.push(format!("category '{}' has no name", entry.id));
-    }
-    errors
 }
 
 /// The digest of a workflow's content: the spec with `state` left out, so
