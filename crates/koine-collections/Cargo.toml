@@ -1,0 +1,46 @@
+[package]
+name = "koine-collections"
+description = "Collections over any item: the collection kernel and the collection-service verbs, over the store port (docs/plan-koine-kit-moves.md KM4)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# The kernel (`ops`) is always there. `service` adds the verbs; `package` the
+# built-in package (off by default: it links the package manager). A crate that
+# wants only the kernel (impress-core) turns both off.
+default = ["service"]
+service = [
+    "dep:impress-service-core",
+    "dep:impress-service-macros",
+    "dep:koine-store",
+    "dep:serde",
+    "dep:schemars",
+    "dep:async-trait",
+]
+package = ["service", "dep:koine-packages", "dep:serde_json"]
+
+[dependencies]
+impress-item = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+impress-service-core = { workspace = true, optional = true }
+impress-service-macros = { workspace = true, optional = true }
+koine-store = { workspace = true, optional = true }
+koine-packages = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+serde_json = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+koine-store-memory = { workspace = true }
+koine-store-dir = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

@@ -1525,6 +1525,10 @@ fn is_noop(item: &Item, m: &FieldMutation) -> bool {
 // ─────────────────────────────────────────────────────────────────────────────
 
 impl ItemStore for DirStore {
+    fn default_author(&self) -> (String, ActorKind) {
+        (self.author.clone(), self.author_kind)
+    }
+
     fn capabilities(&self) -> StoreCapabilities {
         StoreCapabilities {
             indexed_query: false,

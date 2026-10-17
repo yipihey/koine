@@ -3628,6 +3628,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "koine-collections"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "koine-packages",
+ "koine-store",
+ "koine-store-dir",
+ "koine-store-memory",
+ "koine-workspace-hack",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "koine-demo-mobile"
 version = "0.1.0"
 dependencies = [
@@ -3776,6 +3798,30 @@ dependencies = [
  "pyo3",
  "pythonize",
  "serde_json",
+]
+
+[[package]]
+name = "koine-settings-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-settings",
+ "impress-surface",
+ "koine-store",
+ "koine-store-dir",
+ "koine-store-memory",
+ "koine-workspace-hack",
+ "log",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

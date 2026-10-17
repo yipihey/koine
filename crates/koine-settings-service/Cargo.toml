@@ -1,0 +1,35 @@
+[package]
+name = "koine-settings-service"
+description = "The settings registry's verbs (settings-service_*) over impress-settings and the store port's one synced row (docs/plan-koine-kit-moves.md KM4)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-item = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+# The settings registry and its files (ADR-0036 D5); this crate adds the verbs,
+# the process-wide instance and the synced store row.
+impress-settings = { workspace = true }
+# The process store and workspace the default deployment reads.
+koine-store = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+log = "0.4"
+uuid = { workspace = true, features = ["v5"] }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+impress-surface = { workspace = true }
+koine-store-memory = { workspace = true }
+koine-store-dir = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }
+
+[lints]
+workspace = true

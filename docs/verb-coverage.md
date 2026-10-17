@@ -29,10 +29,12 @@ There is no second list.
 | `perf-service` | perf-service | 4 |
 | `capabilities-service` | capabilities-service | 4 |
 | `triage-service` | koine-triage | 5 |
+| `collection-service` | koine-collections | 12 |
+| `settings-service` | koine-settings-service | 6 |
 <!-- verb-coverage:end -->
 
-`impress-settings` has no `impress_service_impl!` block in this repository,
-so it has no row; the settings verbs are declared where the suite links them.
+`impress-settings` is the registry library and has no `impress_service_impl!`
+block; the settings verbs are `koine-settings-service`'s.
 
 ## Default mode
 

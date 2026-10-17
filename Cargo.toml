@@ -43,6 +43,8 @@ members = [
     "crates/impress-tags",
     "crates/impress-flags",
     "crates/koine-triage",
+    "crates/koine-collections",
+    "crates/koine-settings-service",
     "crates/koine-py",
     "crates/koine-demo-mobile",
     "crates/koine-workspace-hack",
@@ -170,6 +172,8 @@ capabilities-service = { path = "crates/capabilities-service" }
 impress-tags = { path = "crates/impress-tags" }
 impress-flags = { path = "crates/impress-flags" }
 koine-triage = { path = "crates/koine-triage" }
+koine-collections = { path = "crates/koine-collections" }
+koine-settings-service = { path = "crates/koine-settings-service" }
 koine-py = { path = "crates/koine-py" }
 
 # implore crates

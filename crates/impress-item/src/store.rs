@@ -88,6 +88,14 @@ pub trait ItemStore: Send + Sync {
     /// What this backend can do (`docs/plan-koine-store.md` D1).
     fn capabilities(&self) -> StoreCapabilities;
 
+    /// Who a row this store writes on its own account is attributed to, and
+    /// as what: the author a kernel stamps on a row it builds for a caller who
+    /// names none (`system:local`, a system actor, unless the store was
+    /// configured otherwise).
+    fn default_author(&self) -> (String, ActorKind) {
+        (METADATA_AUTHOR.into(), ActorKind::System)
+    }
+
     /// Insert a new item. Returns the item's ID.
     fn insert(&self, item: Item) -> Result<ItemId, StoreError>;
 

@@ -264,6 +264,10 @@ impl ItemStore for MemoryStore {
         CAPABILITIES
     }
 
+    fn default_author(&self) -> (String, ActorKind) {
+        (self.author.clone(), self.author_kind)
+    }
+
     fn insert(&self, item: Item) -> Result<ItemId, StoreError> {
         let id = item.id;
         self.insert_batch(vec![item])?;
