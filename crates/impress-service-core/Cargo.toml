@@ -22,6 +22,8 @@ cli = ["dep:clap"]
 test-support = []
 
 [dependencies]
+# The port's ambient batch: a call's id on the operations it writes (KM10).
+impress-item = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 schemars = { workspace = true }

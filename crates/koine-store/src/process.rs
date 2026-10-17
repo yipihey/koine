@@ -200,9 +200,6 @@ fn widen_erased(erased: Arc<dyn Any + Send + Sync>) -> Option<Arc<dyn Attributed
 /// installed one, opened lazily through [`set_opener`] when none is real yet.
 /// `None` when the host installed nothing and registered no opener.
 pub fn acquire() -> Option<(Arc<dyn AttributedStore>, bool)> {
-    // Operations a verb writes without a batch carry its call id, on every
-    // backend (KM10).
-    impress_item::set_ambient_batch(impress_service_core::pipeline::context::current_call_id);
     if let Some(store) = scoped_store() {
         return Some((store, false));
     }

@@ -477,14 +477,22 @@ pub fn store_override_erased() -> Option<Arc<dyn Any + Send + Sync>> {
 
 /// Run `future` with `context` current.
 pub async fn scope<F: std::future::Future>(context: Arc<CallContext>, future: F) -> F::Output {
+    register_ambient_batch();
     REPORTED_REFUSAL
         .scope(RefCell::new(None), CURRENT.scope(context, future))
         .await
 }
 
+/// Operations a store writes without a batch inside a call carry its id, on
+/// every backend of the port (docs/plan-koine-kit-moves.md KM10).
+fn register_ambient_batch() {
+    impress_item::set_ambient_batch(current_call_id);
+}
+
 /// Run `work` with `context` current, synchronously — the FFI's layout
 /// `apply`, which is a sync call from Swift.
 pub fn sync_scope<T>(context: Arc<CallContext>, work: impl FnOnce() -> T) -> T {
+    register_ambient_batch();
     REPORTED_REFUSAL.sync_scope(RefCell::new(None), || CURRENT.sync_scope(context, work))
 }
 

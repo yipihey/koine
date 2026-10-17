@@ -15,6 +15,7 @@ pub mod dto;
 pub mod history;
 pub mod records;
 pub mod runs;
+#[cfg(feature = "notebook")]
 pub mod service;
 pub mod sink;
 
@@ -25,6 +26,7 @@ use impress_item::AttributedStore;
 use impress_service_core::pipeline::audit;
 use serde_json::{json, Value};
 
+#[cfg(feature = "notebook")]
 pub use service::{DefaultNotebookService, NotebookService};
 pub use sink::{SinkConfig, StoreSink};
 
@@ -37,6 +39,7 @@ pub const NOTEBOOK_SURFACE_NAME: &str = "Notebook";
 
 struct Installed {
     sink: Arc<StoreSink>,
+    #[cfg_attr(not(feature = "notebook"), allow(dead_code))]
     config: SinkConfig,
 }
 
@@ -109,6 +112,7 @@ pub fn installed_sink() -> Option<Arc<StoreSink>> {
 
 /// Wait (briefly) for the records handed to the sink so far to be written,
 /// so a verb that reads the log sees the calls that just finished.
+#[cfg_attr(not(feature = "notebook"), allow(dead_code))]
 pub(crate) fn flush() {
     if let Some(sink) = installed_sink() {
         sink.flush(Duration::from_secs(2));
@@ -116,6 +120,7 @@ pub(crate) fn flush() {
 }
 
 /// `(host, build)` to stamp a run with.
+#[cfg_attr(not(feature = "notebook"), allow(dead_code))]
 pub(crate) fn stamp() -> (String, Value) {
     INSTALLED
         .read()
@@ -133,6 +138,7 @@ pub(crate) fn stamp() -> (String, Value) {
 
 /// Reference the service so the linker keeps its registrations.
 pub fn ensure_linked() {
+    #[cfg(feature = "notebook")]
     std::hint::black_box(DefaultNotebookService::new as *const ());
     std::hint::black_box(history::DefaultHistoryService::new as *const ());
 }
