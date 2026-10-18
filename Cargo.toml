@@ -143,8 +143,9 @@ koine-dioxus = { path = "crates/koine-dioxus" }
 koine-web = { path = "crates/koine-web" }
 impress-scenario = { path = "crates/impress-scenario" }
 surface-demo-service = { path = "crates/surface-demo-service" }
-impress-layout-service = { path = "crates/impress-layout-service" }
-impress-surface-service = { path = "crates/impress-surface-service" }
+# `tier-b` (the loopback client that drives a running app) is opt-in per member.
+impress-layout-service = { path = "crates/impress-layout-service", default-features = false }
+impress-surface-service = { path = "crates/impress-surface-service", default-features = false }
 # default-features = false HERE, not at the call site: a member inheriting a
 # workspace dependency can only add features, never remove them, so a member
 # writing `default-features = false` is silently ignored (cargo warns, and
@@ -161,7 +162,8 @@ koine-host = { path = "crates/koine-host" }
 # The research-OS kit every host links (docs/plan-koine-research-os.md).
 koine-notebook = { path = "crates/koine-notebook" }
 koine-agent = { path = "crates/koine-agent" }
-koine-packages = { path = "crates/koine-packages" }
+# `http` (registries over HTTP) is opt-in per member.
+koine-packages = { path = "crates/koine-packages", default-features = false }
 # The task kernel (docs/plan-koine-ai-tasks.md). `runtime` is opt-in per
 # member: a workspace dependency cannot turn a default feature off.
 koine-tasks = { path = "crates/koine-tasks", default-features = false }

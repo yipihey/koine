@@ -655,6 +655,9 @@ pub struct Image {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum FieldKind {
+    /// One line of text. `options` may carry `multiline: true` (and `rows`,
+    /// the visible height, default 6) for text with lines: the web draws a
+    /// textarea, and the value is still one string.
     Text(Value),
     Number(Value),
     Slider(Value),

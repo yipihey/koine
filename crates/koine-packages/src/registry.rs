@@ -141,6 +141,35 @@ pub fn index_location(url: &str) -> String {
 /// Read `location`: a URL over HTTP(S), a `file://` URL or a path.
 pub async fn read(location: &str) -> Result<Vec<u8>, ShippedError> {
     if location.starts_with("http://") || location.starts_with("https://") {
+        return read_http(location).await;
+    }
+    let path = location.strip_prefix("file://").unwrap_or(location);
+    let bytes = std::fs::read(path).map_err(|e| fail("not-found", format!("{path}: {e}")))?;
+    if bytes.len() > MAX_BYTES {
+        return Err(fail(
+            "invalid-argument",
+            format!("{path} is over {MAX_BYTES} bytes"),
+        ));
+    }
+    Ok(bytes)
+}
+
+/// A host built without the `http` feature reads registries from files and
+/// paths only (docs/plan-koine-host.md H-D10).
+#[cfg(not(feature = "http"))]
+async fn read_http(location: &str) -> Result<Vec<u8>, ShippedError> {
+    Err(fail(
+        "unavailable",
+        format!(
+            "{location}: this host was built without HTTP registries (koine-packages \
+             feature `http`); use a file:// URL or a path"
+        ),
+    ))
+}
+
+#[cfg(feature = "http")]
+async fn read_http(location: &str) -> Result<Vec<u8>, ShippedError> {
+    {
         let client = reqwest::Client::builder()
             .timeout(FETCH_TIMEOUT)
             .build()
@@ -170,17 +199,8 @@ pub async fn read(location: &str) -> Result<Vec<u8>, ShippedError> {
                 format!("{location} is over {MAX_BYTES} bytes"),
             ));
         }
-        return Ok(bytes.to_vec());
+        Ok(bytes.to_vec())
     }
-    let path = location.strip_prefix("file://").unwrap_or(location);
-    let bytes = std::fs::read(path).map_err(|e| fail("not-found", format!("{path}: {e}")))?;
-    if bytes.len() > MAX_BYTES {
-        return Err(fail(
-            "invalid-argument",
-            format!("{path} is over {MAX_BYTES} bytes"),
-        ));
-    }
-    Ok(bytes)
 }
 
 /// A registry the host knows.

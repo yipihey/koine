@@ -701,8 +701,11 @@ in a browser or a terminal, with no code from you:
 - one toggle per adverb the verb accepts;
 - a result view chosen by the output schema: a `Vec` of flat objects is a
   table, a flat object a key-value list, a `string` text, anything else raw
-  JSON; a verb that declares `rows(...)` always gets its table, with the
-  declared columns and id, and a selection written to `state.selected`;
+  JSON; an object that holds lists of objects beside other fields (a verb
+  that can refuse answers `{ok, count, matches: [...]}`) is its required
+  fields as a key-value list and one table per list; a verb that declares
+  `rows(...)` always gets its table, with the declared columns and id, and a
+  selection written to `state.selected`;
 - for a `destructive` or `external` verb, Run hidden behind a confirmation;
 - for a verb whose declared `secrets` are not set, a warning above the form
   naming each one and how to set it (Run stays; the pipeline's refusal is what

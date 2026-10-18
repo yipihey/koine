@@ -41,7 +41,9 @@ impress-surface = { workspace = true }
 # `impress-app-client`, whose typed clients are built on `imbib-service` and
 # `imprint-service` — two whole domain stacks for a kit-adjacent crate to take
 # on (ADR-0033 D7). `imprint-selftest` makes its Tier B calls the same way.
-reqwest = { workspace = true }
+# The `tier-b` feature: a host that does not drive another app leaves it out
+# (docs/plan-koine-host.md H-D10).
+reqwest = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 schemars = { workspace = true }
@@ -58,6 +60,13 @@ tracing = { workspace = true }
 # verb's response. An async sleep, so the poll does not block the runtime.
 tokio = { workspace = true, features = ["time"] }
 koine-workspace-hack.workspace = true
+
+[features]
+# Tier B: `tier_b` and `scenario_caller`, the loopback HTTP client that drives a
+# running app. Without it `layout-selftest-service_run-selftest` with tier `b`
+# reports one skipped capability saying the build left it out.
+default = ["tier-b"]
+tier-b = ["dep:reqwest"]
 
 [dev-dependencies]
 # Two handles on one directory root are the shape of two processes

@@ -27,8 +27,9 @@
 //!
 //! The output schema picks the result node bound to `state.result`:
 //! array-of-objects → `table`; a flat object (no array-typed properties) →
-//! `kv`; `string` → `text`; anything else → `text` of the raw JSON (no
-//! silent truncation — table 3's "otherwise" column). A verb that declares
+//! `kv`; an object holding arrays of objects → its required fields as `kv`
+//! and a `table` per array; `string` → `text`; anything else → `text` of the
+//! raw JSON (no silent truncation — table 3's "otherwise" column). A verb that declares
 //! `returns_kind` (plan-koine-host H-D8) has its table labelled
 //! `Result (<kind>)`.
 //!
@@ -550,6 +551,11 @@ fn result_node(output_schema: &Value, returns_kind: Option<&str>, rows: Option<R
     if let Some(envelope) = row_envelope(output_schema) {
         return envelope_result_node(&envelope, returns_kind, rows);
     }
+    if rows.is_none() {
+        if let Some(node) = object_with_row_lists(output_schema) {
+            return node;
+        }
+    }
     let layout = rows.and_then(|_| row_layout(output_schema));
     let shape = match (&rows, &layout) {
         (Some(_), Some(_)) => ResultShape::Table,
@@ -595,6 +601,71 @@ fn result_node(output_schema: &Value, returns_kind: Option<&str>, rows: Option<R
     Node::leaf(node_kind)
         .with_id("result-view")
         .with_label(label)
+}
+
+/// A result object that holds lists of rows beside other fields (a verb that
+/// can refuse, so it answers `{ok, count, matches: [...]}` rather than the
+/// bare list): its required fields as a key-value list, then one table per
+/// property that is an array of objects with known properties, labelled with
+/// the property's name. `None` when the object holds no such list, so a flat
+/// object stays one key-value list. Rows here are only shown: a verb that
+/// declares `returns_kind` and `rows(...)` is the one whose rows are records.
+fn object_with_row_lists(output_schema: &Value) -> Option<Node> {
+    let top = schema_target(output_schema, output_schema);
+    let properties = top.get("properties")?.as_object()?;
+    let mut tables = Vec::new();
+    let mut fields = Vec::new();
+    for (name, property) in properties {
+        let property = schema_target(output_schema, property);
+        let columns: Option<Vec<String>> = (property.get("type").and_then(Value::as_str)
+            == Some("array"))
+        .then(|| property.get("items"))
+        .flatten()
+        .map(|items| schema_target(output_schema, items))
+        .and_then(|items| items.get("properties"))
+        .and_then(Value::as_object)
+        .map(|item| item.keys().cloned().collect::<Vec<_>>())
+        .filter(|columns| !columns.is_empty());
+        match columns {
+            Some(columns) => tables.push(
+                Node::leaf(NodeKind::Table(impress_surface::spec::Table {
+                    rows: json!(format!("{{{{state.result.{name}}}}}")),
+                    columns,
+                    id_field: None,
+                    on_select: Vec::new(),
+                    actions: Vec::new(),
+                    count_field: None,
+                }))
+                .with_id(format!("result-{name}"))
+                .with_label(name.clone()),
+            ),
+            None => fields.push(name.clone()),
+        }
+    }
+    if tables.is_empty() {
+        return None;
+    }
+    // The fields every answer has; an optional one (a refusal's `code`, a
+    // match that may be absent) would be a blank row on most answers.
+    let required: Option<Vec<&str>> = top
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|names| names.iter().filter_map(Value::as_str).collect());
+    let pairs: serde_json::Map<String, Value> = fields
+        .iter()
+        .filter(|name| required.as_ref().is_none_or(|r| r.contains(&name.as_str())))
+        .map(|name| (name.clone(), json!(format!("{{{{state.result.{name}}}}}"))))
+        .collect();
+    let mut items = Vec::new();
+    if !pairs.is_empty() {
+        items.push(Node::leaf(NodeKind::Kv(Value::Object(pairs))).with_id("result-summary"));
+    }
+    items.extend(tables);
+    Some(
+        Node::leaf(NodeKind::Column(items))
+            .with_id("result-view")
+            .with_label("Result"),
+    )
 }
 
 /// An output schema that is a `{rows, next}` envelope (plan-koine-live L-D5):
@@ -1330,6 +1401,61 @@ mod tests {
         assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
         let text = serde_json::to_string(&spec).unwrap();
         assert!(text.contains("\"table\""));
+    }
+
+    fn schema_output_refusable_rows() -> Value {
+        json!({
+            "type": "object",
+            "required": ["ok", "count", "pieces"],
+            "properties": {
+                "ok": {"type": "boolean"},
+                "code": {"type": ["string", "null"]},
+                "count": {"type": "integer"},
+                "pieces": {"type": "array", "items": {"$ref": "#/definitions/Piece"}},
+                "words": {"type": "array", "items": {"type": "string"}}
+            },
+            "definitions": {"Piece": {"type": "object", "properties": {
+                "index": {"type": "integer"}, "text": {"type": "string"}
+            }}}
+        })
+    }
+
+    /// A result that can refuse and holds a list of rows: its required
+    /// fields as a key-value list and the rows as a table, not raw JSON.
+    #[test]
+    fn an_object_holding_rows_shows_them_as_a_table_beside_its_fields() {
+        let d = desc(
+            "t-service_x",
+            SafetyClass::ReadOnly,
+            schema_output_refusable_rows,
+        );
+        let spec = verb_surface(&d);
+        let problems = validate::validate(&spec);
+        assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
+        let nodes = impress_surface::spec::walk_with_pointers(&spec.root);
+        let find = |id: &str| {
+            nodes
+                .iter()
+                .find(|(_, n)| n.id.as_deref() == Some(id))
+                .map(|(_, n)| n.kind.clone())
+                .unwrap_or_else(|| panic!("no node {id}"))
+        };
+        match find("result-pieces") {
+            NodeKind::Table(table) => {
+                assert_eq!(table.rows, json!("{{state.result.pieces}}"));
+                assert_eq!(table.columns, vec!["index", "text"]);
+            }
+            other => panic!("{other:?}"),
+        }
+        match find("result-summary") {
+            // Required fields only: no blank `code` row; an array of strings
+            // is not rows and stays a field (here not required, so absent).
+            NodeKind::Kv(pairs) => assert_eq!(
+                pairs,
+                json!({"count": "{{state.result.count}}", "ok": "{{state.result.ok}}"})
+            ),
+            other => panic!("{other:?}"),
+        }
     }
 
     fn form_adverb_keys(spec: &SurfaceSpec) -> Vec<String> {
