@@ -192,6 +192,7 @@ pub fn put(pattern: &SavedPattern) -> Result<bool, Outcome> {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         })
         .map_err(store_error)?;
     Ok(true)
