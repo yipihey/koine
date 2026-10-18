@@ -117,7 +117,15 @@ pub(crate) struct Ctx<'a> {
     /// Text typed into a field and not yet sent: `(widget, text)`. A text
     /// input sends `change` on blur, and a tap on a button does not always
     /// blur it first (iOS), so `on_event` sends this before any other event.
+    /// While it is set, the field is drawn with it, not with the surface's
+    /// value: a render that happens mid-typing (the page moving its focus
+    /// after a Tab, an answer arriving) must not put the old text back.
     pub typed: Signal<Option<(String, String)>>,
+    /// The page's own handler, without the flush of `typed` that `on_event`
+    /// does first: a `live` field sends its `change` on every keystroke
+    /// through it and keeps `typed`, so the text stays the person's until
+    /// the field is committed (Enter, blur).
+    pub on_live: EventHandler<Event>,
     /// The row being moved by its grip. The mapping's own memory of a gesture.
     pub dragging: Signal<Option<RowRef>>,
     /// The row or gap under the pointer while a row is moved: it is drawn
@@ -185,6 +193,7 @@ pub fn Surface(
     // Typing not yet sent goes first, so the click that follows it reads it
     // (a change from that same field supersedes it: it carries the text).
     let mut typed = use_signal(|| None::<(String, String)>);
+    let on_live = on_event;
     let on_event = EventHandler::new(move |ev: Event| {
         if let Some((widget, text)) = typed.take() {
             let superseded = ev.kind == EventKind::Change && ev.widget == widget;
@@ -224,6 +233,7 @@ pub fn Surface(
         dragging,
         drop_target,
         typed,
+        on_live,
     };
     rsx! {
         div {

@@ -1082,6 +1082,46 @@ async fn drop_target_at(widget: &str, x: f64, y: f64) -> Option<DropAt> {
     }
 }
 
+/// What a text field shows: the text typed into it and not yet sent, when
+/// there is some, else the surface's value. A render in the middle of typing
+/// (focus moving after a Tab, an answer to another event) must not put the
+/// old value back over the person's text.
+fn typed_or_value(ctx: &Ctx<'_>, widget: &str, value: &Value) -> String {
+    if let Some((typed_widget, text)) = ctx.typed.peek().as_ref() {
+        if typed_widget == widget {
+            return text.clone();
+        }
+    }
+    match value {
+        Value::Null => String::new(),
+        Value::String(s) => s.clone(),
+        v => v.to_string(),
+    }
+}
+
+/// `{"text": {"live": true}}`: the field sends `change` as it is typed, not
+/// only when it is committed. For a field whose value drives sources the
+/// person watches (a pattern and its matches); the page sends one change at a
+/// time and keeps only the newest of a field's waiting ones.
+fn is_live(options: &Value) -> bool {
+    options.get("live").and_then(Value::as_bool) == Some(true)
+}
+
+/// A text field's `input` handler: remember the text (it is the field's
+/// until it is committed) and, for a `live` field, send it now.
+fn typing(ctx: &Ctx<'_>, widget: &str, live: bool) -> impl FnMut(FormEvent) + 'static {
+    let widget = widget.to_string();
+    let mut typed = ctx.typed;
+    let on_live = ctx.on_live;
+    move |e: FormEvent| {
+        let text = e.value();
+        typed.set(Some((widget.clone(), text.clone())));
+        if live {
+            on_live.call(event(&widget, EventKind::Change, Value::String(text)));
+        }
+    }
+}
+
 fn field_node(
     id: &str,
     label: Option<String>,
@@ -1256,12 +1296,10 @@ fn field_node(
         "text" if options.get("multiline").and_then(Value::as_bool) == Some(true) => {
             // `{"text": {"multiline": true, "rows": n}}`: a textarea, for text
             // that has lines (a haystack, a body). Same events as one line:
-            // typing echoes locally, the change is sent when it is committed.
-            let shown = match value {
-                Value::Null => String::new(),
-                Value::String(s) => s.clone(),
-                v => v.to_string(),
-            };
+            // typing echoes locally, the change is sent when it is committed
+            // (or as it is typed, with `live`).
+            let shown = typed_or_value(ctx, id, value);
+            let live = is_live(&options);
             let rows = options
                 .get("rows")
                 .and_then(Value::as_u64)
@@ -1281,11 +1319,7 @@ fn field_node(
                     value: shown,
                     title: help,
                     aria_label: label.clone(),
-                    oninput: {
-                        let widget = widget.clone();
-                        let mut typed = ctx.typed;
-                        move |e: FormEvent| typed.set(Some((widget.clone(), e.value())))
-                    },
+                    oninput: typing(ctx, &widget, live),
                     onchange: move |e| on_event.call(event(&widget, EventKind::Change, Value::String(e.value()))),
                 }
             }
@@ -1293,11 +1327,8 @@ fn field_node(
         other => {
             // `text`, and a kind this build has no native control for: a text
             // input that names the kind, as the plan's known limits say.
-            let shown = match value {
-                Value::Null => String::new(),
-                Value::String(s) => s.clone(),
-                v => v.to_string(),
-            };
+            let shown = typed_or_value(ctx, id, value);
+            let live = other == "text" && is_live(&options);
             let unknown = (other != "text").then(|| other.to_string());
             rsx! {
                 input {
@@ -1312,11 +1343,7 @@ fn field_node(
                     value: shown,
                     title: help,
                     aria_label: label.clone(),
-                    oninput: {
-                        let widget = widget.clone();
-                        let mut typed = ctx.typed;
-                        move |e: FormEvent| typed.set(Some((widget.clone(), e.value())))
-                    },
+                    oninput: typing(ctx, &widget, live),
                     onchange: move |e| on_event.call(event(&widget, EventKind::Change, Value::String(e.value()))),
                 }
             }

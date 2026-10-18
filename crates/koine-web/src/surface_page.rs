@@ -163,9 +163,26 @@ impl Live {
     }
 
     /// Queue `event` and, when no task is sending, start one that sends the
-    /// queue in order, each after the last one's answer.
+    /// queue in order, each after the last one's answer. A field's `change`
+    /// takes the place of that field's change still waiting (the one being
+    /// sent is no longer queued), so a `live` field typed fast sends its
+    /// newest text next rather than every keystroke in turn, and an event
+    /// queued after the old change (a click) still follows it.
     fn send(mut self, event: Event) {
-        self.outbox.write().push_back(event);
+        {
+            let mut outbox = self.outbox.write();
+            let waiting = (event.kind == EventKind::Change)
+                .then(|| {
+                    outbox.iter_mut().find(|queued| {
+                        queued.kind == EventKind::Change && queued.widget == event.widget
+                    })
+                })
+                .flatten();
+            match waiting {
+                Some(queued) => *queued = event,
+                None => outbox.push_back(event),
+            }
+        }
         if *self.sending.peek() {
             return;
         }
