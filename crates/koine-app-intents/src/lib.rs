@@ -51,6 +51,9 @@ pub struct AppInfo {
     /// app that keeps a hand-written provider turns this off and lists the
     /// generated intents in its own.
     pub shortcuts: bool,
+    /// Swift modules the support file imports beside `AppIntents` and
+    /// `Foundation`: the one that holds the dispatch function.
+    pub imports: Vec<String>,
 }
 
 impl AppInfo {
@@ -62,6 +65,7 @@ impl AppInfo {
             dispatch_function: "dispatchVerbAsync".into(),
             body_field: "bodyJson".into(),
             shortcuts: true,
+            imports: Vec::new(),
         }
     }
 }
@@ -315,7 +319,11 @@ fn support_file(app: &AppInfo) -> String {
     let p = &app.prefix;
     let mut s = String::new();
     let _ = writeln!(s, "{GENERATED_MARK}\n");
-    s.push_str("import AppIntents\nimport Foundation\n\n");
+    s.push_str("import AppIntents\nimport Foundation\n");
+    for module in &app.imports {
+        let _ = writeln!(s, "import {module}");
+    }
+    s.push('\n');
     let _ = writeln!(
         s,
         "/// Lets Shortcuts find the intents when they live in a SwiftPM package.\npublic struct {p}IntentsPackage: AppIntentsPackage {{}}\n"
