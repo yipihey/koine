@@ -1,0 +1,266 @@
+{
+  "surface": "1.0",
+  "name": "Regex tester",
+  "state": {
+    "pattern": "(?P<key>[a-z]+)=(?P<value>[^\\s;]+)",
+    "flags": "",
+    "text": "host=db1 port=5432; user=ada\nhost=db2 port=5433; user=grace\nretries=3",
+    "replacement": "${key}: ${value}",
+    "save_name": "",
+    "save_description": "",
+    "saved": null
+  },
+  "sources": {
+    "check": {
+      "verb": "regex-lab-service_check",
+      "args": {
+        "pattern": "{{state.pattern}}",
+        "flags": "{{state.flags}}"
+      }
+    },
+    "matches": {
+      "verb": "regex-lab-service_find-all",
+      "args": {
+        "pattern": "{{state.pattern}}",
+        "flags": "{{state.flags}}",
+        "haystack": "{{state.text}}",
+        "limit": 500
+      }
+    },
+    "captures": {
+      "verb": "regex-lab-service_captures-all",
+      "args": {
+        "pattern": "{{state.pattern}}",
+        "flags": "{{state.flags}}",
+        "haystack": "{{state.text}}",
+        "limit": 500
+      }
+    },
+    "replaced": {
+      "verb": "regex-lab-service_replace",
+      "args": {
+        "pattern": "{{state.pattern}}",
+        "flags": "{{state.flags}}",
+        "haystack": "{{state.text}}",
+        "replacement": "{{state.replacement}}"
+      }
+    },
+    "explained": {
+      "verb": "regex-lab-service_explain",
+      "args": {
+        "pattern": "{{state.pattern}}",
+        "flags": "{{state.flags}}"
+      }
+    }
+  },
+  "root": {
+    "column": [
+      {
+        "id": "pattern",
+        "field": {
+          "text": {}
+        },
+        "label": "Pattern",
+        "bind": "state.pattern",
+        "help": "A regex in the syntax of the Rust regex crate."
+      },
+      {
+        "id": "flags",
+        "field": {
+          "text": {}
+        },
+        "label": "Flags",
+        "bind": "state.flags",
+        "help": "i case-insensitive, m multi-line, s dot matches newline, x ignore whitespace, U swap greed, R CRLF, a ASCII-only."
+      },
+      {
+        "id": "invalid",
+        "when": {
+          "path": "source.check.ok",
+          "equals": false
+        },
+        "status": {
+          "level": "error",
+          "message": "{{source.check.message}}"
+        }
+      },
+      {
+        "id": "diagram",
+        "when": {
+          "path": "source.check.ok",
+          "equals": false
+        },
+        "code": {
+          "text": "{{source.check.diagram}}"
+        }
+      },
+      {
+        "id": "summary",
+        "when": {
+          "path": "source.check.ok",
+          "equals": true
+        },
+        "kv": {
+          "1 · matches": "{{source.matches.count}}",
+          "2 · groups (with the whole match)": "{{source.check.group_count}}",
+          "3 · shortest match, bytes": "{{source.check.min_len}}",
+          "4 · longest match, bytes (blank: no bound)": "{{source.check.max_len}}",
+          "5 · a plain literal": "{{source.check.literal}}",
+          "6 · anchored at the start": "{{source.check.anchored_start}}"
+        }
+      },
+      {
+        "id": "text",
+        "field": {
+          "text": {
+            "multiline": true,
+            "rows": 6
+          }
+        },
+        "label": "Text",
+        "bind": "state.text"
+      },
+      {
+        "tabs": [
+          {
+            "title": "Matches",
+            "body": {
+              "id": "matches-table",
+              "table": {
+                "rows": "{{source.matches.matches}}",
+                "columns": [
+                  "index",
+                  "line",
+                  "column",
+                  "text",
+                  "start",
+                  "end"
+                ],
+                "id_field": "index"
+              }
+            }
+          },
+          {
+            "title": "Groups",
+            "body": {
+              "id": "groups-table",
+              "table": {
+                "rows": "{{source.captures.groups}}",
+                "columns": [
+                  "match_index",
+                  "group",
+                  "name",
+                  "text",
+                  "start",
+                  "end"
+                ]
+              }
+            }
+          },
+          {
+            "title": "Replace",
+            "body": {
+              "column": [
+                {
+                  "id": "replacement",
+                  "field": {
+                    "text": {}
+                  },
+                  "label": "Replacement",
+                  "bind": "state.replacement",
+                  "help": "$1 or ${name} for a group, $$ for a dollar sign."
+                },
+                {
+                  "id": "replaced",
+                  "code": {
+                    "text": "{{source.replaced.text}}"
+                  }
+                },
+                {
+                  "id": "replaced-count",
+                  "kv": {
+                    "replaced": "{{source.replaced.replacements}}"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "title": "Explain",
+            "body": {
+              "id": "explain-table",
+              "table": {
+                "rows": "{{source.explained.parts}}",
+                "columns": [
+                  "depth",
+                  "kind",
+                  "source",
+                  "meaning"
+                ]
+              }
+            }
+          },
+          {
+            "title": "Save",
+            "body": {
+              "column": [
+                {
+                  "row": [
+                    {
+                      "id": "save-name",
+                      "field": {
+                        "text": {}
+                      },
+                      "label": "Name",
+                      "bind": "state.save_name",
+                      "help": "Lowercase letters, digits, - and _."
+                    },
+                    {
+                      "id": "save-description",
+                      "field": {
+                        "text": {}
+                      },
+                      "label": "Description",
+                      "bind": "state.save_description"
+                    }
+                  ]
+                },
+                {
+                  "id": "save",
+                  "button": {
+                    "label": "Save pattern",
+                    "on_click": [
+                      {
+                        "call": {
+                          "verb": "regex-lab-service_save-pattern",
+                          "args": {
+                            "name": "{{state.save_name}}",
+                            "pattern": "{{state.pattern}}",
+                            "flags": "{{state.flags}}",
+                            "description": "{{state.save_description}}"
+                          },
+                          "into": "state.saved"
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "saved",
+                  "when": {
+                    "path": "state.saved.ok",
+                    "equals": true
+                  },
+                  "status": {
+                    "level": "info",
+                    "message": "Saved as {{state.saved.saved.name}}: it is in the Pattern library, and every verb takes it as `saved`."
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

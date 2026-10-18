@@ -1,0 +1,26 @@
+{
+  "package": "1.0",
+  "name": "regex-lab",
+  "version": "0.1.0",
+  "description": "regex-lab's own pages: a live tester over every matching verb, and the library of saved patterns.",
+  "surfaces": [
+    { "name": "Regex tester", "file": "surfaces/tester.surface.json" },
+    { "name": "Pattern library", "file": "surfaces/library.surface.json" }
+  ],
+  "skills": [
+    { "name": "regex-lab", "file": "SKILL.md" }
+  ],
+  "requires": {
+    "verbs": [
+      "regex-lab-service_check",
+      "regex-lab-service_explain",
+      "regex-lab-service_find-all",
+      "regex-lab-service_captures-all",
+      "regex-lab-service_replace",
+      "regex-lab-service_save-pattern",
+      "regex-lab-service_patterns",
+      "regex-lab-service_delete-pattern"
+    ],
+    "secrets": []
+  }
+}

@@ -1,0 +1,32 @@
+# The workspace of regex-lab: a service crate (the verbs over regex) and a
+# host binary that links it. koine: this checkout (../..).
+[workspace]
+resolver = "2"
+members = ["crates/regex-lab-service", "crates/regex-lab-host"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+impress-service-core = { path = "../../crates/impress-service-core" }
+impress-service-macros = { path = "../../crates/impress-service-macros" }
+# The host: `koine_host::cli::main` is the whole of the host binary's main.
+koine-host = { path = "../../crates/koine-host", default-features = false }
+# The app's built-in package (its surfaces and skill), installed at start.
+koine-packages = { path = "../../crates/koine-packages", default-features = false }
+# Saved patterns are records in the host's store.
+koine-store = { path = "../../crates/koine-store" }
+impress-item = { path = "../../crates/impress-item" }
+# Tests: a memory store, and the surfaces checked against the vocabulary.
+koine-store-memory = { path = "../../crates/koine-store-memory" }
+impress-surface = { path = "../../crates/impress-surface" }
+regex = "1.11"
+# The parser under `regex`: positioned errors, the pattern's syntax tree and
+# its properties.
+regex-syntax = "0.8"
+uuid = { version = "1", features = ["v5"] }
+chrono = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "0.8"

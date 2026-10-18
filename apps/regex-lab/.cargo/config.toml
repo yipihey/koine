@@ -1,0 +1,2 @@
+[env]
+IMPRESS_SCHEMA_REFS = { value = "schema-refs.json", relative = true }

@@ -1,0 +1,153 @@
+{
+  "surface": "1.0",
+  "name": "Pattern library",
+  "state": {
+    "search": "",
+    "selected": [],
+    "text": "",
+    "confirm_delete": false,
+    "deleted": null
+  },
+  "sources": {
+    "patterns": {
+      "verb": "regex-lab-service_patterns",
+      "args": {
+        "search": "{{state.search}}"
+      }
+    },
+    "chosen": {
+      "verb": "regex-lab-service_check",
+      "args": {
+        "saved": "{{state.selected.0}}"
+      }
+    },
+    "tried": {
+      "verb": "regex-lab-service_captures-all",
+      "args": {
+        "saved": "{{state.selected.0}}",
+        "haystack": "{{state.text}}",
+        "limit": 200
+      }
+    }
+  },
+  "root": {
+    "column": [
+      {
+        "text": "Saved patterns. Every matching verb takes one by name as `saved`; select one to try it. Save one from the Regex tester, or install the regex-recipes package for a set."
+      },
+      {
+        "id": "search",
+        "field": {
+          "text": {}
+        },
+        "label": "Search",
+        "bind": "state.search"
+      },
+      {
+        "id": "patterns-table",
+        "table": {
+          "rows": "{{source.patterns}}",
+          "columns": [
+            "name",
+            "pattern",
+            "flags",
+            "description"
+          ],
+          "id_field": "name",
+          "on_select": [
+            {
+              "set": {
+                "path": "state.selected",
+                "value": "{{event.value}}"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "try",
+        "when": {
+          "path": "state.selected.0"
+        },
+        "column": [
+          {
+            "id": "chosen",
+            "kv": {
+              "pattern": "{{source.chosen.pattern}}",
+              "flags": "{{source.chosen.flags}}",
+              "groups": "{{source.chosen.group_count}}"
+            }
+          },
+          {
+            "id": "try-text",
+            "field": {
+              "text": {
+                "multiline": true,
+                "rows": 4
+              }
+            },
+            "label": "Try it on",
+            "bind": "state.text"
+          },
+          {
+            "id": "tried-table",
+            "table": {
+              "rows": "{{source.tried.groups}}",
+              "columns": [
+                "match_index",
+                "group",
+                "name",
+                "text"
+              ]
+            }
+          },
+          {
+            "row": [
+              {
+                "id": "confirm-delete",
+                "field": {
+                  "toggle": {}
+                },
+                "label": "Delete for good",
+                "bind": "state.confirm_delete"
+              },
+              {
+                "id": "delete",
+                "when": {
+                  "path": "state.confirm_delete",
+                  "equals": true
+                },
+                "button": {
+                  "label": "Delete pattern",
+                  "on_click": [
+                    {
+                      "call": {
+                        "verb": "regex-lab-service_delete-pattern",
+                        "args": {
+                          "name": "{{state.selected.0}}"
+                        },
+                        "into": "state.deleted"
+                      }
+                    },
+                    {
+                      "set": {
+                        "path": "state.selected",
+                        "value": []
+                      }
+                    },
+                    {
+                      "set": {
+                        "path": "state.confirm_delete",
+                        "value": false
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

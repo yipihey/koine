@@ -1,0 +1,29 @@
+{
+  "package": "1.0",
+  "name": "regex-recipes",
+  "version": "0.1.0",
+  "description": "Ready-made patterns for regex-lab (DOI, arXiv id, ISO date, semver, email, URL, IPv4, UUID, log lines), and a page that turns log lines into a table.",
+  "surfaces": [
+    {
+      "name": "Regex recipes",
+      "file": "surfaces/recipes.surface.json"
+    },
+    {
+      "name": "Log fields",
+      "file": "surfaces/log-fields.surface.json"
+    }
+  ],
+  "skills": [
+    {
+      "name": "regex-recipes",
+      "file": "SKILL.md"
+    }
+  ],
+  "requires": {
+    "verbs": [
+      "regex-lab-service_captures-all",
+      "regex-lab-service_save-pattern"
+    ],
+    "secrets": []
+  }
+}

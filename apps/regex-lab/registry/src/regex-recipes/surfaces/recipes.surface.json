@@ -1,0 +1,131 @@
+{
+  "surface": "1.0",
+  "name": "Regex recipes",
+  "state": {
+    "recipes": [
+      {
+        "name": "doi",
+        "pattern": "\\b10\\.\\d{4,9}/[-._;()/:A-Za-z0-9]+",
+        "flags": "",
+        "description": "A DOI (digital object identifier)",
+        "sample": "10.1103/PhysRevLett.116.061102"
+      },
+      {
+        "name": "arxiv-id",
+        "pattern": "\\b(?P<yymm>\\d{4})\\.(?P<number>\\d{4,5})(?:v(?P<version>\\d+))?\\b",
+        "flags": "",
+        "description": "A new-style arXiv identifier, with its version",
+        "sample": "2310.06825v2"
+      },
+      {
+        "name": "iso-date",
+        "pattern": "\\b(?P<year>\\d{4})-(?P<month>0[1-9]|1[0-2])-(?P<day>0[1-9]|[12]\\d|3[01])\\b",
+        "flags": "",
+        "description": "An ISO 8601 calendar date",
+        "sample": "2026-10-17"
+      },
+      {
+        "name": "semver",
+        "pattern": "\\bv?(?P<major>0|[1-9]\\d*)\\.(?P<minor>0|[1-9]\\d*)\\.(?P<patch>0|[1-9]\\d*)(?:-(?P<pre>[0-9A-Za-z.-]+))?(?:\\+(?P<build>[0-9A-Za-z.-]+))?\\b",
+        "flags": "",
+        "description": "A semantic version",
+        "sample": "v1.13.1-rc.1"
+      },
+      {
+        "name": "email",
+        "pattern": "(?P<user>[\\w.+-]+)@(?P<domain>[\\w-]+(?:\\.[\\w-]+)+)",
+        "flags": "",
+        "description": "An email address (the common shape, not all of RFC 5322)",
+        "sample": "ada@example.org"
+      },
+      {
+        "name": "url",
+        "pattern": "https?://(?P<host>[\\w.-]+)(?::(?P<port>\\d+))?(?P<path>/[^\\s?#]*)?(?:\\?(?P<query>[^\\s#]*))?",
+        "flags": "",
+        "description": "An http or https URL, split into host, port, path and query",
+        "sample": "https://example.org:8080/a/b?x=1"
+      },
+      {
+        "name": "ipv4",
+        "pattern": "\\b(?:(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)\\.){3}(?:25[0-5]|2[0-4]\\d|1?\\d?\\d)\\b",
+        "flags": "",
+        "description": "An IPv4 address",
+        "sample": "192.168.1.20"
+      },
+      {
+        "name": "uuid",
+        "pattern": "\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b",
+        "flags": "i",
+        "description": "A UUID, any case",
+        "sample": "6F9619FF-8B86-D011-B42D-00C04FC964FF"
+      },
+      {
+        "name": "log-line",
+        "pattern": "^(?P<time>\\S+) +(?P<level>TRACE|DEBUG|INFO|WARN|ERROR) +(?P<target>[\\w:.-]+): (?P<message>.*)$",
+        "flags": "m",
+        "description": "A tracing-style log line: time, level, target, message",
+        "sample": "2026-10-17T23:20:17Z  INFO koine-host: kit installed"
+      }
+    ],
+    "saved": null
+  },
+  "root": {
+    "column": [
+      {
+        "text": "Patterns worth not writing twice. Save them to the Pattern library, and every regex-lab verb takes them by name as `saved`."
+      },
+      {
+        "id": "recipes-table",
+        "table": {
+          "rows": "{{state.recipes}}",
+          "columns": [
+            "name",
+            "pattern",
+            "flags",
+            "description",
+            "sample"
+          ],
+          "id_field": "name"
+        }
+      },
+      {
+        "id": "save-all",
+        "button": {
+          "label": "Save all to the library",
+          "on_click": [
+            {
+              "call": {
+                "verb": "regex-lab-service_save-pattern",
+                "each": "state.recipes",
+                "args": {
+                  "name": "{{item.name}}",
+                  "pattern": "{{item.pattern}}",
+                  "flags": "{{item.flags}}",
+                  "description": "{{item.description}}",
+                  "sample": "{{item.sample}}"
+                }
+              }
+            },
+            {
+              "set": {
+                "path": "state.saved",
+                "value": true
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "saved",
+        "when": {
+          "path": "state.saved",
+          "equals": true
+        },
+        "status": {
+          "level": "info",
+          "message": "Saved: open the Pattern library to try them."
+        }
+      }
+    ]
+  }
+}

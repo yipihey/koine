@@ -1,0 +1,27 @@
+[package]
+name = "regex-lab-service"
+description = "Verbs over regex: one #[impress_method] per capability"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+regex.workspace = true
+regex-syntax.workspace = true
+impress-service-core.workspace = true
+impress-service-macros.workspace = true
+# The macros expand to `::serde::Deserialize` and `JsonSchema` derives, so
+# the crate that calls them depends on both itself.
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+# Saved patterns (`library.rs`): records of kind `regex-pattern` in the
+# process store.
+koine-store.workspace = true
+impress-item.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+koine-store-memory.workspace = true
+koine-packages.workspace = true
+impress-surface.workspace = true

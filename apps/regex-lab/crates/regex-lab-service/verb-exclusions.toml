@@ -1,0 +1,40 @@
+# Public items of `regex` with no verb, and why (scripts/check-verb-coverage.sh
+# --lib <regex> --service crates/regex-lab-service). The `regex::bytes` API
+# has the same names as the `&str` one and is covered with it: a verb's text
+# is a JSON string, so it is always UTF-8.
+
+[[exclude]]
+item = "Match::as_bytes"
+reason = "the bytes API: a verb's text arrives and leaves as a JSON string, so a match is answered as text"
+
+[[exclude]]
+item = "RegexSearcher"
+reason = "the std::str::pattern::Pattern searcher, behind the nightly-only `pattern` feature; it lets str methods take a Regex, which is no capability of its own"
+
+[[exclude]]
+item = "Regex::captures_read"
+reason = "reuses a CaptureLocations allocation across calls in a hot loop; captures answers the same groups, and a verb call allocates its answer anyway"
+
+[[exclude]]
+item = "Regex::captures_read_at"
+reason = "as captures_read, from an offset; captures with `start` answers the same"
+
+[[exclude]]
+item = "Regex::capture_locations"
+reason = "makes the reusable buffer captures_read fills; nothing to reuse between verb calls"
+
+[[exclude]]
+item = "CaptureLocations"
+reason = "the reusable buffer of captures_read"
+
+[[exclude]]
+item = "CaptureLocations::get"
+reason = "the reusable buffer of captures_read; captures answers each group's offsets"
+
+[[exclude]]
+item = "CaptureLocations::len"
+reason = "the reusable buffer of captures_read; check answers group_count"
+
+[[exclude]]
+item = "RegexSet::empty"
+reason = "a set that matches nothing; set-matches refuses an empty list instead of answering no for everything"
