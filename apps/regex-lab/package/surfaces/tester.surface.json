@@ -58,7 +58,9 @@
       {
         "id": "pattern",
         "field": {
-          "text": {}
+          "text": {
+            "live": true
+          }
         },
         "label": "Pattern",
         "bind": "state.pattern",
@@ -67,7 +69,9 @@
       {
         "id": "flags",
         "field": {
-          "text": {}
+          "text": {
+            "live": true
+          }
         },
         "label": "Flags",
         "bind": "state.flags",
@@ -102,19 +106,21 @@
         },
         "kv": {
           "1 · matches": "{{source.matches.count}}",
-          "2 · groups (with the whole match)": "{{source.check.group_count}}",
-          "3 · shortest match, bytes": "{{source.check.min_len}}",
-          "4 · longest match, bytes (blank: no bound)": "{{source.check.max_len}}",
+          "2 · groups": "{{source.check.group_count}}",
+          "3 · shortest match": "{{source.check.min_len}}",
+          "4 · longest match": "{{source.check.max_len}}",
           "5 · a plain literal": "{{source.check.literal}}",
-          "6 · anchored at the start": "{{source.check.anchored_start}}"
-        }
+          "6 · anchored at start": "{{source.check.anchored_start}}"
+        },
+        "help": "Lengths are in bytes; a blank longest match means it has no bound."
       },
       {
         "id": "text",
         "field": {
           "text": {
             "multiline": true,
-            "rows": 6
+            "rows": 6,
+            "live": true
           }
         },
         "label": "Text",
@@ -164,7 +170,9 @@
                 {
                   "id": "replacement",
                   "field": {
-                    "text": {}
+                    "text": {
+                      "live": true
+                    }
                   },
                   "label": "Replacement",
                   "bind": "state.replacement",

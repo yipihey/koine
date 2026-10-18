@@ -133,6 +133,21 @@ fn pattern_and_saved_are_one_or_the_other() {
         json!({ "saved": "not-saved-anywhere", "haystack": "x" }),
     );
     assert_eq!(missing["code"], json!("not-found"), "{missing}");
+    // The empty pattern is a regex: it matches at every position.
+    let empty = run("find-all", json!({ "pattern": "", "haystack": "ab" }));
+    assert_eq!(empty["count"], json!(3), "{empty}");
+    // An empty `saved` names nothing, so the pattern is used...
+    let unnamed = run(
+        "find",
+        json!({ "pattern": "b", "saved": "", "haystack": "ab" }),
+    );
+    assert_eq!(unnamed["text"], json!("b"), "{unnamed}");
+    // ...and an empty pattern beside a name means the name.
+    let named = run(
+        "find",
+        json!({ "pattern": "", "saved": "not-saved-anywhere", "haystack": "x" }),
+    );
+    assert_eq!(named["code"], json!("not-found"), "{named}");
 }
 
 #[test]
@@ -346,4 +361,40 @@ fn a_set_searches_from_start_and_says_whether_all_matched() {
     );
     assert_eq!(later["matched_all"], json!(false), "{later}");
     assert_eq!(later["patterns"][1]["matched"], json!(true));
+}
+
+/// A refusal says it refused and why, and nothing that reads as an answer:
+/// a refused `check` has no `literal: false`, a refused `find-all` no
+/// `count: 0`.
+#[test]
+fn a_refusal_carries_no_answer_fields() {
+    let refusal_keys = ["ok", "code", "message", "at", "diagram"];
+    for (verb, args) in [
+        ("check", json!({ "pattern": "(" })),
+        ("find-all", json!({ "pattern": "(", "haystack": "x" })),
+        (
+            "replace",
+            json!({ "pattern": "(", "haystack": "x", "replacement": "y" }),
+        ),
+        ("delete-pattern", json!({ "name": "Not A Name" })),
+    ] {
+        let result = run(verb, args);
+        assert_eq!(result["ok"], json!(false), "{verb}: {result}");
+        let extra: Vec<&String> = result
+            .as_object()
+            .unwrap()
+            .keys()
+            .filter(|k| !refusal_keys.contains(&k.as_str()))
+            .collect();
+        assert!(
+            extra.is_empty(),
+            "{verb} refused with answer fields {extra:?}: {result}"
+        );
+    }
+    // An answer still carries its fields, a "nothing found" one included.
+    let none = run("find", json!({ "pattern": "z", "haystack": "x" }));
+    assert_eq!(
+        (none["ok"].clone(), none["found"].clone()),
+        (json!(true), json!(false))
+    );
 }

@@ -1,7 +1,7 @@
 {
   "package": "1.0",
   "name": "regex-lab",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "regex-lab's own pages: a live tester over every matching verb, and the library of saved patterns.",
   "surfaces": [
     { "name": "Regex tester", "file": "surfaces/tester.surface.json" },

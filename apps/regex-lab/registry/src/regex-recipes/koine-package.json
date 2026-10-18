@@ -1,7 +1,7 @@
 {
   "package": "1.0",
   "name": "regex-recipes",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Ready-made patterns for regex-lab (DOI, arXiv id, ISO date, semver, email, URL, IPv4, UUID, log lines), and a page that turns log lines into a table.",
   "surfaces": [
     {

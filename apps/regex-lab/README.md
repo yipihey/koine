@@ -13,8 +13,10 @@ regex-lab --lib regex` and then written out.
 
 ```bash
 cd apps/regex-lab
-cargo test                                   # 29 service tests + 3 package tests
+cargo test                                   # 32 service tests + 3 package tests
 cargo run -p regex-lab-host -- --check       # 130 verbs, the package installed
+cargo run -p regex-lab-host -- call find-all --pattern '\d+' --haystack '"a1 b22"'
+cargo run -p regex-lab-host -- verbs regex   # the verbs, one line each
 (cd ../../crates/koine-web && dx build --platform web --release)
 cargo run -p regex-lab-host -- \
     --web-dir ../../target/dx/koine-web/release/web/public --registry ./registry
@@ -25,7 +27,9 @@ cargo run -p regex-lab-host -- \
 
 All are `regex-lab-service_<verb>`. The matching verbs take the pattern as
 `pattern` or as `saved` (a saved pattern's name), and `flags` as letters
-(`imsxUR`, plus `a` for ASCII-only classes).
+(`imsxUR`, plus `a` for ASCII-only classes). The empty pattern is a regex
+like any other and matches at every position; an empty `saved` names
+nothing. Text is passed inline, up to the host's 16 MiB request limit.
 
 | verb | what it answers |
 |---|---|
@@ -41,8 +45,10 @@ All are `regex-lab-service_<verb>`. The matching verbs take the pattern as
 A pattern that does not parse is refused `invalid-pattern` with `at` (line
 and column in the pattern) and `diagram`. Both come from running
 `regex-syntax` on its own, because `regex` reports a syntax error only as
-text. Compiled patterns are kept in a bounded cache, so the tester re-runs
-five verbs per keystroke but compiles the pattern only once.
+text. A refusal carries `ok`, `code` and `message` (and `at`, `diagram`)
+and none of the answer's fields. Compiled patterns are kept in a bounded
+cache, so the tester re-runs five verbs per keystroke but compiles the
+pattern only once.
 
 `scripts/check-verb-coverage.sh --lib <regex> --service
 crates/regex-lab-service` (koine's) covers 64 public items of `regex`. The
@@ -55,7 +61,8 @@ other 9 are excluded, each with its reason, in
 ## The packages
 
 - **`package/`, built in.** It holds the *Regex tester* (one pattern and text
-  through `check`, `find-all`, `captures-all`, `replace` and `explain`) and
+  through `check`, `find-all`, `captures-all`, `replace` and `explain`, its
+  fields `live`, so the results follow each keystroke) and
   the *Pattern library*, plus a skill. `crates/regex-lab-host/src/package.rs`
   embeds it, and `koine_host::cli::main_configured` adds it to
   `Config::packages`. The host installs it at start, three-way, so a
@@ -93,19 +100,30 @@ packages, memory, store queries and providers.
 
 Lines written by hand:
 
-- **Rust, without tests: 2,160.** Of these, `service.rs` has 870 lines, and
+- **Rust, without tests: 2,359.** Of these, `service.rs` has 858 lines, and
   155 of them are the `methods = [...]` list that
   `impress_service_impl!` needs repeated. The host is 55 lines.
-- **Tests: 545.**
-- **Pages: 602 lines of surface JSON** across both packages.
+- **Tests: 609.**
+- **Pages: 613 lines of surface JSON** across both packages.
 - **HTML, CSS, JavaScript or Swift: 0.**
 
-The app needed three things koine did not have, and koine has them now:
+Building it, and then testing it end to end, found what koine lacked; koine
+has these now:
 
 - `cli::main_configured`, so a host binary can add its own packages.
 - `{"text": {"multiline": true}}`, a textarea field.
 - Generated forms that show a refusable result's rows as tables. A result
   like `{ok, count, pieces: [...]}` used to render as raw JSON.
+- `{"text": {"live": true}}`, a field that sends its value as it is typed,
+  so a tester's results follow each keystroke.
+- Text typed into a field is drawn from what was typed until it is sent:
+  typing just after a Tab could be put back to the old value by the render
+  the Tab caused.
+- `<host> call <verb>` and `<host> verbs`: the verbs from a shell.
+- A body over the request limit (16 MiB) is a JSON `too-large` refusal like
+  every other, not axum's plain-text 413 at 2 MiB.
+- On a phone, a key-value list keeps room for its values and tabs keep their
+  whole titles.
 
 ## Screenshots
 

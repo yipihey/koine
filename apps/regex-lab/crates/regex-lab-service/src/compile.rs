@@ -200,10 +200,13 @@ pub fn resolve(
     saved: Option<String>,
     flags: Option<String>,
 ) -> Result<Compiled, Outcome> {
-    let pattern = pattern.filter(|p| !p.is_empty());
+    // An empty `saved` names nothing. An empty `pattern` is the empty regex
+    // (it matches everywhere), except beside a `saved` name: a form that
+    // sends both fields means the saved one.
     let saved = saved
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
+    let pattern = pattern.filter(|p| !(p.is_empty() && saved.is_some()));
     let (text, stored_flags) = match (pattern, saved) {
         (Some(_), Some(name)) => {
             return Err(Outcome::refused(
