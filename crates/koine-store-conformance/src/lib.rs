@@ -65,6 +65,7 @@ pub mod kinds;
 pub mod ops;
 pub mod port;
 pub mod query;
+pub mod scratch;
 pub mod search;
 
 pub use blobs::*;

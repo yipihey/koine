@@ -4566,6 +4566,7 @@ dependencies = [
  "koine-agent",
  "koine-mcp-host",
  "koine-store",
+ "koine-store-conformance",
  "koine-store-dir",
  "koine-store-memory",
  "koine-workspace-hack",

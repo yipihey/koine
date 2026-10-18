@@ -24,7 +24,9 @@ DIR="$TARGET/$PROFILE"
 
 DIR="$DIR" python3 - <<'EOF'
 import os, sys
-d = os.environ["DIR"]
+# Real paths on both sides: a binary names its objects by absolute,
+# normalized path, and the dir may arrive as `…/worktrees/../target-worktrees`.
+d = os.path.realpath(os.environ["DIR"])
 deps = os.path.join(d, "deps")
 objects = set()
 binaries = []
@@ -78,8 +80,25 @@ used = set()
 from concurrent.futures import ThreadPoolExecutor
 with ThreadPoolExecutor(max_workers=os.cpu_count() or 8) as pool:
     for names in pool.map(named_objects, binaries):
-        used |= names
+        used |= {os.path.realpath(n) for n in names if n.endswith(".o")}
 dead = objects - used
+# Guard: binaries that name no object at all here while objects exist means
+# the paths did not line up; delete nothing rather than everything.
+if objects and binaries and not (objects & used):
+    print(f"sweep-objects: none of the {len(objects)} objects in {deps} is named by "
+          f"its {len(binaries)} binaries; refusing to delete (paths do not match?)",
+          file=sys.stderr)
+    sys.exit(1)
+# rustc's own scratch (`rustcXXXXXX`), left when a build is killed; an hour
+# old is long past any build that could still be using it.
+import shutil, time
+stale_scratch = [
+    os.path.join(deps, n) for n in os.listdir(deps)
+    if n.startswith("rustc") and os.path.isdir(os.path.join(deps, n))
+    and time.time() - os.path.getmtime(os.path.join(deps, n)) > 3600
+]
+for path in stale_scratch:
+    shutil.rmtree(path, ignore_errors=True)
 freed = 0
 for path in dead:
     try:
@@ -88,7 +107,8 @@ for path in dead:
     except FileNotFoundError:
         pass
 print(f"sweep-objects: {len(binaries)} binaries use {len(objects & used)} objects; "
-      f"removed {len(dead)} dead ({freed / 1e9:.1f} GB)")
+      f"removed {len(dead)} dead ({freed / 1e9:.1f} GB)"
+      + (f" and {len(stale_scratch)} stale rustc scratch dirs" if stale_scratch else ""))
 left = len(os.listdir(deps))
 if left > 60000:
     print(f"sweep-objects: {deps} still holds {left} files (stale rmeta/rlib "

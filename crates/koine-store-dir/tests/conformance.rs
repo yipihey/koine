@@ -14,10 +14,7 @@ use impress_item::AttributedStore;
 use koine_store_dir::DirStore;
 
 fn fresh_root() -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "koine-store-dir-conformance-{}",
-        uuid::Uuid::new_v4()
-    ))
+    koine_store_conformance::scratch::dir("koine-store-dir")
 }
 
 /// A handle the `reopen` arm opens watches, and is waited for, so the

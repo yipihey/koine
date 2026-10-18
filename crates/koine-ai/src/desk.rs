@@ -1053,9 +1053,8 @@ mod tests {
         let conversation = bridge.conversation_for(&id).unwrap().expect("tagged");
         let snapshot = ai.snapshot(conversation.id).unwrap();
         let provider = Triage::new(vec![Ok(r#"{"city":"Paris","temperature":18}"#)]);
-        let blobs = Arc::new(
-            crate::FileBlobStore::open(tempfile::tempdir().unwrap().keep().join("blobs")).unwrap(),
-        );
+        let scratch = tempfile::tempdir().unwrap();
+        let blobs = Arc::new(crate::FileBlobStore::open(scratch.path().join("blobs")).unwrap());
         let executor = crate::AiTaskExecutor::with_provider(ai.clone(), provider.clone(), blobs);
         let task = ai
             .shared_store()

@@ -27,7 +27,7 @@ fn memory() -> Arc<dyn AttributedStore> {
 }
 
 fn dir() -> Arc<dyn AttributedStore> {
-    let root = tempfile::tempdir().expect("tempdir").keep();
+    let root = koine_store_conformance::scratch::dir("koine-tasks-kernel");
     Arc::new(koine_store_dir::DirStore::open(&root).expect("dir store"))
 }
 

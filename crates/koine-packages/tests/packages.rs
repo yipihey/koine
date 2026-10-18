@@ -414,7 +414,8 @@ fn a_package_goes_from_a_registry_to_installed_at_one_digest() {
 fn a_bundle_that_is_not_what_the_index_pins_is_refused() {
     let _turn = fresh();
     let registry = tempfile::tempdir().unwrap();
-    koine_packages::registry::set_cache_dir(tempfile::tempdir().unwrap().keep());
+    let cache = tempfile::tempdir().unwrap();
+    koine_packages::registry::set_cache_dir(cache.path().to_path_buf());
     let published = publish(registry.path(), "1.0.0", "one");
     // Someone swaps the bundle on the server after the index was written.
     let mut bundle: Value =
@@ -464,7 +465,8 @@ fn a_bundle_round_trips_with_the_directorys_digest() {
 fn a_registry_is_read_over_http() {
     let _turn = fresh();
     let registry = tempfile::tempdir().unwrap();
-    koine_packages::registry::set_cache_dir(tempfile::tempdir().unwrap().keep());
+    let cache = tempfile::tempdir().unwrap();
+    koine_packages::registry::set_cache_dir(cache.path().to_path_buf());
     publish(registry.path(), "2.0.0", "web");
     let root = registry.path().to_path_buf();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
