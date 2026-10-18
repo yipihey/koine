@@ -32,7 +32,12 @@ Everything else is a reader of that inventory: an MCP host lists the
 descriptors as tools, the CLI builds a subcommand from each, the generated
 form (`impress-verb-surface`) builds a surface from each schema, impel
 offers each as an agent tool, and the HTTP host runs one by name
-(`POST /api/verb/<name>`; `koine-host`, plan-koine-host H-D4). A hosted
+(`POST /api/verb/<name>`; `koine-host`, plan-koine-host H-D4; a request body
+is at most 16 MiB, `too-large` past it). From a shell, an app's host binary
+lists them (`<app>-host verbs`) and calls one in its own process, over the
+store the host would open: `<app>-host call <verb> '<json>'`, or
+`<app>-host call <verb> --<arg> <value> ...`, a verb named in full or by a
+suffix only it ends with; it prints the answer and exits 3 on a refusal. A hosted
 capability is therefore never GUI code and never a hand-written server: if
 you are writing either, stop and give the library a verb.
 
@@ -199,6 +204,21 @@ impl Estimate {
     pub fn refused(code: &str, message: &str) -> Self {
         Self { ok: false, value: None, code: Some(code.into()), message: Some(message.into()) }
     }
+}
+```
+
+A result with several answer fields keeps them in a struct of their own,
+flattened as an `Option` beside the outcome, so a refusal carries only `ok`,
+`code` and `message`: an agent that skims a refused answer must not find
+`count: 0` or `literal: false` in it (`apps/regex-lab`, `dto.rs`):
+
+```rust
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Matches {
+    #[serde(flatten)]
+    pub outcome: Outcome, // ok, code, message
+    #[serde(flatten)]
+    pub answer: Option<MatchesAnswer>, // count, truncated, matches
 }
 ```
 

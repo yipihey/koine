@@ -60,6 +60,9 @@ pub mod codes {
     pub const UNSUPPORTED_ADVERB: &str = "unsupported-adverb";
     /// A `within` deadline passed before the verb answered.
     pub const TIMED_OUT: &str = "timed-out";
+    /// The request was larger than the host accepts; nothing was read or
+    /// run. The message says the limit.
+    pub const TOO_LARGE: &str = "too-large";
     /// The verb declares a secret (`secrets = […]`) that no installed source
     /// holds (plan-koine-followups F-D1); the message names it and says how
     /// to set it. Nothing ran.
@@ -178,6 +181,7 @@ pub fn http_status(code: &str) -> u16 {
         codes::VERB_FAILED => 502,
         codes::UNSUPPORTED_ADVERB | codes::IDEMPOTENCY_MISMATCH => 422,
         codes::TIMED_OUT => 504,
+        codes::TOO_LARGE => 413,
         codes::MISSING_SECRET => 412,
         codes::STORE_ERROR | codes::INTERNAL => 500,
         _ => 422,
