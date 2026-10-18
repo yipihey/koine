@@ -443,11 +443,122 @@ fn store_for_hooks() -> Option<Arc<dyn impress_item::AttributedStore>> {
     STORE_SOURCE.get().and_then(|source| source())
 }
 
-/// A session's risk check (TR-D11), installed by the pipeline.
+// ---------------------------------------------------------------------------
+// Session risk (plan-koine-trust TR-D11)
+// ---------------------------------------------------------------------------
+
+/// Reads the person's data.
+pub const RISK_PRIVATE: u8 = 1;
+/// Takes in content the person did not write.
+pub const RISK_UNTRUSTED: u8 = 2;
+/// Sends something out of the process.
+pub const RISK_EGRESS: u8 = 4;
+/// All three: the "lethal trifecta".
+pub const RISK_ALL: u8 = RISK_PRIVATE | RISK_UNTRUSTED | RISK_EGRESS;
+
+/// How long a session's risk is kept after its last call.
+pub const SESSION_IDLE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// The risks a call of `verb` carries: what it declares, and egress when it
+/// reaches out of the process.
+pub fn risk_of(verb: &dyn VerbFacts) -> u8 {
+    let mut risk = 0;
+    for declared in verb.consent().risk {
+        risk |= match declared {
+            crate::Risk::Private => RISK_PRIVATE,
+            crate::Risk::Untrusted => RISK_UNTRUSTED,
+        };
+    }
+    if verb.safety().class == SafetyClass::External
+        || verb.effects().reach.iter().any(|r| r.is_external())
+    {
+        risk |= RISK_EGRESS;
+    }
+    risk
+}
+
+/// The words for a risk set.
+pub fn risk_words(risk: u8) -> Vec<&'static str> {
+    let mut words = Vec::new();
+    if risk & RISK_PRIVATE != 0 {
+        words.push("read private data");
+    }
+    if risk & RISK_UNTRUSTED != 0 {
+        words.push("taken in untrusted content");
+    }
+    if risk & RISK_EGRESS != 0 {
+        words.push("sent data out");
+    }
+    words
+}
+
+static LEDGER: LazyLock<Mutex<HashMap<String, (u8, std::time::Instant)>>> =
+    LazyLock::new(Default::default);
+
+/// Record that a call of `verb` ran in `session`.
+pub fn note_ran(session: &str, verb: &dyn VerbFacts) {
+    let risk = risk_of(verb);
+    let mut ledger = LEDGER.lock().unwrap_or_else(|e| e.into_inner());
+    let now = std::time::Instant::now();
+    ledger.retain(|_, (_, seen)| now.duration_since(*seen) < SESSION_IDLE);
+    let entry = ledger.entry(session.to_owned()).or_insert((0, now));
+    entry.0 |= risk;
+    entry.1 = now;
+}
+
+/// The risks `session` has run so far (expired sessions hold none).
+pub fn session_risk(session: &str) -> u8 {
+    let ledger = LEDGER.lock().unwrap_or_else(|e| e.into_inner());
+    match ledger.get(session) {
+        Some((risk, seen)) if seen.elapsed() < SESSION_IDLE => *risk,
+        _ => 0,
+    }
+}
+
+/// Forget a session's risk (a person ending it).
+pub fn forget_session(session: &str) {
+    LEDGER
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(session);
+}
+
+/// The "Rule of Two" (TR-D11): an agent's session may hold at most two of
+/// private data, untrusted content and egress unsupervised. A call that would
+/// give it the third is held; once it holds all three, every write and every
+/// egress is. A person's and an app's calls are never held for it.
+pub fn session_risk_check(input: &PolicyInput<'_>) -> Option<String> {
+    if !matches!(
+        input.caller,
+        CallerIdentity::Agent(_) | CallerIdentity::Provider(_)
+    ) {
+        return None;
+    }
+    let session = input.session?;
+    let held = session_risk(session);
+    let adds = risk_of(input.verb);
+    let writes = input.verb.safety().class != SafetyClass::ReadOnly;
+    if held == RISK_ALL && (writes || adds & RISK_EGRESS != 0) {
+        return Some(format!(
+            "this session has already {}; a person supervises what it writes or sends from here",
+            risk_words(held).join(", ")
+        ));
+    }
+    if held != RISK_ALL && held | adds == RISK_ALL {
+        return Some(format!(
+            "this session has {}, and this call would also have it {}: a person decides",
+            risk_words(held).join(" and "),
+            risk_words(adds & !held).join(" and ")
+        ));
+    }
+    None
+}
+
+/// A session's risk check, replaceable for a host that judges otherwise.
 pub type RiskCheck = fn(&PolicyInput<'_>) -> Option<String>;
 static RISK_CHECK: std::sync::OnceLock<RiskCheck> = std::sync::OnceLock::new();
 
-/// Register the session risk check the consent policy consults.
+/// Replace the session risk check the consent policy consults.
 pub fn set_risk_check(check: RiskCheck) {
     let _ = RISK_CHECK.set(check);
 }
@@ -533,15 +644,17 @@ impl Policy for ConsentPolicy {
                 reason: None,
             };
         }
-        // A read changes nothing to ask about. A session that has gathered
-        // too much risk is asked even where an allow rule would let the call
-        // through; otherwise an allow rule settles it.
+        // A session that has gathered too much risk is asked even where an
+        // allow rule would let the call through, and even for a read that
+        // would complete it. Otherwise a read changes nothing to ask about,
+        // and an allow rule settles it.
+        let check = RISK_CHECK.get().copied().unwrap_or(session_risk_check);
+        if let Some(reason) = check(input) {
+            return Verdict::review(reason);
+        }
         let class = input.verb.safety().class;
         if class == SafetyClass::ReadOnly {
             return Verdict::run();
-        }
-        if let Some(reason) = RISK_CHECK.get().and_then(|check| check(input)) {
-            return Verdict::review(reason);
         }
         if applying.iter().any(|r| r.allow) {
             return Verdict::run();

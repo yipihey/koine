@@ -167,6 +167,41 @@ pub fn handle_message(
     dispatch_message_as(config, request, caller, None, None)
 }
 
+thread_local! {
+    static SESSION: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// [`handle_message`] for a call in `session` (plan-koine-trust TR-D10): the
+/// MCP connection's, so the pipeline can track what that agent session has
+/// touched.
+pub fn handle_message_in(
+    config: &HostConfig,
+    request: &Value,
+    caller: &CallerIdentity,
+    session: Option<String>,
+) -> Option<Value> {
+    SESSION.with(|slot| *slot.borrow_mut() = session);
+    let answer = handle_message(config, request, caller);
+    SESSION.with(|slot| *slot.borrow_mut() = None);
+    answer
+}
+
+/// The session for an MCP request: the client's `Mcp-Session-Id`, else one
+/// per caller per hour (an MCP client over HTTP that names no session is
+/// still one agent at work).
+pub fn session_for(header: Option<&str>, caller: &CallerIdentity) -> String {
+    match header.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(id) => format!("mcp:{id}"),
+        None => {
+            let hour = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() / 3600)
+                .unwrap_or(0);
+            format!("mcp:{}:{hour}", caller.author())
+        }
+    }
+}
+
 /// Run the same focused MCP surface as a stateless Streamable HTTP endpoint.
 ///
 /// Authentication is intentionally owned by the transport rather than domain
@@ -239,11 +274,18 @@ async fn http_mcp(
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
     let config = state.config.clone();
+    let session = session_for(
+        headers.get("mcp-session-id").and_then(|v| v.to_str().ok()),
+        &caller,
+    );
     // Same triage as stdio (`dispatch_message`): a batch gets its one error
     // response, a notification gets the bodiless 202 Streamable HTTP
     // prescribes, everything else is handled.
     match tokio::task::spawn_blocking(move || {
-        dispatch_message_as(&config, &request, &caller, trace, parent)
+        SESSION.with(|slot| *slot.borrow_mut() = Some(session));
+        let answer = dispatch_message_as(&config, &request, &caller, trace, parent);
+        SESSION.with(|slot| *slot.borrow_mut() = None);
+        answer
     })
     .await
     {
@@ -303,7 +345,15 @@ fn handle_request_as(
         }),
         "ping" => success(id, json!({})),
         "tools/list" => success(id, json!({ "tools": tool_definitions(config) })),
-        "tools/call" => handle_tool_call(config, id, request, caller, trace, parent),
+        "tools/call" => handle_tool_call(
+            config,
+            id,
+            request,
+            caller,
+            trace,
+            parent,
+            SESSION.with(|slot| slot.borrow().clone()),
+        ),
         "resources/list" => success(
             id,
             json!({
@@ -406,6 +456,7 @@ fn handle_tool_call(
     caller: &CallerIdentity,
     trace: Option<String>,
     parent: Option<String>,
+    session: Option<String>,
 ) -> Value {
     let Some(name) = request
         .pointer("/params/name")
@@ -434,6 +485,7 @@ fn handle_tool_call(
     let mut call = Call::new(caller.clone(), arguments);
     call.trace_id = trace;
     call.parent_call = parent;
+    call.session = session;
     let result = impress_service_core::runtime::block_on(
         impress_service_core::pipeline::invoke_handle(descriptor, call),
     )

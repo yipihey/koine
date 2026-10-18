@@ -326,12 +326,19 @@ impl TaskExecutor for AiTaskExecutor {
         let runner = adapter_runner
             .as_ref()
             .map(|runner| runner as &dyn ToolRunner);
-        let outcome = agent_loop::run(
-            client.as_ref(),
-            prepared.request.clone(),
-            runner,
-            &observer,
-            self.max_tool_rounds,
+        // plan-koine-trust TR-D10: every tool call the model makes in this
+        // conversation belongs to one session, so the pipeline can track what
+        // it has touched across turns.
+        let session = std::sync::Arc::new(format!("ai:{}", prepared.conversation_id));
+        let outcome = impress_service_core::pipeline::context::session_scope(
+            session,
+            agent_loop::run(
+                client.as_ref(),
+                prepared.request.clone(),
+                runner,
+                &observer,
+                self.max_tool_rounds,
+            ),
         )
         .await
         .map_err(|error| match error {

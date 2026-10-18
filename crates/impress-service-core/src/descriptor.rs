@@ -858,7 +858,24 @@ impl VerbDescriptor {
         if let Some(rows) = self.rows_view() {
             meta.insert("rows".into(), rows);
         }
+        let risk = self.risk_words();
+        if !risk.is_empty() {
+            meta.insert("risk".into(), json!(risk));
+        }
         (!meta.is_empty()).then_some(Value::Object(meta))
+    }
+
+    /// The verb's risk in words (plan-koine-trust TR-D11): what it declares
+    /// (`private`, `untrusted`) and `egress` when it reaches out of the
+    /// process.
+    pub fn risk_words(&self) -> Vec<&'static str> {
+        let mut words: Vec<&'static str> = self.consent.risk.iter().map(|r| r.as_str()).collect();
+        if self.safety.class == SafetyClass::External
+            || self.effects.reach.iter().any(|r| r.is_external())
+        {
+            words.push("egress");
+        }
+        words
     }
 
     /// `{"id", "title", "columns"}` for a verb that declares `rows(…)`, with

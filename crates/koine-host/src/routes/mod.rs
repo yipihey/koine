@@ -32,7 +32,7 @@ use std::sync::Arc;
 
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
-use axum::http::{header, HeaderValue, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use axum::Router;
@@ -218,11 +218,21 @@ async fn skill() -> Response {
 /// `{}`), the caller is the HTTP agent, and the answer is `dispatch`'s
 /// status and body — 404 for a verb that is not linked, 400 for a body that
 /// is not JSON, the code's status for a refusal.
-async fn verb(Path(name): Path<String>, body: Bytes) -> Response {
+async fn verb(Path(name): Path<String>, headers: HeaderMap, body: Bytes) -> Response {
     let Ok(args) = std::str::from_utf8(&body) else {
         return refusal(codes::INVALID_ARGUMENT, "the request body is not UTF-8");
     };
-    let result = dispatch_async(&name, args, r#"{"kind":"agent","name":"http"}"#).await;
+    // plan-koine-trust TR-D10: the client's session (`X-Koine-Session`),
+    // else one per hour for the HTTP agent.
+    let session = headers
+        .get("x-koine-session")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("http:{s}"))
+        .unwrap_or_else(|| format!("http:agent:{}", chrono::Utc::now().format("%Y%m%d%H")));
+    let caller = json!({"kind": "agent", "name": "http", "session": session}).to_string();
+    let result = dispatch_async(&name, args, &caller).await;
     (
         StatusCode::from_u16(result.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
         [(
@@ -342,7 +352,7 @@ async fn job_cancel(State(state): State<Shared>, Path(id): Path<String>) -> Resp
 /// `POST /mcp`: one JSON-RPC message in, one out (`202` for a notification).
 /// The verbs run on a blocking thread, as `koine_mcp_host::handle_message`
 /// documents.
-async fn mcp(State(state): State<Shared>, body: Bytes) -> Response {
+async fn mcp(State(state): State<Shared>, headers: HeaderMap, body: Bytes) -> Response {
     let request: Value = match serde_json::from_slice(&body) {
         Ok(request) => request,
         Err(error) => {
@@ -358,8 +368,12 @@ async fn mcp(State(state): State<Shared>, body: Bytes) -> Response {
     };
     let config = state.mcp.clone();
     let caller = CallerIdentity::agent(format!("mcp-host:{}", config.server_name));
+    let session = koine_mcp_host::session_for(
+        headers.get("mcp-session-id").and_then(|v| v.to_str().ok()),
+        &caller,
+    );
     let answer = tokio::task::spawn_blocking(move || {
-        koine_mcp_host::handle_message(&config, &request, &caller)
+        koine_mcp_host::handle_message_in(&config, &request, &caller, Some(session))
     })
     .await;
     match answer {

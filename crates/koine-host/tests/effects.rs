@@ -204,3 +204,16 @@ async fn every_linked_verb_rehearsed_leaves_the_store_unchanged() {
         problems.join("\n- ")
     );
 }
+
+/// plan-koine-trust TR-D11: every linked verb that reaches out of the process
+/// is `external`.
+#[test]
+fn a_verb_that_reaches_out_is_external() {
+    koine_host::ensure_linked();
+    let problems = impress_service_core::report::reach_class_disagreements(VerbDescriptor::iter());
+    assert!(
+        problems.is_empty(),
+        "reach and class disagree:\n- {}",
+        problems.join("\n- ")
+    );
+}

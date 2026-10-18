@@ -341,7 +341,7 @@ pub trait ImpressAiService: Send + Sync + 'static {
     /// the first ready cloud provider, each with its default model. It
     /// writes preferences only; any assignment can be changed after. An
     /// unknown preset is refused.
-    #[impress_method(safety = mutating, effects(reach = [provider]))]
+    #[impress_method(safety = external, effects(reach = [provider]))]
     #[impress_example(name = "unknown-preset", args = r#"{"preset":"nope"}"#)]
     async fn apply_routing_preset(&self, preset: String) -> RoutingPresetResult;
 
@@ -357,7 +357,7 @@ pub trait ImpressAiService: Send + Sync + 'static {
     async fn provider_health(&self, provider: Option<String>) -> ProviderHealthResult;
 
     /// List durable AI conversations from the shared Impress item graph.
-    #[impress_method(effects(reads = ["conversation@1.0.0"]))]
+    #[impress_method(effects(reads = ["conversation@1.0.0"]), risk(private))]
     #[impress_example(
         name = "scratch-conversation-list",
         args = r#"{"include_archived":false}"#
@@ -366,7 +366,7 @@ pub trait ImpressAiService: Send + Sync + 'static {
 
     /// Read a conversation with its ordered messages and pending durable
     /// response tasks.
-    #[impress_method(effects(reads = ["conversation@1.0.0", "chat-message", "task@1.0.0"]))]
+    #[impress_method(effects(reads = ["conversation@1.0.0", "chat-message", "task@1.0.0"]), risk(private))]
     #[impress_example(
         name = "scratch-conversation-detail",
         args = r#"{"conversation_id":"65000000-0000-4000-8000-000000000002"}"#

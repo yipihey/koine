@@ -95,6 +95,9 @@ pub struct Call {
     /// A person's approval of this exact call (TR-D4), set in process by the
     /// review queue; never read from the wire.
     pub approval: Option<policy::Approval>,
+    /// The session this call belongs to (plan-koine-trust TR-D10), as its
+    /// transport established it; a nested call inherits its caller's.
+    pub session: Option<String>,
 }
 
 impl Call {
@@ -108,7 +111,14 @@ impl Call {
             requested_name: None,
             adverbs: Adverbs::default(),
             approval: None,
+            session: None,
         }
+    }
+
+    /// This call, in `session`.
+    pub fn with_session(mut self, session: impl Into<String>) -> Self {
+        self.session = Some(session.into());
+        self
     }
 
     /// This call, approved by a person (TR-D4).
@@ -266,6 +276,8 @@ struct Prepared {
     record_store: Option<Arc<dyn std::any::Any + Send + Sync>>,
     /// The pending call whose approval this call runs under (TR-D4).
     approved_scope: Option<Arc<String>>,
+    /// The session this call belongs to (TR-D10).
+    session: Option<Arc<String>>,
 }
 
 /// What the invoke step does for a prepared call.
@@ -396,6 +408,10 @@ pub fn missing_secret_refusal(verb: &str, missing: &[&str]) -> Refusal {
     Refusal::new(codes::MISSING_SECRET, format!("verb {verb} needs {needs}"))
 }
 
+fn ok_of(result: &Result<Value, BoxError>) -> bool {
+    matches!(result, Ok(value) if is_ok(value))
+}
+
 fn is_ok(value: &Value) -> bool {
     value.get("ok").and_then(Value::as_bool).unwrap_or(true)
 }
@@ -431,7 +447,13 @@ fn prepare_inner(
         requested_name,
         adverbs: call_adverbs,
         approval,
+        session,
     } = call;
+    // TR-D10: the transport's session, else the enclosing call's.
+    let session: Option<Arc<String>> = session
+        .filter(|s| !s.is_empty())
+        .map(Arc::new)
+        .or_else(context::current_session);
     let mut args = if args.is_null() {
         Value::Object(Default::default())
     } else {
@@ -563,7 +585,7 @@ fn prepare_inner(
             caller: &caller,
             verb,
             args: &args,
-            session: None,
+            session: session.as_deref().map(String::as_str),
         };
         let verdict = if leaseless {
             policy::decide_call_without_lease(&input)
@@ -617,7 +639,7 @@ fn prepare_inner(
                         verb,
                         args: &args,
                         reason: review_reason.as_deref(),
-                        session: None,
+                        session: session.as_deref().map(String::as_str),
                     })))
                 }
                 policy::Decision::Deny(reason) => return Ok(Err(policy::deny(verb, reason))),
@@ -665,6 +687,7 @@ fn prepare_inner(
                             requested_name: requested_name.clone(),
                             adverbs: inner,
                             approval: approval.clone(),
+                            session: session.as_ref().map(|s| s.to_string()),
                         };
                         let started = match adverbs.every {
                             Some(interval) => runner.repeat(verb.clone(), handed, interval),
@@ -759,6 +782,7 @@ fn prepare_inner(
         audit_always: adverbs.tentatively || adverbs.in_background || adverbs.every.is_some(),
         record_store,
         approved_scope,
+        session,
         adverbs,
         disposition,
         holds_lease,
@@ -967,8 +991,16 @@ fn finish_inner(
         audit_always,
         undo,
         record_store,
+        session,
+        disposition,
         ..
     } = prepared;
+    // TR-D11: what this call actually ran adds to its session's risk.
+    if matches!(disposition, Disposition::Run) && ok_of(result) {
+        if let Some(session) = &session {
+            policy::note_ran(session, verb);
+        }
+    }
     let duration = started.elapsed();
     let duration_us = duration.as_micros() as u64;
     let (ok, code, message_len, result_bytes) = outcome(result);
@@ -1048,6 +1080,7 @@ fn finish_inner(
             verb: handle_name(verb),
             since: handle_since(verb),
             fingerprint: verb.fingerprint(),
+            session: session.as_ref().map(|s| s.to_string()),
             caller: context.caller.clone(),
             trace_id: context.trace_id.clone(),
             parent_call: context.parent_call.clone(),
@@ -1171,6 +1204,7 @@ where
                 _ => None,
             };
             let approved = prepared.approved_scope.clone();
+            let session_scope = prepared.session.clone();
             let scoped = async {
                 let scoped = context::scope(prepared.context.clone(), future);
                 let rehearsed = async {
@@ -1179,12 +1213,20 @@ where
                         None => scoped.await,
                     }
                 };
-                match approved {
-                    Some(pending) => context::approval_scope(pending, rehearsed).await,
-                    None => rehearsed.await,
+                let approved_run = async {
+                    match approved {
+                        Some(pending) => context::approval_scope(pending, rehearsed).await,
+                        None => rehearsed.await,
+                    }
+                };
+                match session_scope {
+                    Some(session) => context::session_scope(session, approved_run).await,
+                    None => approved_run.await,
                 }
             };
-            let run = tracing::Instrument::instrument(scoped, entered);
+            // Boxed: the scopes nest the handler future, and a deep call tree would
+            // otherwise carry every level of it on the stack.
+            let run = tracing::Instrument::instrument(Box::pin(scoped), entered);
             match within {
                 // Rule 5: the handler future is dropped at the deadline.
                 Some(within) => {
@@ -1909,6 +1951,8 @@ pub(crate) mod tests {
         idempotent: false,
     };
     adv_verb!(REH_WRITE, "t-service_reh-write", counting);
+    adv_verb!(SESS_A, "t-service_sess-a", counting);
+    adv_verb!(SESS_B, "t-service_sess-b", counting);
     adv_verb!(REH_AROUND, "t-service_reh-around", writes_around);
     adv_verb!(REH_EXTERNAL, "t-service_reh-external", counting, safety: EXTERNAL);
     adv_verb!(REH_NESTING, "t-service_reh-nesting", rehearsal_nesting);
@@ -2188,6 +2232,29 @@ pub(crate) mod tests {
         // Outside a dry run the same inner write runs.
         invoke_blocking(&NEST_WRITE, Call::person(json!({}))).unwrap();
         assert_eq!(hits("t-service_adv-nest-write"), 1);
+    }
+
+    #[test]
+    fn a_call_records_its_session_and_a_call_inside_inherits_it() {
+        captured();
+        invoke_blocking(
+            &SESS_A,
+            Call::person(json!({"session-test": 1})).with_session("sess-1"),
+        )
+        .unwrap();
+        let record = record_of("t-service_sess-a");
+        assert_eq!(record.session.as_deref(), Some("sess-1"));
+        assert_eq!(record.payload()["session"], "sess-1");
+        let inherited = crate::runtime::block_on(context::session_scope(
+            Arc::new("sess-2".to_string()),
+            invoke(&SESS_B, Call::person(json!({"session-test": 2}))),
+        ))
+        .unwrap();
+        assert_eq!(inherited["ok"], true);
+        assert_eq!(
+            record_of("t-service_sess-b").session.as_deref(),
+            Some("sess-2")
+        );
     }
 
     #[test]

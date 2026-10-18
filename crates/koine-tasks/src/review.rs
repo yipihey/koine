@@ -176,6 +176,19 @@ pub fn file_pending_request(
     args: &serde_json::Value,
     reason: Option<&str>,
 ) -> Result<ItemId, String> {
+    file_pending_in(store, caller, verb, args, reason, None)
+}
+
+/// [`file_pending_request`] in `session` (TR-D10): the approved call runs in
+/// it, so what it does still counts toward that session's risk.
+pub fn file_pending_in(
+    store: &dyn AttributedStore,
+    caller: &CallerIdentity,
+    verb: &dyn VerbFacts,
+    args: &serde_json::Value,
+    reason: Option<&str>,
+    in_session: Option<&str>,
+) -> Result<ItemId, String> {
     let now = Utc::now();
     let safety = verb.safety().class.to_string();
     let [_, writes, reach] = verb.effects().columns();
@@ -209,6 +222,9 @@ pub fn file_pending_request(
         );
     }
     put("fingerprint", verb.fingerprint());
+    if let Some(in_session) = in_session {
+        put("session", in_session.to_owned());
+    }
     if let Some(trace) = session {
         put("trace_id", trace);
     }
@@ -330,12 +346,13 @@ impl ReviewQueue for TaskReviewQueue {
         if fallback {
             return self.enqueue(request.caller, request.verb, request.args);
         }
-        file_pending_request(
+        file_pending_in(
             store.as_ref(),
             request.caller,
             request.verb,
             request.args,
             request.reason,
+            request.session,
         )
         .map(|id| id.to_string())
         .map_err(|e| Refusal::new(codes::STORE_ERROR, e))
@@ -593,6 +610,7 @@ pub async fn run_approved(store: &dyn AttributedStore, item: &Item) -> serde_jso
             // approved it — and runs on its own task, so it is the agent's
             // call, not one made inside the person's approval.
             call.trace_id = text(item, "trace_id");
+            call.session = text(item, "session");
             call.parent_call = call_context::current().map(|c| c.call_id.clone());
             let run = tokio::spawn(async move { pipeline::invoke_handle(handle, call).await });
             match run.await {

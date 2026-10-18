@@ -290,6 +290,10 @@ pub fn file_verb_task(
     payload.insert(field::VERB.into(), Value::String(draft.verb));
     payload.insert(field::ARGS.into(), Value::String(draft.args.to_string()));
     payload.insert("filed_by".into(), Value::String(filed_by.author()));
+    // plan-koine-trust TR-D10: the task runs in the session it was filed in.
+    if let Some(session) = call_context::current_session() {
+        payload.insert("session".into(), Value::String(session.to_string()));
+    }
     payload.insert("spawned_by".into(), Value::String("task-service".into()));
     if let Some(at) = draft.not_before_ms {
         payload.insert("next_attempt_at".into(), Value::Int(at));

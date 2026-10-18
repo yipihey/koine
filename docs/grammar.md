@@ -327,6 +327,31 @@ fingerprint; when the verb changes, the rule no longer applies and the
 person is asked again. `review-service_rules` lists rules (and which are
 stale); `_revoke-rule` revokes one.
 
+### Sessions and risk
+
+Every call can carry a session (plan-koine-trust TR-D10): `Call::session`,
+inherited by every call made inside it and kept on the call record. The MCP
+host uses the client's `Mcp-Session-Id`, else one per agent per hour;
+koine-host's `/api/verb` reads `X-Koine-Session`, else one per hour; the
+model executor uses the conversation (`ai:<conversation>`); a verb task runs
+in the session it was filed in, and an approved pending call in the session
+that asked for it.
+
+A verb declares its risk (TR-D11): `risk(private)` when it reads the
+person's data, `risk(untrusted)` when it takes in content they did not write
+(the web, a fetched package, an imported document, a model's output).
+Sending data out (`egress`) is never declared: every verb that reaches out
+of the process carries it, and such a verb is `external`
+(`report::reach_class_disagreements`, checked by koine-host's effects
+test). `tools/list` shows it as `_meta.risk`; the skill lists it.
+
+The consent policy keeps the "Rule of Two": the pipeline records what each
+session has run, and once an agent's session holds two of private data,
+untrusted content and egress, a call that would add the third waits for a
+person; once it holds all three, every write and every egress does. A
+session's record lapses an hour after its last call. The person and their
+app are never held for it.
+
 Every answer that is not a result carries a `status` in the agent
 protocols' words: `input_required` (held for a person), `auth_required`
 (`missing-secret`), `rejected` (the policy refused; code `rejected`). A verb

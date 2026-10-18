@@ -55,7 +55,7 @@ pub trait NotebookService: Send + Sync + 'static {
     /// `nested`; narrowed by `run`, `caller` (`human`, `agent`, `agent:mcp`),
     /// a `verb` substring and `failed_only`. The notebook's own read verbs are
     /// left out unless `verb` names them. `limit` defaults to 100, at most 1000.
-    #[impress_method(effects(reads = ["core/verb-call@1.0.0"]))]
+    #[impress_method(effects(reads = ["core/verb-call@1.0.0"]), risk(private))]
     #[impress_example(name = "default", args = r#"{}"#, expect = r#"{"ok": true}"#)]
     #[impress_example(
         name = "failed",
@@ -78,7 +78,7 @@ pub trait NotebookService: Send + Sync + 'static {
     /// chart of self time per step, its notes, and whether it can be
     /// replayed. With no `call_id` (nothing selected yet) it answers an
     /// empty entry, not a refusal. Refuses an unknown call (`not-found`).
-    #[impress_method(effects(reads = ["core/verb-call@1.0.0", any("koine/notebook-note@1.0.0")]))]
+    #[impress_method(effects(reads = ["core/verb-call@1.0.0", any("koine/notebook-note@1.0.0")]), risk(private))]
     #[impress_example(
         name = "unknown",
         args = r#"{"call_id": "00000000-0000-4000-8000-000000000000"}"#,
@@ -135,7 +135,7 @@ pub trait NotebookService: Send + Sync + 'static {
     /// outcome, total and self time, steps and writes; then each call's step
     /// table and notes; with the host and build. For a methods section or a
     /// collaborator. Refuses an unknown run.
-    #[impress_method(effects(reads = [any("koine/run@1.0.0"), "core/verb-call@1.0.0"]))]
+    #[impress_method(effects(reads = [any("koine/run@1.0.0"), "core/verb-call@1.0.0"]), risk(private))]
     #[impress_example(
         name = "unknown",
         args = r#"{"run": "00000000-0000-4000-8000-000000000000"}"#,

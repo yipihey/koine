@@ -162,3 +162,28 @@ mod tests {
         assert!(!report.ok() && !report.all_skipped());
     }
 }
+
+/// Linked verbs whose reach and class disagree (plan-koine-trust TR-D11): a
+/// verb that reaches out of the process (the network, a provider, another
+/// app, a device, a subprocess) is `external`, whatever else it does — that
+/// is what makes its egress visible to the consent policy and to MCP's
+/// `openWorldHint`. One line per verb, empty when they all agree.
+pub fn reach_class_disagreements<'a>(
+    verbs: impl IntoIterator<Item = &'a crate::VerbDescriptor>,
+) -> Vec<String> {
+    let mut out: Vec<String> = verbs
+        .into_iter()
+        .filter(|verb| {
+            verb.safety.class != crate::SafetyClass::External
+                && verb.effects.reach.iter().any(|r| r.is_external())
+        })
+        .map(|verb| {
+            format!(
+                "`{}` reaches {:?} but is `{}`: declare `safety = external`",
+                verb.name, verb.effects.reach, verb.safety.class
+            )
+        })
+        .collect();
+    out.sort();
+    out
+}

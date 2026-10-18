@@ -47,6 +47,8 @@ pub struct VerbCallRecord {
     /// The verb's descriptor fingerprint when it ran
     /// ([`crate::VerbHandle::fingerprint`]); empty when unknown.
     pub fingerprint: String,
+    /// The session the call belonged to (plan-koine-trust TR-D10).
+    pub session: Option<String>,
     pub caller: CallerIdentity,
     pub trace_id: String,
     pub parent_call: Option<String>,
@@ -108,6 +110,9 @@ impl VerbCallRecord {
         payload.insert("since".into(), json!(self.since));
         if !self.fingerprint.is_empty() {
             payload.insert("verb_fingerprint".into(), json!(self.fingerprint));
+        }
+        if let Some(session) = &self.session {
+            payload.insert("session".into(), json!(session));
         }
         payload.insert("caller".into(), self.caller.to_json());
         payload.insert("trace_id".into(), json!(self.trace_id));
@@ -1079,6 +1084,7 @@ mod tests {
             verb: "t-service_x".into(),
             since: "0.1.0".into(),
             fingerprint: String::new(),
+            session: None,
             caller: CallerIdentity::Person,
             trace_id: "t".into(),
             parent_call: None,

@@ -213,7 +213,7 @@ pub trait StoreQueryService: Send + Sync + 'static {
     ///
     /// Items with `status: "dismissed"` are deliberately withheld; everything
     /// else, archived included, stays findable.
-    #[impress_method(effects(reads = [any("searches every kind")]))]
+    #[impress_method(effects(reads = [any("searches every kind")]), risk(private))]
     #[impress_example(
         name = "default",
         args = r#"{"query": "effects", "limit_per_schema": 3}"#
@@ -231,7 +231,7 @@ pub trait StoreQueryService: Send + Sync + 'static {
     /// target). Rows are ordered by edge type then title. Edges whose other end
     /// no longer exists are skipped. Pass 0 for the default limit (50); values
     /// above 500 are clamped.
-    #[impress_method(effects(reads = [target(id), any("walks references across kinds")]))]
+    #[impress_method(effects(reads = [target(id), any("walks references across kinds")]), risk(private))]
     #[impress_example(
         name = "missing-item",
         args = r#"{"id": "00000000-0000-0000-0000-000000000000", "limit": 10}"#,
@@ -255,7 +255,7 @@ pub trait StoreQueryService: Send + Sync + 'static {
     /// app's service (e.g. imprint's document tools) instead.
     ///
     /// An unknown id is `ok: false` with "not found", never an empty success.
-    #[impress_method]
+    #[impress_method(risk(private))]
     #[impress_example(
         name = "missing-item",
         args = r#"{"id": "00000000-0000-0000-0000-000000000000"}"#,
@@ -283,10 +283,8 @@ pub trait StoreQueryService: Send + Sync + 'static {
     // purpose — see `imbib-service`'s `decode_latex` budget comment; the
     // breach mechanism is proven by a dedicated test, not by this one
     // tripping under Tier A's cold first call.
-    #[impress_method(
-        effects(reads = [any("the schema_ref argument names the kind")]),
-        budget_ms = 200
-    )]
+    #[impress_method(effects(reads = [any("the schema_ref argument names the kind")]),
+        budget_ms = 200, risk(private))]
     #[impress_example(
         name = "default",
         args = r#"{"schema_ref": "manuscript", "limit": 5, "offset": 0}"#

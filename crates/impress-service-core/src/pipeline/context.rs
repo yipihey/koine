@@ -561,6 +561,18 @@ impl Rehearsal {
 tokio::task_local! {
     static REHEARSAL: Arc<Rehearsal>;
     static APPROVAL: Arc<String>;
+    static SESSION: Arc<String>;
+}
+
+/// The session the current call belongs to (plan-koine-trust TR-D10), when
+/// its transport named one: a call made inside it belongs to it too.
+pub fn current_session() -> Option<Arc<String>> {
+    SESSION.try_with(Arc::clone).ok()
+}
+
+/// Run `future` as part of `session`.
+pub async fn session_scope<F: std::future::Future>(session: Arc<String>, future: F) -> F::Output {
+    SESSION.scope(session, future).await
 }
 
 /// The pending call whose approval the current call runs under (TR-D4),

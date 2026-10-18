@@ -41,6 +41,22 @@ pub trait NoteService: Send + Sync + 'static {
     /// Archive notes by id.
     #[impress_method(safety = mutating)]
     async fn archive(&self, ids: Vec<String>) -> Did;
+
+    /// Read the person's notes.
+    #[impress_method(risk(private))]
+    async fn peek(&self) -> Did;
+
+    /// Read a web page.
+    #[impress_method(risk(untrusted))]
+    async fn browse(&self) -> Did;
+
+    /// Send a note out.
+    #[impress_method(safety = external, impact = "low", effects(reach = [network]))]
+    async fn send(&self) -> Did;
+
+    /// Touch a note.
+    #[impress_method(safety = mutating, impact = "low")]
+    async fn touch(&self) -> Did;
 }
 
 pub struct Notes;
@@ -59,6 +75,22 @@ impl NoteService for Notes {
             .lock()
             .unwrap()
             .push(format!("archive {}", ids.join(",")));
+        Did { ok: true }
+    }
+    async fn peek(&self) -> Did {
+        done().lock().unwrap().push("peek".into());
+        Did { ok: true }
+    }
+    async fn browse(&self) -> Did {
+        done().lock().unwrap().push("browse".into());
+        Did { ok: true }
+    }
+    async fn send(&self) -> Did {
+        done().lock().unwrap().push("send".into());
+        Did { ok: true }
+    }
+    async fn touch(&self) -> Did {
+        done().lock().unwrap().push("touch".into());
         Did { ok: true }
     }
 }
@@ -85,6 +117,14 @@ impress_service_impl! {
             /// The notes.
             ids: Vec<String>
         ) -> Did,
+        /// Read the person's notes.
+        peek() -> Did,
+        /// Read a web page.
+        browse() -> Did,
+        /// Send a note out.
+        send() -> Did,
+        /// Touch a note.
+        touch() -> Did,
     ],
 }
 
@@ -256,4 +296,80 @@ async fn remember_makes_a_rule_and_revoking_it_asks_again() {
     assert_eq!(rejected["code"], "rejected", "{rejected}");
     assert_eq!(rejected["status"], "rejected");
     assert!(take_done().is_empty());
+    // Leave no standing rule behind for the other tests.
+    let rules = as_caller(person(), "review-service_rules", json!({})).await;
+    for rule in rules["rows"].as_array().unwrap() {
+        if rule["revoked"] == false {
+            as_caller(
+                person(),
+                "review-service_revoke-rule",
+                json!({"id": rule["id"]}),
+            )
+            .await;
+        }
+    }
+}
+
+async fn in_session(session: &str, caller: CallerIdentity, name: &str, args: Value) -> Value {
+    impress_service_core::pipeline::context::session_scope(
+        Arc::new(session.to_string()),
+        as_caller(caller, name, args),
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_holding_two_risks_is_asked_before_the_third() {
+    let _one = serial().lock().await;
+    take_done();
+    let none = || json!({});
+    // Private data and untrusted content: two of three, nothing is held.
+    assert_eq!(
+        in_session("s1", agent(), "note-service_peek", none()).await["ok"],
+        true
+    );
+    assert_eq!(
+        in_session("s1", agent(), "note-service_browse", none()).await["ok"],
+        true
+    );
+    // Sending out would make three: a person decides.
+    let held = in_session("s1", agent(), "note-service_send", none()).await;
+    assert_eq!(held["status"], "input_required", "{held}");
+    assert!(
+        held["reason"].as_str().unwrap().contains("sent data out"),
+        "{held}"
+    );
+    assert_eq!(take_done(), ["peek", "browse"], "the send did not run");
+    // Another session that only read private data may send.
+    assert_eq!(
+        in_session("s2", agent(), "note-service_peek", none()).await["ok"],
+        true
+    );
+    let other = in_session("s2", agent(), "note-service_send", none()).await;
+    assert_eq!(other["ok"], true, "{other}");
+    // The person is never held for it.
+    for verb in [
+        "note-service_peek",
+        "note-service_browse",
+        "note-service_send",
+    ] {
+        assert_eq!(in_session("s3", person(), verb, none()).await["ok"], true);
+    }
+    // The person approves the held send; it runs in the session, which now
+    // holds all three: a read is fine, a write is held.
+    as_caller(
+        person(),
+        "review-service_approve",
+        json!({"id": held["pending_id"]}),
+    )
+    .await;
+    take_done();
+    let read = in_session("s1", agent(), "note-service_peek", none()).await;
+    assert_eq!(read["ok"], true, "{read}");
+    let write = in_session("s1", agent(), "note-service_touch", none()).await;
+    assert_eq!(write["status"], "input_required", "{write}");
+    assert!(
+        write["reason"].as_str().unwrap().contains("already"),
+        "{write}"
+    );
 }

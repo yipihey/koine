@@ -125,7 +125,12 @@ pub fn render(app: &AppInfo) -> String {
          (`notebook-service_runs` shows one open), your calls are in their lab notebook; \
          add what you learned with `notebook-service_annotate`.\n\
          5. **Unknown keys are refused.** Arguments are checked against the schema; a \
-         misspelt key is `invalid-argument` naming the keys the verb takes.\n\n",
+         misspelt key is `invalid-argument` naming the keys the verb takes.\n\
+         6. **Your session's risk is tracked.** A verb's `risk` says whether it reads the \
+         person's data (`private`), takes in content they did not write (`untrusted`) or \
+         sends data out (`egress`). Once your session has done two of these, a call that \
+         would add the third waits for a person; once it has done all three, every write and \
+         every send does.\n\n",
     );
 
     md.push_str(
@@ -202,6 +207,10 @@ pub fn render(app: &AppInfo) -> String {
             }
             if !verb.secrets().is_empty() {
                 tags.push(format!("needs {}", verb.secrets().join(", ")));
+            }
+            let risk = verb.risk_words();
+            if !risk.is_empty() {
+                tags.push(format!("risk: {}", risk.join(", ")));
             }
             let _ = writeln!(
                 md,

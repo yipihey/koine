@@ -382,7 +382,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// FTS/recency position. Off, or against a store with no memory-item
     /// vectors embedded yet, results are byte-identical to the FTS-only
     /// tier.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, risk(private))]
     #[impress_example(
         name = "subject-scoped-aperture",
         args = r#"{"query":"aperture","subject_ref":"58000000-0000-4000-8000-000000000009","limit":5,"include_superseded":false}"#,
@@ -413,7 +413,7 @@ pub trait MemoryService: Send + Sync + 'static {
     /// `text` is ready to paste or inject directly into a system prompt;
     /// read `sections` instead when the structured fields (id, confidence,
     /// confirmations) matter more than prose.
-    #[impress_method(safety = read_only)]
+    #[impress_method(safety = read_only, risk(private))]
     #[impress_example(
         name = "topic-brief",
         args = r#"{"topic":"aperture","subject_ref":"58000000-0000-4000-8000-00000000000a","max_entries":3}"#,

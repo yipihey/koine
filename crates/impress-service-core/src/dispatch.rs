@@ -43,8 +43,8 @@ fn refused(status: u16, code: &str, message: String) -> DispatchResult {
 }
 
 /// `caller_json` as a route hands it: `{"kind": "app"|"agent"|"provider"|
-/// "system"|"person", "name": "…", "trace_id": "…"}` — `name` and
-/// `trace_id` optional. The route derives `kind`/`name` from the caller's
+/// "system"|"person", "name": "…", "trace_id": "…", "session": "…"}` —
+/// `name`, `trace_id` and `session` optional. The route derives `kind`/`name` from the caller's
 /// token and headers, never from the verb's own arguments (ADR-0034 D3);
 /// this function trusts what it is given the same way every other pipeline
 /// entry path trusts its transport.
@@ -176,6 +176,12 @@ fn prepare(
     let (caller, trace_id, parent_call) = parse_caller(caller_json);
     let mut call = Call::new(caller, args);
     call.parent_call = parent_call;
+    // TR-D10: the session the route established (`"session"` in the caller
+    // object), never one the verb's arguments name.
+    call.session = serde_json::from_str::<Value>(caller_json)
+        .ok()
+        .and_then(|v| v.get("session").and_then(Value::as_str).map(str::to_owned))
+        .filter(|s| !s.is_empty());
     if let Some(trace_id) = trace_id {
         call = call.with_trace(trace_id);
     }

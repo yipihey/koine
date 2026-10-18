@@ -228,6 +228,18 @@ impl VerbHandle {
         }
     }
 
+    /// The verb's risk in words; see [`VerbDescriptor::risk_words`]. A
+    /// provider verb that leaves the process sends data out.
+    pub fn risk_words(&self) -> Vec<&'static str> {
+        match self {
+            Self::Linked(verb) => verb.risk_words(),
+            Self::Provider(_) if self.safety().class == crate::SafetyClass::External => {
+                vec!["egress"]
+            }
+            Self::Provider(_) => Vec::new(),
+        }
+    }
+
     /// The additive MCP `_meta` object for a `tools/list` entry; see
     /// [`VerbDescriptor::mcp_meta`].
     pub fn mcp_meta(&self) -> Option<Value> {

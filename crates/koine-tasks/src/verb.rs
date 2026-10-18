@@ -135,7 +135,18 @@ impl TaskExecutor for VerbTaskExecutor {
             .ok_or_else(|| TaskError::Permanent("the verb task names no verb".into()))?;
         let args = with_task_once(args_of(task).map_err(TaskError::Permanent)?, task);
         let author = self.caller().author();
-        match call::call_async_as(&verb, self.caller(), args).await {
+        let run = call::call_async_as(&verb, self.caller(), args);
+        let answer = match text(task, "session") {
+            Some(session) => {
+                impress_service_core::pipeline::context::session_scope(
+                    std::sync::Arc::new(session),
+                    run,
+                )
+                .await
+            }
+            None => run.await,
+        };
+        match answer {
             Err(CallError::UnknownTool(name)) => Err(TaskError::Permanent(format!(
                 "no verb named '{name}' is linked in this process"
             ))),

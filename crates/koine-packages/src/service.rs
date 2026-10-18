@@ -157,10 +157,8 @@ pub trait PackageService: Send + Sync + 'static {
     /// Add a package registry: an `index.json` (or a directory holding one)
     /// at an `https://`, `http://` or `file://` URL or a path. Its index is
     /// read and checked first; a registry that cannot be read is refused.
-    #[impress_method(
-        safety = mutating,
-        effects(writes = [any("koine/registry@1.0.0")], reach = [network, fs])
-    )]
+    #[impress_method(safety = external,
+        effects(writes = [any("koine/registry@1.0.0")], reach = [network, fs]), risk(untrusted))]
     #[impress_example(
         name = "missing",
         args = r#"{"url": "/nonexistent/koine-registry"}"#,
@@ -185,7 +183,7 @@ pub trait PackageService: Send + Sync + 'static {
     /// with the version installed now and whether this one would install,
     /// update or is older. Registries that cannot be read are listed in
     /// `unreadable`, not refused.
-    #[impress_method(effects(reads = [any("koine/registry@1.0.0"), any("koine/package@1.0.0")], reach = [network, fs]))]
+    #[impress_method(safety = external, effects(reads = [any("koine/registry@1.0.0"), any("koine/package@1.0.0")], reach = [network, fs]), risk(untrusted))]
     #[impress_example(name = "default", args = r#"{}"#, expect = r#"{"ok": true}"#)]
     async fn search(&self, query: Option<String>) -> SearchResult;
 
@@ -193,7 +191,7 @@ pub trait PackageService: Send + Sync + 'static {
     /// review it: the bundle must be the package the index pins (its digest,
     /// name and version; `digest-mismatch` otherwise), and the answer is the
     /// review `inspect` gives, with `path` and `digest` to pass to `install`.
-    #[impress_method(effects(reads = [any("koine/registry@1.0.0"), any("koine/shipped@1.0.0")], reach = [network, fs]))]
+    #[impress_method(safety = external, effects(reads = [any("koine/registry@1.0.0"), any("koine/shipped@1.0.0")], reach = [network, fs]), risk(untrusted))]
     #[impress_example(
         name = "unknown",
         args = r#"{"name": "no-such-package"}"#,
@@ -202,7 +200,7 @@ pub trait PackageService: Send + Sync + 'static {
     async fn fetch(&self, name: String, version: Option<String>) -> ReviewResult;
 
     /// The installed packages a known registry has a newer version of.
-    #[impress_method(effects(reads = [any("koine/registry@1.0.0"), any("koine/package@1.0.0")], reach = [network, fs]))]
+    #[impress_method(safety = external, effects(reads = [any("koine/registry@1.0.0"), any("koine/package@1.0.0")], reach = [network, fs]), risk(untrusted))]
     #[impress_example(name = "default", args = r#"{}"#, expect = r#"{"ok": true}"#)]
     async fn updates(&self) -> SearchResult;
 }
