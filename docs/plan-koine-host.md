@@ -140,6 +140,59 @@ Plots drawn in the browser (`plot{spec}` stays placed), conflict merge for
 synced directory stores, S3, mobile, moving impress's domain services
 (`impress-store-service` and the app services stay in impress-apps).
 
+### H-D10. An app links what it names, and loads what it links
+
+Measured on 2026-10-17: an app scaffolded over `regex` with one verb of its
+own linked 118 verbs. The other 117 were the layout and surface runtime, the
+research kit, the task verbs and the AI verbs. The binary pulled in 194
+crates, the TLS stack among them, and the skill an agent reads described all
+118. The cost was in the link, and in what the skill told an agent.
+
+The same app after this decision (`cargo tree -e normal`, distinct crates;
+`--check` for the verb count):
+
+| build | crates | verbs | debug | release |
+|---|---|---|---|---|
+| every `koine-host` default | 194 | 118 | 299 MB | 32 MB |
+| `default-features = false` (the scaffold's default) | 164 | 97 | 233 MB | 25 MB |
+
+The 30 crates left out are `reqwest` and the TLS stack, `koine-ai`,
+`koine-tasks` and the demo. The 164 that stay are the HTTP server (axum,
+tokio), the store, the layout and surface runtime and the kit.
+
+- **Link.** `koine-host`'s optional parts are Cargo features. `tasks` is the
+  scheduler and `task-service`. `ai` is `koine-ai`, the model executors, the
+  desk agent and `impress-ai-service`; it implies `tasks`. `http-registries`
+  is registries over HTTP (`koine-packages/http`), and without it a registry
+  is a file or a path. `tier-b` is the layout and surface selftests' loopback
+  client for driving another running app (`impress-layout-service/tier-b`),
+  and without it tier `b` reports one skipped check. `demo` is the demo verbs
+  and the tour that the `koine-host` binary needs. The defaults are all five,
+  the demo host's. The kit crates' own HTTP features are off in the koine
+  workspace dependencies and on by default for anyone else (impress-apps
+  keeps them). An
+  app writes `default-features = false` and names what it needs
+  (`scripts/new-app.sh --with`).
+- **Always linked.** The page's runtime (layout and surface verbs) and the
+  research kit (notebook, desk with the skill, packages) are linked in every
+  build. They add no dependency the core lacks, and they are what makes a
+  koine app one.
+- **Refusing.** A config that asks for what the build left out (`--tasks`
+  or `--ai`) is refused by name at start, never served without it.
+- **Load.** The kit installs only the surfaces whose every verb is linked.
+  `Config::packages` are the app's own packages: its surfaces, workflows
+  and categories, built into the binary and installed at start after the
+  kit, three-way like any package. Everything else is a registry package,
+  fetched and reviewed when someone asks for it (P-D5–P-D7).
+
+An app's own packages reach `Config::packages` through
+`cli::main_configured(app_id, configure, on_bound)`, whose `configure` runs
+on the parsed config before the host starts. `apps/regex-lab` is the first
+app to use it.
+
+CI builds the host without defaults and with `tasks` alone, and runs its
+unit tests that way.
+
 ## Work packages
 
 | # | Package | Where | Depends on |

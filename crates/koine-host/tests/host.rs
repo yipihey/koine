@@ -2284,6 +2284,7 @@ async fn a_package_from_the_example_registry_installs_and_renders() {
 
 /// A host started with `--tasks` runs what `task-service_enqueue` files, as
 /// its agent, and keeps the answer; a host without it reports no scheduler.
+#[cfg(feature = "tasks")]
 #[tokio::test]
 async fn a_host_with_tasks_runs_an_enqueued_verb_task() {
     let _turn = TURN.lock().await;
@@ -2332,6 +2333,7 @@ async fn a_host_with_tasks_runs_an_enqueued_verb_task() {
 
 /// `--ai` runs the scheduler too, and the AI verbs keep their preferences in
 /// this host's workspace (AI-D3).
+#[cfg(feature = "ai")]
 #[tokio::test]
 async fn a_host_with_ai_keeps_its_model_choice_in_its_workspace() {
     let _turn = TURN.lock().await;
@@ -2361,6 +2363,54 @@ async fn a_host_with_ai_keeps_its_model_choice_in_its_workspace() {
         path.starts_with(&host.workspace.path().display().to_string())
             && path.ends_with("ai/preferences.json"),
         "{path}"
+    );
+    host.served.shutdown().await;
+}
+
+// ------------------------------------------- the app's own packages (H-D10)
+
+/// `Config::packages` are installed at start, after the kit, and an upgrade
+/// of one is three-way like any package.
+#[tokio::test]
+async fn an_apps_own_package_is_installed_at_start() {
+    let _turn = TURN.lock().await;
+    let spec = json!({"surface": "1.0", "name": "Lab view", "state": {}, "sources": {},
+                      "root": {"text": "the app's own view"}});
+    let manifest = json!({"package": "1.0", "name": "lab-app", "version": "1.0.0",
+                          "surfaces": [{"name": "Lab view", "file": "surfaces/lab.surface.json"}]});
+    let package = koine_packages::package::Package::from_parts(
+        serde_json::to_vec(&manifest).unwrap(),
+        [(
+            "surfaces/lab.surface.json".to_string(),
+            serde_json::to_vec(&spec).unwrap(),
+        )]
+        .into_iter()
+        .collect(),
+        "builtin:lab-app",
+    )
+    .unwrap();
+    let host = start_with("memory:", "own-package", |config| {
+        config.packages = vec![package];
+    })
+    .await;
+    let (_, installed) = host.post("/api/verb/package-service_list", json!({})).await;
+    let names: Vec<&str> = installed["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["name"].as_str())
+        .collect();
+    assert!(names.contains(&"lab-app"), "{installed}");
+    let (_, shipped) = host
+        .post("/api/verb/package-service_shipped-status", json!({}))
+        .await;
+    assert!(
+        shipped["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["name"] == "Lab view" && row["status"] == "pristine"),
+        "{shipped}"
     );
     host.served.shutdown().await;
 }

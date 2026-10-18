@@ -425,6 +425,23 @@ pub fn main_with(
     app_id: &str,
     on_bound: impl FnOnce(&Cli, &crate::Served, &tokio::runtime::Handle),
 ) -> ExitCode {
+    main_configured(app_id, |_| {}, on_bound)
+}
+
+/// [`main_with`] for an app that sets more of its [`Config`](crate::Config)
+/// than the flags do: `configure` runs on the parsed config before the host
+/// starts. An app adds its own packages there, its surfaces and skill built
+/// into the binary (`config.packages`, docs/plan-koine-host.md H-D10):
+///
+/// ```no_run
+/// # fn package() -> koine_packages::package::Package { unimplemented!() }
+/// koine_host::cli::main_configured("my-app", |config| config.packages.push(package()), |_, _, _| {});
+/// ```
+pub fn main_configured(
+    app_id: &str,
+    configure: impl FnOnce(&mut crate::Config),
+    on_bound: impl FnOnce(&Cli, &crate::Served, &tokio::runtime::Handle),
+) -> ExitCode {
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -476,7 +493,7 @@ pub fn main_with(
             }
         };
     }
-    let cli = match parse(std::env::args().skip(1), app_id) {
+    let mut cli = match parse(std::env::args().skip(1), app_id) {
         Ok(Some(cli)) => cli,
         Ok(None) => {
             print!("{}", usage(&program));
@@ -487,6 +504,7 @@ pub fn main_with(
             return ExitCode::from(2);
         }
     };
+    configure(&mut cli.config);
     let served = match runtime.block_on(start(&cli, &program)) {
         Ok(served) => served,
         Err(code) => return code,

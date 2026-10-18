@@ -19,7 +19,7 @@
 # Usage:
 #   scripts/new-app.sh <name> --lib <crate-name> [--lib-path <path>]
 #                      [--koine-rev <rev> | --koine-path <checkout>]
-#                      [--koine-git <url>] [--mobile]
+#                      [--koine-git <url>] [--with <features>] [--mobile]
 #
 #   <name>          ^[a-z][a-z0-9-]*$ ; becomes the workspace directory and the
 #                   prefix of the verbs (`<name>-service_<verb>`)
@@ -31,6 +31,15 @@
 #   --koine-path    depend on a local koine checkout by path instead of git
 #                   (what the scaffold's own test uses)
 #   --koine-git     the koine repository URL (default: the public one)
+#   --with          koine-host features to link, comma-separated, from
+#                   `tasks` (the scheduler: `--tasks`, task-service verbs),
+#                   `ai` (implies tasks: model providers, model executors and
+#                   the desk agent), `http-registries` (package registries
+#                   over HTTP(S); file and path registries need nothing) and
+#                   `tier-b` (the layout and surface selftests' loopback
+#                   client, for driving another running app).
+#                   Default: none. An app links what it names and the host
+#                   loads what is linked (docs/plan-koine-host.md H-D10).
 #   --mobile        also write crates/<name>-mobile/: the host in-process and
 #                   the koine-web page in a WebView, built with `dx build
 #                   --platform ios` (docs/mobile.md in the koine checkout;
@@ -67,6 +76,7 @@ KOINE_REV=""
 KOINE_PATH=""
 KOINE_GIT="https://github.com/yipihey/koine"
 MOBILE=""
+WITH=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -76,6 +86,8 @@ while [[ $# -gt 0 ]]; do
         --koine-rev) KOINE_REV="${2:-}"; shift 2 ;;
         --koine-path) KOINE_PATH="${2:-}"; shift 2 ;;
         --koine-git) KOINE_GIT="${2:-}"; shift 2 ;;
+        --with) WITH="${2:-}"; shift 2 ;;
+        --with=*) WITH="${1#--with=}"; shift ;;
         --mobile) MOBILE=1; shift ;;
         --*) die "unknown flag '$1' (try --help)" ;;
         *)
@@ -92,6 +104,26 @@ done
 [[ "$LIB" =~ ^[A-Za-z][A-Za-z0-9_-]*$ ]] || die "--lib must be a crate name, got '$LIB'"
 [[ ! -e "$NAME" ]] || die "$NAME already exists - refusing to overwrite (delete it or pick another name)"
 [[ -z "$KOINE_REV" || -z "$KOINE_PATH" ]] || die "--koine-rev and --koine-path are alternatives; pass one"
+
+# The koine-host features, as a TOML array body: `"tasks", "ai"`.
+HOST_FEATURES=""
+WITH_LIST="none"
+if [[ -n "$WITH" ]]; then
+    IFS=',' read -r -a WITH_ITEMS <<<"$WITH"
+    WITH_LIST=""
+    for feature in "${WITH_ITEMS[@]}"; do
+        feature="${feature// /}"
+        [[ -n "$feature" ]] || continue
+        case "$feature" in
+            tasks | ai | http-registries | tier-b) ;;
+            *) die "--with: unknown feature '$feature' (tasks, ai, http-registries, tier-b)" ;;
+        esac
+        [[ ",$WITH_LIST," != *",$feature,"* ]] || continue
+        HOST_FEATURES+="${HOST_FEATURES:+, }\"$feature\""
+        WITH_LIST+="${WITH_LIST:+,}$feature"
+    done
+    [[ -n "$WITH_LIST" ]] || WITH_LIST="none"
+fi
 
 # ---------------------------------------------------------------- names
 pascal_case() {
@@ -132,7 +164,11 @@ else
 fi
 KOINE_CORE_DEP="$(koine_dep impress-service-core)"
 KOINE_MACROS_DEP="$(koine_dep impress-service-macros)"
+# Off by default, for the same reason as koine-web below: the defaults link
+# AI, tasks, HTTP registries and the demo service, and an app names what it
+# wants with --with (written into the host crate's `features`).
 KOINE_HOST_DEP="$(koine_dep koine-host)"
+KOINE_HOST_DEP="${KOINE_HOST_DEP% \}}, default-features = false }"
 # A workspace dependency's default features cannot be turned off by the member
 # that inherits it, so `default-features = false` is written here: the default
 # is koine-web's browser build, and the phone app wants no renderer but its own.
@@ -189,6 +225,8 @@ expand() {
     body="${body//__KOINE_CORE_DEP__/$KOINE_CORE_DEP}"
     body="${body//__KOINE_MACROS_DEP__/$KOINE_MACROS_DEP}"
     body="${body//__KOINE_HOST_DEP__/$KOINE_HOST_DEP}"
+    body="${body//__HOST_FEATURES__/$HOST_FEATURES}"
+    body="${body//__WITH_LIST__/$WITH_LIST}"
     body="${body//__PUBLIC_FNS__/$PUBLIC_FNS}"
     printf '%s' "$body"
 }
@@ -530,7 +568,10 @@ edition.workspace = true
 
 [dependencies]
 __SERVICE_CRATE__ = { path = "../__SERVICE_CRATE__" }
-koine-host.workspace = true
+# What the host links beyond the core (scripts/new-app.sh --with): "tasks",
+# "ai", "http-registries", "tier-b". Each one is code and a start-up cost; a host asked
+# for one it was built without (`--tasks`, `--ai`) refuses to start.
+koine-host = { workspace = true, features = [__HOST_FEATURES__] }
 EOF
 
 emit "crates/__HOST_CRATE__/src/main.rs" <<'EOF'
@@ -602,6 +643,24 @@ The guide is `docs/capability.md` in the koine checkout. Tick these in order.
    window needs `--features window-webview` (webkit2gtk on Linux); otherwise it
    opens your browser.
 
+## What the host links
+
+Only what the app names. This scaffold was written with `--with __WITH_LIST__`;
+the list is the `features` of `koine-host` in `crates/__HOST_CRATE__/Cargo.toml`:
+
+- `tasks`: the task scheduler (`--tasks`) and the `task-service_*` verbs.
+- `ai`: model providers, the model executors and the desk agent (`--ai`);
+  implies `tasks`.
+- `http-registries`: package registries over HTTP(S). A registry that is a
+  `file://` URL or a path needs nothing.
+- `tier-b`: the layout and surface selftests' Tier B, a loopback HTTP client
+  that drives a running app. Without it tier `b` reports one skipped check.
+
+Without them the host still serves the kit (layout, surfaces, the notebook,
+the agent desk's verbs, packages), and the kit installs only the surfaces whose
+verbs are linked. A host started with `--tasks` or `--ai` it was not built for
+refuses to start and says which feature to add.
+
 `schema-refs.json` is the manifest `effects` kinds are checked against
 (`.cargo/config.toml` points the macros at it). Add a kind of record your app
 stores to `canonical` before naming it in `reads`/`writes`.
@@ -629,7 +688,7 @@ edition.workspace = true
 
 [dependencies]
 __SERVICE_CRATE__ = { path = "../__SERVICE_CRATE__" }
-koine-host.workspace = true
+koine-host = { workspace = true, features = [__HOST_FEATURES__] }
 koine-web.workspace = true
 # Named so `dx` finds the crate to be a dioxus app (the direct dependency and
 # the `mobile` feature below).
@@ -741,5 +800,6 @@ fi
 mv "$ROOT" "./$NAME"
 echo "wrote ./$NAME  (koine: $KOINE_WHERE; library: $LIB)"
 echo "  verbs:  ${TOOL%_echo}_*   (scaffold: $TOOL)"
+echo "  links:  koine-host features: $WITH_LIST   (--with tasks,ai,http-registries,tier-b)"
 [[ -z "$MOBILE" ]] || echo "  mobile: crates/$MOBILE_CRATE   (a Mac with Xcode: $NAME/README.md, \"On an iPhone\")"
 echo "  next:   cd $NAME && cargo test      # then read $NAME/README.md"

@@ -39,9 +39,35 @@ pub fn surfaces() -> Vec<(&'static str, &'static str, &'static str)> {
     ]
 }
 
-/// The kit package.
+/// The kit's surfaces whose every verb this host links (H-D10): a host
+/// that does not link a part of the kit is not handed its surface, which
+/// would render with nothing to call.
+pub fn linked_surfaces() -> Vec<(&'static str, &'static str, &'static str)> {
+    linked(surfaces())
+}
+
+/// The entries of `surfaces` whose spec parses and every verb it calls is
+/// linked.
+pub fn linked(
+    surfaces: Vec<(&'static str, &'static str, &'static str)>,
+) -> Vec<(&'static str, &'static str, &'static str)> {
+    surfaces
+        .into_iter()
+        .filter(|(_, _, spec)| {
+            serde_json::from_str::<serde_json::Value>(spec)
+                .map(|spec| {
+                    package::verbs_called(&spec)
+                        .iter()
+                        .all(|verb| impress_service_core::VerbDescriptor::find(verb).is_some())
+                })
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+/// The kit package: the surfaces of [`linked_surfaces`].
 pub fn package() -> Package {
-    let surfaces = surfaces();
+    let surfaces = linked_surfaces();
     let manifest = json!({
         "package": package::FORMAT,
         "name": KIT,
@@ -70,4 +96,27 @@ pub async fn install() -> Result<package::Installed, ShippedError> {
 /// [`install`] from a thread that is not inside a Tokio runtime.
 pub fn install_blocking() -> Result<package::Installed, ShippedError> {
     impress_service_core::runtime::block_on(install())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_surface_whose_verbs_are_not_linked_is_left_out() {
+        crate::ensure_linked();
+        let lonely = r#"{"surface": "1.0", "name": "Lonely", "state": {},
+            "sources": {"x": {"verb": "no-such-service_nothing", "args": {}}},
+            "root": {"text": "x"}}"#;
+        let packages = r#"{"surface": "1.0", "name": "Mine", "state": {},
+            "sources": {"x": {"verb": "package-service_list", "args": {}}},
+            "root": {"text": "x"}}"#;
+        let kept = linked(vec![
+            ("Lonely", "lonely.json", lonely),
+            ("Mine", "mine.json", packages),
+            ("Broken", "broken.json", "not json"),
+        ]);
+        let names: Vec<&str> = kept.iter().map(|(name, _, _)| *name).collect();
+        assert_eq!(names, ["Mine"]);
+    }
 }

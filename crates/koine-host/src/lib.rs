@@ -67,6 +67,7 @@ pub mod materialize;
 mod routes;
 pub mod runner;
 pub mod secrets;
+#[cfg(feature = "tasks")]
 pub mod tasks;
 pub mod window;
 
@@ -144,6 +145,11 @@ pub struct Config {
     /// verb names, or namespace prefixes ending in `_`. `None` is
     /// [`tasks::DEFAULT_NATIVE_TOOLS`]. Only used with `--features apple-fm`.
     pub native_tools: Option<Vec<String>>,
+    /// The app's own packages, installed at start after the kit through the
+    /// same three-way path (H-D10): its surfaces, workflows and categories,
+    /// built into the binary. What else a person wants comes from a
+    /// registry, when they ask for it.
+    pub packages: Vec<koine_packages::package::Package>,
 }
 
 impl Config {
@@ -172,6 +178,7 @@ impl Config {
             task_start_delay: std::time::Duration::ZERO,
             ai: false,
             native_tools: None,
+            packages: Vec::new(),
         }
     }
 
@@ -217,6 +224,7 @@ pub struct Served {
     runner: Arc<JobRunner>,
     state: Arc<HostState>,
     feed: Option<feed::FeedHandle>,
+    #[cfg(feature = "tasks")]
     tasks: Option<tasks::Running>,
     stop: Option<oneshot::Sender<()>>,
     task: Option<JoinHandle<()>>,
@@ -275,6 +283,7 @@ impl Served {
         }
         self.state.close_network();
         self.feed.take();
+        #[cfg(feature = "tasks")]
         if let Some(mut tasks) = self.tasks.take() {
             tasks.stop();
         }
@@ -317,6 +326,7 @@ pub(crate) struct HostState {
 /// start serving. Returns once the listener is bound.
 pub async fn serve(config: Config) -> Result<Served, HostError> {
     check_network_config(&config)?;
+    check_features(&config)?;
     let opened = koine_store::open_with_blobs(&config.store_url)?;
     // plan-koine-notebook N-D3: every read and write through the process
     // store is noted on the call it ran in.
@@ -428,8 +438,30 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
             }
         }
     }
+    // H-D10: the app's own packages, after the kit.
+    for package in &config.packages {
+        match koine_packages::package::install(package).await {
+            Ok(installed) => {
+                let changed: Vec<String> = installed
+                    .surfaces
+                    .iter()
+                    .filter(|(_, _, outcome)| {
+                        *outcome != koine_packages::shipped::Outcome::Unchanged
+                    })
+                    .map(|(name, _, outcome)| format!("{name} {}", outcome.word()))
+                    .collect();
+                if !changed.is_empty() {
+                    tracing::info!(target: "koine-host", "{} {}: {}",
+                        installed.name, installed.version, changed.join(", "));
+                }
+            }
+            Err(error) => tracing::warn!(target: "koine-host",
+                "package {} not installed: {}", package.manifest.name, error.message),
+        }
+    }
     // Q-D5, AI-D5: the scheduler, and with AI the model executors and the
     // desk agent.
+    #[cfg(feature = "tasks")]
     let running_tasks = (config.tasks || config.ai).then(|| {
         tasks::start(
             tasks::TaskRuntime {
@@ -519,6 +551,7 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
         runner,
         state,
         feed: Some(feed),
+        #[cfg(feature = "tasks")]
         tasks: running_tasks,
         stop: Some(stop),
         task: Some(task),
@@ -559,6 +592,26 @@ impl HostState {
             listener.task.abort();
         }
     }
+}
+
+/// A config that asks for what this build left out is refused by name,
+/// rather than served without it (H-D10).
+fn check_features(config: &Config) -> Result<(), HostError> {
+    if (config.tasks || config.ai) && !cfg!(feature = "tasks") {
+        return Err(HostError::Config(
+            "this host was built without tasks: rebuild koine-host with the `tasks` feature \
+             (scripts/new-app.sh --with tasks), or leave --tasks off"
+                .into(),
+        ));
+    }
+    if config.ai && !cfg!(feature = "ai") {
+        return Err(HostError::Config(
+            "this host was built without AI: rebuild koine-host with the `ai` feature \
+             (scripts/new-app.sh --with ai), or leave --ai off"
+                .into(),
+        ));
+    }
+    Ok(())
 }
 
 /// Network mode binds the one configured address and refuses to start
@@ -615,7 +668,9 @@ pub fn ensure_linked() {
     koine_notebook::ensure_linked();
     koine_agent::ensure_linked();
     koine_packages::ensure_linked();
+    #[cfg(feature = "tasks")]
     koine_tasks::ensure_linked();
+    #[cfg(feature = "ai")]
     koine_ai::ensure_linked();
     // The desk agent remembers (docs/plan-koine-kit-moves.md KM-D6).
     koine_memory::ensure_linked();
@@ -626,6 +681,17 @@ pub fn ensure_linked() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_config_that_asks_for_what_the_build_left_out_is_refused() {
+        let mut c = Config::new("memory:", std::env::temp_dir());
+        assert!(check_features(&c).is_ok());
+        c.tasks = true;
+        assert_eq!(check_features(&c).is_err(), !cfg!(feature = "tasks"));
+        c.tasks = false;
+        c.ai = true;
+        assert_eq!(check_features(&c).is_err(), !cfg!(feature = "ai"));
+    }
 
     fn config(bind: [u8; 4], network: bool, bearer: Option<&str>) -> Config {
         let mut c = Config::new("memory:", std::env::temp_dir());

@@ -55,12 +55,14 @@ pub use impress_service_core::report;
 /// S2b: the shared Tier B `impress_scenario::Caller`, reused by
 /// `impress-surface-service` and `impress-scenario-service`. See its module
 /// docs for why it lives here rather than in `impress-scenario` itself.
+#[cfg(feature = "tier-b")]
 pub mod scenario_caller;
 pub mod selftest;
 pub mod service;
 pub mod session;
 pub mod store;
 pub mod tier_a;
+#[cfg(feature = "tier-b")]
 pub mod tier_b;
 
 pub use device::{current_device, resolve_device};
@@ -148,8 +150,20 @@ pub async fn run_tier_a() -> SelfTestReport {
 /// Run the Tier B catalogue against the running impress app. When nothing is
 /// listening, every capability is skipped — reported as skipped, not failed,
 /// and the report is not `ok`.
+#[cfg(feature = "tier-b")]
 pub async fn run_tier_b() -> SelfTestReport {
     SelfTestReport::from_results(tier_b::run(&tier_b::configured_base_url()).await)
+}
+
+/// Built without the `tier-b` feature: one skipped capability that says so.
+#[cfg(not(feature = "tier-b"))]
+pub async fn run_tier_b() -> SelfTestReport {
+    SelfTestReport::from_results(vec![skipped(
+        "tier-b",
+        "drive the running app over loopback HTTP",
+        Tier::B,
+        "this build left Tier B out (impress-layout-service feature `tier-b`)",
+    )])
 }
 
 #[cfg(test)]

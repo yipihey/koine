@@ -164,6 +164,11 @@ must "new-app.sh stats-app --lib mini-stats" \
 APP="$TMP/stats-app"
 SVC="$APP/crates/stats-app-service"
 check "the scaffold's host links koine_host::cli" grep -q 'koine_host::cli::main' "$APP/crates/stats-app-host/src/main.rs"
+# An app links what it names (docs/plan-koine-host.md H-D10): no --with, no
+# optional koine-host part.
+check "the scaffold turns koine-host's defaults off" grep -Eq '^koine-host = .*default-features = false' "$APP/Cargo.toml"
+check "the scaffold's host names no koine-host feature" grep -Fq 'koine-host = { workspace = true, features = [] }' "$APP/crates/stats-app-host/Cargo.toml"
+check "the scaffold's README says what the host links" grep -q '^## What the host links' "$APP/README.md"
 
 # ================================================================ 3. what an agent edits
 # dto.rs: replace the TODO with the DTOs of the two verbs.
@@ -346,6 +351,12 @@ check "host binary exists" test -x "$HOST_BIN"
 cargo run -q -p stats-app-host -- --store memory: --port 0 --workspace "$TMP/ws-check" --check >"$TMP/check.out" 2>&1
 expect_eq "cargo run -p stats-app-host -- --check exits 0" "$?" "0"
 check "--check names the app and counts verbs" grep -Eq 'app stats-app, .*, [0-9]+ verbs' "$TMP/check.out"
+# Built without `tasks`, so `--tasks` is refused at start, by name.
+"$HOST_BIN" --store memory: --port 0 --workspace "$TMP/ws-check" --tasks --check >"$TMP/check-tasks.out" 2>&1
+check "a host built without tasks refuses --tasks" test "$?" -ne 0
+check "the refusal names --with tasks" grep -q 'new-app.sh --with tasks' "$TMP/check-tasks.out"
+(cd "$APP" && cargo tree -p stats-app-host -e normal -i reqwest) >"$TMP/tree-reqwest.out" 2>&1
+check "the lean host links no HTTP client" test "$?" -ne 0
 
 # ================================================================ 6. serve it
 if start_host "$TMP/host1.log"; then
@@ -529,8 +540,8 @@ fi
 # WITHOUT the `mobile` feature, which compiles all of `main` and opens no
 # window, so the names it uses from koine-host and koine-web are type-checked.
 mkdir -p "$TMP/mobile" && cd "$TMP/mobile" || exit 1
-must "new-app.sh phone-app --lib mini-stats --mobile" \
-    bash "$KOINE_PATH/scripts/new-app.sh" phone-app --lib mini-stats --lib-path "$LIB" --koine-path "$KOINE_PATH" --mobile
+must "new-app.sh phone-app --lib mini-stats --mobile --with tasks" \
+    bash "$KOINE_PATH/scripts/new-app.sh" phone-app --lib mini-stats --lib-path "$LIB" --koine-path "$KOINE_PATH" --mobile --with tasks
 PHONE="$TMP/mobile/phone-app"
 MOBILE_CRATE="$PHONE/crates/phone-app-mobile"
 for f in Cargo.toml src/main.rs Dioxus.toml; do
@@ -540,6 +551,7 @@ check "the mobile crate's bundle id is com.phone-app.koine" grep -q 'identifier 
 check "the mobile crate asks for the Files app keys" grep -q 'UIFileSharingEnabled = true' "$MOBILE_CRATE/Dioxus.toml"
 check "the scaffold's README has \"On an iPhone\"" grep -q '^## On an iPhone' "$PHONE/README.md"
 check "the scaffold without --mobile has no mobile crate" test ! -e "$APP/crates/stats-app-mobile"
+check "--with lands in the mobile crate's koine-host features" grep -Fq 'koine-host = { workspace = true, features = ["tasks"] }' "$MOBILE_CRATE/Cargo.toml"
 cd "$PHONE" || exit 1
 cargo metadata --format-version 1 --no-deps >"$TMP/metadata.json" 2>"$TMP/metadata.err"
 check "cargo metadata lists phone-app-mobile" jq -e '.packages | map(.name) | index("phone-app-mobile") != null' "$TMP/metadata.json"

@@ -13,6 +13,8 @@ path = "src/lib.rs"
 [[bin]]
 name = "koine-host"
 path = "src/main.rs"
+# The binary is the demo host: the tour's verbs and surfaces.
+required-features = ["demo"]
 
 [dependencies]
 axum = { workspace = true }
@@ -41,17 +43,19 @@ koine-mcp-host = { workspace = true }
 koine-notebook = { workspace = true }
 koine-agent = { workspace = true }
 koine-packages = { workspace = true }
-# Tasks and AI (docs/plan-koine-ai-tasks.md Q-D5, AI-D5).
-koine-tasks = { workspace = true, features = ["runtime"] }
-koine-ai = { workspace = true, features = ["executor"] }
+# Tasks and AI (docs/plan-koine-ai-tasks.md Q-D5, AI-D5): the `tasks` and `ai`
+# features (docs/plan-koine-host.md H-D10).
+koine-tasks = { workspace = true, features = ["runtime"], optional = true }
+koine-ai = { workspace = true, features = ["executor"], optional = true }
 # The memory verbs, text search only: the desk agent recalls (KM-D6).
 koine-memory = { workspace = true, features = ["package"] }
 # Get, browse, search and relate any item (KM9).
 koine-store-query = { workspace = true }
 # Review and trust runtime providers (KM12).
 koine-providers = { workspace = true }
-# The demo verbs the binary links (the library itself names no domain).
-surface-demo-service = { workspace = true }
+# The demo verbs the binary links (the library itself names no domain): the
+# `demo` feature.
+surface-demo-service = { workspace = true, optional = true }
 koine-window = { workspace = true }
 # Apple Foundation Models as a native provider (`--features apple-fm`; adds a
 # Swift build, macOS only; docs/plan-koine-local-models.md LM-D5).
@@ -59,11 +63,31 @@ koine-ai-apple = { workspace = true, optional = true }
 koine-workspace-hack.workspace = true
 
 [features]
+# What an app links beyond the core and the research kit (docs/plan-koine-host.md
+# H-D10). The defaults are the demo host's; an app writes
+# `default-features = false` and names what it needs (scripts/new-app.sh --with).
+default = ["ai", "tasks", "http-registries", "tier-b", "demo"]
+# The task scheduler and the task-service verbs (`--tasks`).
+tasks = ["dep:koine-tasks"]
+# The model executors, the desk agent and the impress-ai-service verbs (`--ai`).
+ai = ["tasks", "dep:koine-ai"]
+# Package registries over HTTP(S); without it a registry is a file or a path.
+http-registries = ["koine-packages/http"]
+# The layout and surface selftests' Tier B: a loopback HTTP client that drives
+# a running app. Without it tier `b` reports one skipped capability.
+tier-b = ["impress-layout-service/tier-b", "impress-surface-service/tier-b"]
+# The demo verbs and the tour, for the koine-host binary.
+demo = ["dep:surface-demo-service"]
 # A native `--window` (webkit2gtk on Linux); without it `--window` opens the browser.
 window-webview = ["koine-window/webview"]
 # The on-device Apple model as a provider. Off by default: it builds a Swift
 # package, and the binary then needs macOS 26 or later.
-apple-fm = ["dep:koine-ai-apple"]
+apple-fm = ["ai", "dep:koine-ai-apple"]
+
+# The integration tests drive the demo verbs.
+[[test]]
+name = "host"
+required-features = ["demo"]
 
 [dev-dependencies]
 reqwest = { workspace = true }

@@ -27,10 +27,15 @@ schemars = { workspace = true }
 async-trait = { workspace = true }
 uuid = { workspace = true, features = ["v5"] }
 chrono = { workspace = true }
-# Fetching registry indexes and bundles over HTTP(S) (P-D5).
-reqwest = { workspace = true }
+# Fetching registry indexes and bundles over HTTP(S) (P-D5); the `http`
+# feature. Without it a registry is a file or a path.
+reqwest = { workspace = true, optional = true }
 tracing = { workspace = true }
 koine-workspace-hack.workspace = true
+
+[features]
+default = ["http"]
+http = ["dep:reqwest"]
 
 [dev-dependencies]
 # The categories a package declares, read the way the AI kernel reads them.

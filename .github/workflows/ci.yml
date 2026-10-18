@@ -34,6 +34,29 @@ jobs:
           cargo check -p koine-plot -p koine-dioxus -p koine-web --target wasm32-unknown-unknown
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      # An app links only what it names (docs/plan-koine-host.md H-D10): the
+      # host without its optional parts, and with each alone, still builds and
+      # its unit tests pass.
+      - name: "The lean host: koine-host without default features"
+        run: |
+          cargo clippy -p koine-host --lib --tests --no-default-features -- -D warnings
+          cargo clippy -p koine-host --lib --no-default-features --features tasks -- -D warnings
+          cargo clippy -p koine-packages --lib --no-default-features -- -D warnings
+          cargo clippy -p impress-layout-service -p impress-surface-service --lib --tests --no-default-features -- -D warnings
+          cargo test -p koine-host --lib --no-default-features
+      # The worked example (apps/regex-lab): its own workspace over this
+      # checkout, sharing the target directory. Its verbs, its package, and
+      # every public item of `regex` with a verb or a reasoned exclusion.
+      - name: "apps/regex-lab: a library wrapped as an app"
+        working-directory: apps/regex-lab
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: |
+          cargo fmt --all --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          regex_dir=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "regex") | .manifest_path' | xargs dirname)
+          ../../scripts/check-verb-coverage.sh --lib "$regex_dir" --service crates/regex-lab-service
 
   # Every gesture the tour offers, fired with a mouse and with a finger
   # against a fresh demo host, each judged by what the host then answers

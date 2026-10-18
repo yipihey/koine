@@ -683,6 +683,7 @@
 .koine-field > input[type="number"],
 .koine-field > input[type="date"],
 .koine-field > input[type="file"],
+.koine-field > textarea,
 .koine-field > select {
   font: inherit;
   padding: 6px 10px;
@@ -696,7 +697,14 @@
   appearance: none;
 }
 
+.koine-field > textarea {
+  font-family: var(--koine-font-mono);
+  resize: vertical;
+  line-height: 1.4;
+}
+
 .koine-field > input:focus-visible,
+.koine-field > textarea:focus-visible,
 .koine-field > select:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--koine-color-accent) 60%, transparent);
   outline-offset: 0;

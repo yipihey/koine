@@ -1253,6 +1253,43 @@ fn field_node(
                 }
             }
         }
+        "text" if options.get("multiline").and_then(Value::as_bool) == Some(true) => {
+            // `{"text": {"multiline": true, "rows": n}}`: a textarea, for text
+            // that has lines (a haystack, a body). Same events as one line:
+            // typing echoes locally, the change is sent when it is committed.
+            let shown = match value {
+                Value::Null => String::new(),
+                Value::String(s) => s.clone(),
+                v => v.to_string(),
+            };
+            let rows = options
+                .get("rows")
+                .and_then(Value::as_u64)
+                .unwrap_or(6)
+                .clamp(2, 40)
+                .to_string();
+            rsx! {
+                textarea {
+                    id: "{dom_id}",
+                    class: class,
+                    rows: "{rows}",
+                    spellcheck: "false",
+                    tabindex: 0,
+                    "data-koine-id": "{id}",
+                    "data-koine-focused": focused,
+                    "data-koine-bind": bind,
+                    value: shown,
+                    title: help,
+                    aria_label: label.clone(),
+                    oninput: {
+                        let widget = widget.clone();
+                        let mut typed = ctx.typed;
+                        move |e: FormEvent| typed.set(Some((widget.clone(), e.value())))
+                    },
+                    onchange: move |e| on_event.call(event(&widget, EventKind::Change, Value::String(e.value()))),
+                }
+            }
+        }
         other => {
             // `text`, and a kind this build has no native control for: a text
             // input that names the kind, as the plan's known limits say.

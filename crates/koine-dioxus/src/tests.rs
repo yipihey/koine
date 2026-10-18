@@ -992,3 +992,25 @@ fn a_text_node_is_markdown_in_a_div_and_raw_html_stays_text() {
     assert!(!html.contains("<b "), "{html}");
     assert!(!html.contains("# Map"), "{html}");
 }
+
+#[test]
+fn a_multiline_text_field_is_a_textarea_with_its_rows() {
+    let root = json!({
+        "id": "root",
+        "node": { "kind": "column", "items": [
+            { "id": "f-lines", "label": "Text", "node": { "kind": "field",
+                "field": { "text": { "multiline": true, "rows": 4 } },
+                "bind": "state.text", "value": "one\ntwo" } },
+            { "id": "f-line", "node": { "kind": "field", "field": { "text": {} },
+                "bind": "state.line", "value": "x" } },
+        ]}
+    });
+    let html = render_html(&tree(root, json!(["f-lines", "f-line"])), &web(), None);
+    let (tag, _) = element(&html, "f-lines");
+    assert!(tag.starts_with("<textarea"), "{tag}");
+    assert_eq!(attr(tag, "rows"), Some("4"));
+    assert_eq!(attr(tag, "data-koine-bind"), Some("state.text"));
+    // One line stays an input.
+    let (tag, _) = element(&html, "f-line");
+    assert!(tag.starts_with("<input"), "{tag}");
+}

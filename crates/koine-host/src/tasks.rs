@@ -17,11 +17,15 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+#[cfg(feature = "ai")]
 use std::collections::BTreeMap;
 
 use impress_item::AttributedStore;
+#[cfg(feature = "ai")]
 use impress_service_core::async_trait::async_trait;
+#[cfg(feature = "ai")]
 use koine_ai::schema::Profile;
+#[cfg(feature = "ai")]
 use koine_ai::{
     AiRegistry, AiStore, FileBlobStore, InventoryTools, ResolveTarget, ToolAdapter, ToolDefinition,
 };
@@ -33,6 +37,7 @@ pub const VERB_AGENT: &str = "tasks";
 /// The agent the desk bridge and the model's tool calls run as.
 pub const AI_AGENT: &str = "koine-ai";
 /// How often the desk is read.
+#[cfg(feature = "ai")]
 pub const DESK_POLL: Duration = Duration::from_secs(3);
 
 /// The verbs the on-device Apple model may call unless the host names others
@@ -55,12 +60,14 @@ pub const DEFAULT_NATIVE_TOOLS: &[&str] = &[
 /// schema) the on-device model is shown: roughly 1.5k tokens of its window.
 pub const NATIVE_TOOLS_MAX_CHARS: usize = 6_000;
 
+#[cfg(feature = "ai")]
 /// How many characters of `tool` the provider sends the model: its name,
 /// description and input schema (an output schema stays on this side).
 fn sent_size(tool: &ToolDefinition) -> usize {
     tool.name.len() + tool.description.len() + tool.input_schema.to_string().len()
 }
 
+#[cfg(feature = "ai")]
 /// The flat, Apple-lowered catalog for a provider that runs its own tool
 /// loop (LM-D11), cut to a size its context can hold: definitions are kept
 /// in the allowlist's order until the serialized total would pass
@@ -71,6 +78,7 @@ pub struct CappedTools {
     max_chars: usize,
 }
 
+#[cfg(feature = "ai")]
 impl CappedTools {
     /// The allowed verbs as `agent`, lowered for Apple, without the model's
     /// own configuration verbs.
@@ -115,6 +123,7 @@ impl CappedTools {
     }
 }
 
+#[cfg(feature = "ai")]
 #[async_trait]
 impl ToolAdapter for CappedTools {
     fn catalog(&self) -> BTreeMap<String, Vec<ToolDefinition>> {
@@ -193,6 +202,7 @@ pub fn start(runtime: TaskRuntime, store: Arc<dyn AttributedStore>) -> Running {
     scheduler.register(Arc::new(VerbTaskExecutor::new(VERB_AGENT)));
     let mut handles = Vec::new();
 
+    #[cfg(feature = "ai")]
     if runtime.ai {
         let ai = Arc::new(AiStore::from_port(
             store.clone(),
@@ -273,6 +283,7 @@ pub fn start(runtime: TaskRuntime, store: Arc<dyn AttributedStore>) -> Running {
 
 /// Whether the desk has a model to ask: the device default resolves, or a
 /// category the desk routes by (LM-D11) is assigned.
+#[cfg(feature = "ai")]
 fn desk_can_resolve(registry: &AiRegistry) -> Result<(), koine_ai::Error> {
     let default = registry.resolve(&ResolveTarget::default());
     let routed = ["agent", "agent.frontier"].iter().any(|category| {
@@ -289,6 +300,7 @@ fn desk_can_resolve(registry: &AiRegistry) -> Result<(), koine_ai::Error> {
 /// The desk agent: each pass answers what it can. Every request is resolved
 /// on its own (its category, the `agent.route` triage, else the device's
 /// model, so a choice made in settings is the one used next).
+#[cfg(feature = "ai")]
 async fn desk_loop(ai: Arc<AiStore>, registry: Arc<AiRegistry>) {
     let mut said_off = false;
     loop {
@@ -319,7 +331,8 @@ async fn desk_loop(ai: Arc<AiStore>, registry: Arc<AiRegistry>) {
     }
 }
 
-#[cfg(test)]
+// The tests are of the on-device catalog, which is AI's.
+#[cfg(all(test, feature = "ai"))]
 mod tests {
     use super::*;
 

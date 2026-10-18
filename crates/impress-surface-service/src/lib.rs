@@ -46,6 +46,7 @@ pub mod selftest;
 pub mod service;
 pub mod store;
 pub mod tier_a;
+#[cfg(feature = "tier-b")]
 pub mod tier_b;
 
 pub use report::{CapabilityResult, SelfTestReport, Tier};
@@ -111,8 +112,20 @@ pub async fn run_tier_a() -> SelfTestReport {
 
 /// Run the Tier B catalogue against the app `tier_b::configured_base_url`
 /// names (see that module).
+#[cfg(feature = "tier-b")]
 pub async fn run_tier_b() -> SelfTestReport {
     SelfTestReport::from_results(tier_b::run().await)
+}
+
+/// Built without the `tier-b` feature: one skipped capability that says so.
+#[cfg(not(feature = "tier-b"))]
+pub async fn run_tier_b() -> SelfTestReport {
+    SelfTestReport::from_results(vec![skipped(
+        "tier-b",
+        "drive the running app over loopback HTTP",
+        Tier::B,
+        "this build left Tier B out (impress-surface-service feature `tier-b`)",
+    )])
 }
 
 #[cfg(test)]

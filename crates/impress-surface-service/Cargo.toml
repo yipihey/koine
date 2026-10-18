@@ -10,8 +10,8 @@ autotests = false
 [dependencies]
 # Tier B (`src/tier_b.rs`) drives a running app's `/api/surface/*` over
 # loopback HTTP — the client `impress-layout-service`'s Tier B already uses,
-# so no new crate enters the kit's tree.
-reqwest = { workspace = true }
+# so no new crate enters the kit's tree. The `tier-b` feature.
+reqwest = { workspace = true, optional = true }
 # The item protocol and its store port (`Arc<dyn AttributedStore>`): this
 # crate owns the store side of a surface (the `impress/ui/surface@1.0.0` /
 # `-state` / `-event` rows) and writes them through the port. `schema`: the
@@ -57,6 +57,13 @@ tokio = { workspace = true }
 # off the `log` facade onto `tracing`, D-P1).
 tracing = { workspace = true }
 koine-workspace-hack.workspace = true
+
+[features]
+# Tier B (`tier_b`): drives a running app over loopback HTTP through
+# `impress-layout-service`'s caller. Without it tier `b` reports one skipped
+# capability saying the build left it out (docs/plan-koine-host.md H-D10).
+default = ["tier-b"]
+tier-b = ["dep:reqwest", "impress-layout-service/tier-b"]
 
 [dev-dependencies]
 # Two handles on one directory root are the shape of two processes

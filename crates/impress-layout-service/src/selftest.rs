@@ -60,7 +60,7 @@ impl LayoutSelftestService for DefaultLayoutSelftestService {
             // "everything" wants one pass/fail, not two.
             "all" | "" => {
                 let mut results = crate::tier_a::run().await;
-                results.extend(crate::tier_b::run(&crate::tier_b::configured_base_url()).await);
+                results.extend(crate::run_tier_b().await.results);
                 SelfTestReport::from_results(results)
             }
             _ => crate::run_tier_a().await,
