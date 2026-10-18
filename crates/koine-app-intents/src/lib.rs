@@ -483,7 +483,20 @@ fn intent_source(
     let title = verb.intent().title.ok_or("not an intent")?;
     let schema = verb.input_schema();
     let targets = target_args(verb);
-    let entity = verb.returns_kind().and_then(|k| entities.get(k));
+    // The kind its target arguments are: the kind it returns, else the one
+    // entity whose lookup verb is in the same service (a `set-read` beside
+    // the `get-publication` it acts on).
+    let service_prefix = format!("{}_", verb.service());
+    let mut same_service = entities
+        .values()
+        .filter(|e| e.lookup.0.starts_with(&service_prefix));
+    let entity = match verb.returns_kind().and_then(|k| entities.get(k)) {
+        Some(entity) => Some(entity),
+        None => match (same_service.next(), same_service.next()) {
+            (Some(only), None) => Some(only),
+            _ => None,
+        },
+    };
     let mut params = String::new();
     let mut encode = String::new();
     for (name, prop, required) in properties(&schema) {

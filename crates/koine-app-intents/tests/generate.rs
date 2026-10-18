@@ -63,6 +63,10 @@ pub trait PaperService: Send + Sync + 'static {
     )]
     async fn delete_papers(&self, ids: Vec<String>) -> Papers;
 
+    /// Mark papers read.
+    #[impress_method(safety = mutating, targets = "ids", intent(title = "Mark Read"))]
+    async fn mark_read(&self, ids: Vec<String>, read: bool) -> Papers;
+
     /// Import a structure.
     #[impress_method(safety = mutating, intent(title = "Import"))]
     async fn import(&self, nested: Nested) -> Papers;
@@ -94,6 +98,9 @@ impl PaperService for Library {
         Papers::default()
     }
     async fn delete_papers(&self, _ids: Vec<String>) -> Papers {
+        Papers::default()
+    }
+    async fn mark_read(&self, _ids: Vec<String>, _read: bool) -> Papers {
         Papers::default()
     }
     async fn import(&self, _nested: Nested) -> Papers {
@@ -136,6 +143,13 @@ impress_service_impl! {
         delete_papers(
             /// The papers.
             ids: Vec<String>
+        ) -> Papers,
+        /// Mark papers read.
+        mark_read(
+            /// The papers.
+            ids: Vec<String>,
+            /// Read or unread.
+            read: bool
         ) -> Papers,
         /// Import a structure.
         import(
