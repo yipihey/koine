@@ -37,7 +37,8 @@
 #                   the desk agent), `http-registries` (package registries
 #                   over HTTP(S); file and path registries need nothing) and
 #                   `tier-b` (the layout and surface selftests' loopback
-#                   client, for driving another running app).
+#                   client, for driving another running app); `apple-fm`
+#                   (implies ai) adds Apple's on-device model, macOS only.
 #                   Default: none. An app links what it names and the host
 #                   loads what is linked (docs/plan-koine-host.md H-D10).
 #   --mobile        also write crates/<name>-mobile/: the host in-process and
@@ -115,8 +116,8 @@ if [[ -n "$WITH" ]]; then
         feature="${feature// /}"
         [[ -n "$feature" ]] || continue
         case "$feature" in
-            tasks | ai | http-registries | tier-b) ;;
-            *) die "--with: unknown feature '$feature' (tasks, ai, http-registries, tier-b)" ;;
+            tasks | ai | http-registries | tier-b | apple-fm) ;;
+            *) die "--with: unknown feature '$feature' (tasks, ai, http-registries, tier-b, apple-fm)" ;;
         esac
         [[ ",$WITH_LIST," != *",$feature,"* ]] || continue
         HOST_FEATURES+="${HOST_FEATURES:+, }\"$feature\""

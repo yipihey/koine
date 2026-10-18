@@ -730,6 +730,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "impress-item",
  "impress-schema-ref-codegen",
  "inventory",
  "koine-workspace-hack",
@@ -924,7 +925,6 @@ dependencies = [
  "impress-pane-query",
  "impress-service-core",
  "impress-service-macros",
- "koine-notebook",
  "koine-store",
  "koine-workspace-hack",
  "schemars",
@@ -951,9 +951,12 @@ dependencies = [
  "impress-verb-surface",
  "koine-agent",
  "koine-mcp-host",
+ "koine-memory",
  "koine-notebook",
  "koine-packages",
+ "koine-providers",
  "koine-store",
+ "koine-store-query",
  "koine-window",
  "koine-workspace-hack",
  "serde",
@@ -978,6 +981,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "koine-memory"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "koine-package-format",
+ "koine-store",
+ "koine-workspace-hack",
+ "schemars",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "koine-notebook"
 version = "0.1.0"
 dependencies = [
@@ -986,6 +1007,7 @@ dependencies = [
  "impress-item",
  "impress-service-core",
  "impress-service-macros",
+ "impress-workflow",
  "koine-plot",
  "koine-store",
  "koine-workspace-hack",
@@ -994,6 +1016,16 @@ dependencies = [
  "serde_json",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "koine-package-format"
+version = "0.1.0"
+dependencies = [
+ "koine-workspace-hack",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -1009,12 +1041,12 @@ dependencies = [
  "impress-workflow",
  "koine-agent",
  "koine-notebook",
+ "koine-package-format",
  "koine-store",
  "koine-workspace-hack",
  "schemars",
  "serde",
  "serde_json",
- "sha2",
  "tracing",
  "uuid",
 ]
@@ -1027,6 +1059,24 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "koine-providers"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "koine-workspace-hack",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -1066,6 +1116,21 @@ dependencies = [
  "koine-workspace-hack",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "koine-store-query"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "koine-store",
+ "koine-workspace-hack",
+ "schemars",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

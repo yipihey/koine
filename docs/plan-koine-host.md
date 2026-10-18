@@ -148,17 +148,17 @@ research kit, the task verbs and the AI verbs. The binary pulled in 194
 crates, the TLS stack among them, and the skill an agent reads described all
 118. The cost was in the link, and in what the skill told an agent.
 
-The same app after this decision (`cargo tree -e normal`, distinct crates;
-`--check` for the verb count):
+The finished app (`apps/regex-lab`, on the kit as of KM14), measured with
+`cargo tree -e normal` (distinct crates) and `--check` (the verb count):
 
-| build | crates | verbs | debug | release |
-|---|---|---|---|---|
-| every `koine-host` default | 194 | 118 | 299 MB | 32 MB |
-| `default-features = false` (the scaffold's default) | 164 | 97 | 233 MB | 25 MB |
+| build | crates | verbs | release |
+|---|---|---|---|
+| every `koine-host` default | 198 | 152 | 36 MB |
+| `default-features = false` (the scaffold's default) | 168 | 130 | 28 MB |
 
 The 30 crates left out are `reqwest` and the TLS stack, `koine-ai`,
-`koine-tasks` and the demo. The 164 that stay are the HTTP server (axum,
-tokio), the store, the layout and surface runtime and the kit.
+`koine-tasks` and the demo. The 168 that stay are the HTTP server (axum,
+tokio), the store, the layout and surface runtime, the kit, and `regex`.
 
 - **Link.** `koine-host`'s optional parts are Cargo features. `tasks` is the
   scheduler and `task-service`. `ai` is `koine-ai`, the model executors, the

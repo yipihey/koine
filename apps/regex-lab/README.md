@@ -14,7 +14,7 @@ regex-lab --lib regex` and then written out.
 ```bash
 cd apps/regex-lab
 cargo test                                   # 29 service tests + 3 package tests
-cargo run -p regex-lab-host -- --check       # 110 verbs, the package installed
+cargo run -p regex-lab-host -- --check       # 130 verbs, the package installed
 (cd ../../crates/koine-web && dx build --platform web --release)
 cargo run -p regex-lab-host -- \
     --web-dir ../../target/dx/koine-web/release/web/public --registry ./registry
@@ -77,20 +77,19 @@ The library page needs no refresh wiring. Its `patterns` source declares
 
 ## What it costs
 
-These are measured against the scaffold (one `echo` verb) and against the
-same app built with every `koine-host` default (docs/plan-koine-host.md
-H-D10). Crates are counted with `cargo tree -e normal`.
+regex-lab built two ways (docs/plan-koine-host.md H-D10). Crates are counted
+with `cargo tree -e normal`.
 
 | build | crates | verbs | release binary |
 |---|---|---|---|
-| scaffold, every koine-host default | 194 | 118 | 32 MB |
-| scaffold, `default-features = false` | 164 | 97 | 25 MB |
-| regex-lab, `default-features = false` | 164 | 110 | 27 MB |
+| every `koine-host` default (AI, tasks, HTTP registries, Tier B, demo) | 198 | 152 | 36 MB |
+| `default-features = false`, as the scaffold writes it | 168 | 130 | 28 MB |
 
-`regex` and `regex-syntax` were already in the tree, so the app adds no
-crate, and its 14 verbs add 2 MB. The 96 verbs that are not the app's are the
-runtime and the kit: layout, surfaces, the notebook, the agent desk and
-packages.
+Against `koine-host` alone (lean, 165 crates), the app adds the two lab crates
+and one third-party crate, `regex`; `regex-syntax` and `regex-automata` were
+already in the tree. 13 of the 130 verbs are the app's. The rest are the
+runtime and the kit: layout, surfaces, the notebook, the agent desk,
+packages, memory, store queries and providers.
 
 Lines written by hand:
 
