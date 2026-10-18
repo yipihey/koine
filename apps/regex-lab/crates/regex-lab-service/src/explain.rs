@@ -127,11 +127,9 @@ fn walk(ast: &Ast, pattern: &str, depth: u64, groups: &mut u32, parts: &mut Vec<
             &class.span,
             "class",
             format!(
-                "one character {} the set {}",
-                if class.negated { "not in" } else { "in" },
-                pattern
-                    .get(class.span.start.offset..class.span.end.offset)
-                    .unwrap_or("")
+                "one character {}: {}",
+                if class.negated { "other than" } else { "from" },
+                set_words(&class.kind)
             ),
         ),
         Ast::Repetition(repetition) => {
@@ -197,8 +195,27 @@ fn walk(ast: &Ast, pattern: &str, depth: u64, groups: &mut u32, parts: &mut Vec<
                     alternation.asts.len()
                 ),
             );
-            for branch in &alternation.asts {
-                walk(branch, pattern, depth + 1, groups, parts);
+            for (index, branch) in alternation.asts.iter().enumerate() {
+                // A branch of several pieces gets a row of its own, so it is
+                // plain which pieces belong to which alternative; a branch
+                // that is one piece is that piece.
+                let mut inner = Vec::new();
+                walk(branch, pattern, depth + 2, groups, &mut inner);
+                if inner.len() > 1 {
+                    push(
+                        parts,
+                        pattern,
+                        depth + 1,
+                        branch.span(),
+                        "branch",
+                        format!("alternative {}", index + 1),
+                    );
+                } else {
+                    for part in &mut inner {
+                        part.depth -= 1;
+                    }
+                }
+                parts.extend(inner);
             }
         }
         Ast::Concat(concat) => {
@@ -243,6 +260,92 @@ fn flush(run: &mut Vec<&ast::Literal>, pattern: &str, depth: u64, parts: &mut Ve
         }
     }
     run.clear();
+}
+
+/// What a bracketed set holds, item by item: `[1-9a-f_]` is "'1' to '9',
+/// 'a' to 'f', '_'".
+fn set_words(set: &ast::ClassSet) -> String {
+    match set {
+        ast::ClassSet::Item(item) => item_words(item),
+        ast::ClassSet::BinaryOp(op) => {
+            let (lhs, rhs) = (set_words(&op.lhs), set_words(&op.rhs));
+            match op.kind {
+                ast::ClassSetBinaryOpKind::Intersection => format!("({lhs}) that is also ({rhs})"),
+                ast::ClassSetBinaryOpKind::Difference => format!("({lhs}) except ({rhs})"),
+                ast::ClassSetBinaryOpKind::SymmetricDifference => {
+                    format!("either ({lhs}) or ({rhs}) but not both")
+                }
+            }
+        }
+    }
+}
+
+fn item_words(item: &ast::ClassSetItem) -> String {
+    match item {
+        ast::ClassSetItem::Empty(_) => "nothing".into(),
+        ast::ClassSetItem::Literal(literal) => char_words(literal.c),
+        ast::ClassSetItem::Range(range) => format!(
+            "{} to {}",
+            char_words(range.start.c),
+            char_words(range.end.c)
+        ),
+        ast::ClassSetItem::Ascii(ascii) => {
+            let name = match ascii.kind {
+                ast::ClassAsciiKind::Alnum => "a letter or digit",
+                ast::ClassAsciiKind::Alpha => "a letter",
+                ast::ClassAsciiKind::Ascii => "an ASCII character",
+                ast::ClassAsciiKind::Blank => "a space or tab",
+                ast::ClassAsciiKind::Cntrl => "a control character",
+                ast::ClassAsciiKind::Digit => "a digit",
+                ast::ClassAsciiKind::Graph => "a visible character",
+                ast::ClassAsciiKind::Lower => "a lowercase letter",
+                ast::ClassAsciiKind::Print => "a printable character",
+                ast::ClassAsciiKind::Punct => "punctuation",
+                ast::ClassAsciiKind::Space => "whitespace",
+                ast::ClassAsciiKind::Upper => "an uppercase letter",
+                ast::ClassAsciiKind::Word => "a word character",
+                ast::ClassAsciiKind::Xdigit => "a hex digit",
+            };
+            format!("{}{name} (ASCII)", if ascii.negated { "not " } else { "" })
+        }
+        ast::ClassSetItem::Unicode(class) => format!(
+            "{}the Unicode class {}",
+            if class.negated { "not " } else { "" },
+            unicode_name(&class.kind)
+        ),
+        ast::ClassSetItem::Perl(class) => format!(
+            "{}{}",
+            if class.negated { "not " } else { "" },
+            perl_words(&class.kind)
+        ),
+        ast::ClassSetItem::Bracketed(inner) => format!(
+            "{}[{}]",
+            if inner.negated { "anything but " } else { "" },
+            set_words(&inner.kind)
+        ),
+        ast::ClassSetItem::Union(union) => union
+            .items
+            .iter()
+            .map(item_words)
+            .collect::<Vec<_>>()
+            .join(", "),
+    }
+}
+
+fn perl_words(kind: &ast::ClassPerlKind) -> &'static str {
+    match kind {
+        ast::ClassPerlKind::Digit => "a digit",
+        ast::ClassPerlKind::Space => "whitespace",
+        ast::ClassPerlKind::Word => "a word character",
+    }
+}
+
+fn unicode_name(kind: &ast::ClassUnicodeKind) -> String {
+    match kind {
+        ast::ClassUnicodeKind::OneLetter(c) => c.to_string(),
+        ast::ClassUnicodeKind::Named(name) => name.clone(),
+        ast::ClassUnicodeKind::NamedValue { name, value, .. } => format!("{name}={value}"),
+    }
 }
 
 fn char_words(c: char) -> String {
@@ -344,5 +447,43 @@ mod tests {
         assert_eq!(parts[2].1, "alternation");
         assert_eq!(parts[3], (2, "literal".into(), "cat".into()));
         assert_eq!(parts[4], (2, "literal".into(), "dog".into()));
+    }
+
+    /// A branch of several pieces is a row of its own, its pieces inside.
+    #[test]
+    fn a_branch_of_several_pieces_has_its_own_row() {
+        let parts = kinds("0[1-9]|1[0-2]|x");
+        assert_eq!(parts[0].1, "alternation");
+        assert_eq!(parts[1], (1, "branch".into(), "0[1-9]".into()));
+        assert_eq!(parts[2], (2, "literal".into(), "0".into()));
+        assert_eq!(parts[3], (2, "class".into(), "[1-9]".into()));
+        assert_eq!(parts[4], (1, "branch".into(), "1[0-2]".into()));
+        // A one-piece branch is that piece.
+        assert_eq!(parts.last().unwrap(), &(1, "literal".into(), "x".into()));
+    }
+
+    #[test]
+    fn a_set_is_described_item_by_item() {
+        let meaning = |pattern: &str| {
+            explain(pattern, Flags::default()).unwrap()[0]
+                .meaning
+                .clone()
+        };
+        assert_eq!(
+            meaning("[1-9a-f_]"),
+            "one character from: '1' to '9', 'a' to 'f', '_'"
+        );
+        assert_eq!(
+            meaning(r"[^\s;]"),
+            "one character other than: whitespace, ';'"
+        );
+        assert_eq!(
+            meaning("[[:alpha:]\\d]"),
+            "one character from: a letter (ASCII), a digit"
+        );
+        assert_eq!(
+            meaning(r"[\p{Greek}--[α]]"),
+            "one character from: (the Unicode class Greek) except (['α'])"
+        );
     }
 }

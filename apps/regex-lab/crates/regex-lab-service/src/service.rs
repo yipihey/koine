@@ -326,8 +326,7 @@ impl RegexLabService for DefaultRegexLabService {
                 }
                 Err(_) => (None, None, false, false, false),
             };
-        Checked {
-            outcome: Outcome::answered(),
+        Checked::answered(CheckedAnswer {
             flags: compiled.flags.letters(),
             group_count: compiled.regex.captures_len() as u64,
             static_group_count: compiled.regex.static_captures_len().map(|n| n as u64),
@@ -346,7 +345,7 @@ impl RegexLabService for DefaultRegexLabService {
             anchored_start,
             anchored_end,
             pattern: compiled.pattern,
-        }
+        })
     }
 
     async fn explain(
@@ -356,10 +355,9 @@ impl RegexLabService for DefaultRegexLabService {
         flags: Option<String>,
     ) -> Explained {
         let compiled = answer!(resolve(pattern, saved, flags));
-        Explained {
-            outcome: Outcome::answered(),
+        Explained::answered(ExplainedAnswer {
             parts: answer!(explain::explain(&compiled.pattern, compiled.flags)),
-        }
+        })
     }
 
     async fn is_match(
@@ -373,11 +371,10 @@ impl RegexLabService for DefaultRegexLabService {
         let compiled = answer!(resolve(pattern, saved, flags));
         let start = answer!(start_offset(&haystack, start));
         let shortest = compiled.regex.shortest_match_at(&haystack, start);
-        Matched {
-            outcome: Outcome::answered(),
+        Matched::answered(MatchedAnswer {
             matched: shortest.is_some(),
             shortest_end: shortest.map(|end| end as u64),
-        }
+        })
     }
 
     async fn find(
@@ -393,17 +390,16 @@ impl RegexLabService for DefaultRegexLabService {
         match compiled.regex.find_at(&haystack, start) {
             Some(m) => {
                 let (line, column) = Lines::new(&haystack).at(m.start());
-                Found {
-                    outcome: Outcome::answered(),
+                Found::answered(FoundAnswer {
                     found: true,
                     start: Some(m.start() as u64),
                     end: Some(m.end() as u64),
                     line: Some(line),
                     column: Some(column),
                     text: Some(m.as_str().to_string()),
-                }
+                })
             }
-            None => Found::default(),
+            None => Found::answered(FoundAnswer::default()),
         }
     }
 
@@ -435,12 +431,11 @@ impl RegexLabService for DefaultRegexLabService {
                 text: m.as_str().to_string(),
             });
         }
-        Matches {
-            outcome: Outcome::answered(),
+        Matches::answered(MatchesAnswer {
             count: matches.len() as u64,
             truncated,
             matches,
-        }
+        })
     }
 
     async fn captures(
@@ -464,14 +459,13 @@ impl RegexLabService for DefaultRegexLabService {
                         Some(((*name)?.to_string(), caps.get(i)?.as_str().to_string()))
                     })
                     .collect();
-                Captured {
-                    outcome: Outcome::answered(),
+                Captured::answered(CapturedAnswer {
                     found: true,
                     groups,
                     named,
-                }
+                })
             }
-            None => Captured::default(),
+            None => Captured::answered(CapturedAnswer::default()),
         }
     }
 
@@ -511,14 +505,13 @@ impl RegexLabService for DefaultRegexLabService {
             records.push(record);
             groups.extend(capture_rows(index as u64, &caps, &names));
         }
-        CapturesAll {
-            outcome: Outcome::answered(),
+        CapturesAll::answered(CapturesAllAnswer {
             count: records.len() as u64,
             truncated,
             columns,
             records,
             groups,
-        }
+        })
     }
 
     async fn replace(
@@ -544,11 +537,10 @@ impl RegexLabService for DefaultRegexLabService {
                 .regex
                 .replacen(&haystack, limit, replacement.as_str())
         };
-        Replaced {
-            outcome: Outcome::answered(),
+        Replaced::answered(ReplacedAnswer {
             text: text.into_owned(),
             replacements: replacements as u64,
-        }
+        })
     }
 
     async fn split(
@@ -583,11 +575,10 @@ impl RegexLabService for DefaultRegexLabService {
                 }
             })
             .collect();
-        Split {
-            outcome: Outcome::answered(),
+        Split::answered(SplitAnswer {
             count: pieces.len() as u64,
             pieces,
-        }
+        })
     }
 
     async fn set_matches(
@@ -610,13 +601,12 @@ impl RegexLabService for DefaultRegexLabService {
                 matched: matched.matched(index),
             })
             .collect();
-        SetMatched {
-            outcome: Outcome::answered(),
+        SetMatched::answered(SetMatchedAnswer {
             matched_any: matched.matched_any(),
             matched_all: matched.matched_all(),
             matched_count: matched.iter().count() as u64,
             patterns: rows,
-        }
+        })
     }
 
     async fn escape(&self, text: String) -> Escaped {
@@ -652,11 +642,10 @@ impl RegexLabService for DefaultRegexLabService {
             sample,
         };
         let created = answer!(library::put(&saved));
-        Saved {
-            outcome: Outcome::answered(),
+        Saved::answered(SavedAnswer {
             created,
             saved: Some(saved),
-        }
+        })
     }
 
     async fn patterns(&self, search: Option<String>) -> Vec<SavedPattern> {
@@ -670,11 +659,7 @@ impl RegexLabService for DefaultRegexLabService {
             Err(outcome) if outcome.code.as_deref() == Some("not-found") => false,
             Err(outcome) => return outcome.into(),
         };
-        Deleted {
-            outcome: Outcome::answered(),
-            name,
-            deleted,
-        }
+        Deleted::answered(DeletedAnswer { name, deleted })
     }
 }
 

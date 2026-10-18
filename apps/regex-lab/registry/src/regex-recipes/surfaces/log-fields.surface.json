@@ -25,7 +25,8 @@
         "field": {
           "text": {
             "multiline": true,
-            "rows": 8
+            "rows": 8,
+            "live": true
           }
         },
         "label": "Logs",

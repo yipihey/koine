@@ -7,7 +7,8 @@
 //! A result that can refuse carries an [`Outcome`] flattened into its top
 //! level: `ok`, and when refused `code`, `message`, and for a pattern that
 //! does not parse `at` (where in the pattern) and `diagram` (the pattern
-//! with the place marked, as `regex` prints it).
+//! with the place marked, as `regex` prints it). Its answer's fields sit
+//! beside them only when the call was answered.
 
 use std::collections::BTreeMap;
 
@@ -75,12 +76,20 @@ impl Outcome {
     }
 }
 
-/// Every refusable result is its [`Outcome`] plus empty fields.
+/// Every refusable result is its [`Outcome`] and, when answered, its
+/// answer: a refusal holds no fields that could be read as an answer (a
+/// refused `check` does not say `literal: false`).
 macro_rules! refusable {
-    ($($result:ty),* $(,)?) => {$(
+    ($($result:ident => $answer:ident),* $(,)?) => {$(
         impl From<Outcome> for $result {
             fn from(outcome: Outcome) -> Self {
-                Self { outcome, ..Default::default() }
+                Self { outcome, answer: None }
+            }
+        }
+
+        impl $result {
+            pub fn answered(answer: $answer) -> Self {
+                Self { outcome: Outcome::answered(), answer: Some(answer) }
             }
         }
     )*};
@@ -100,6 +109,14 @@ pub struct Group {
 pub struct Checked {
     #[serde(flatten)]
     pub outcome: Outcome,
+    /// The answer, when the call was answered; a refusal carries none.
+    #[serde(flatten)]
+    pub answer: Option<CheckedAnswer>,
+}
+
+/// [`Checked`]'s fields when the call was answered.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CheckedAnswer {
     /// The pattern checked (a saved one's text, when `saved` named it).
     pub pattern: String,
     /// The flags it was compiled with, as letters.
@@ -146,6 +163,14 @@ pub struct Part {
 pub struct Explained {
     #[serde(flatten)]
     pub outcome: Outcome,
+    /// The answer, when the call was answered; a refusal carries none.
+    #[serde(flatten)]
+    pub answer: Option<ExplainedAnswer>,
+}
+
+/// [`Explained`]'s fields when the call was answered.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ExplainedAnswer {
     /// The pattern's parts, in order, each followed by the parts inside it.
     pub parts: Vec<Part>,
 }
@@ -155,6 +180,14 @@ pub struct Explained {
 pub struct Matched {
     #[serde(flatten)]
     pub outcome: Outcome,
+    /// The answer, when the call was answered; a refusal carries none.
+    #[serde(flatten)]
+    pub answer: Option<MatchedAnswer>,
+}
+
+/// [`Matched`]'s fields when the call was answered.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MatchedAnswer {
     /// True when the pattern matches somewhere at or after `start`.
     pub matched: bool,
     /// Where the shortest match ends (byte offset), when it matched: the
@@ -184,6 +217,14 @@ pub struct Match {
 pub struct Found {
     #[serde(flatten)]
     pub outcome: Outcome,
+    /// The answer, when the call was answered; a refusal carries none.
+    #[serde(flatten)]
+    pub answer: Option<FoundAnswer>,
+}
+
+/// [`Found`]'s fields when the call was answered.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct FoundAnswer {
     /// True when there is a match at or after `start`.
     pub found: bool,
     pub start: Option<u64>,
@@ -198,6 +239,14 @@ pub struct Found {
 pub struct Matches {
     #[serde(flatten)]
     pub outcome: Outcome,
+    /// The answer, when the call was answered; a refusal carries none.
+    #[serde(flatten)]
+    pub answer: Option<MatchesAnswer>,
+}
+
+/// [`Matches`]'s fields when the call was answered.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct MatchesAnswer {
     /// How many matches are listed.
     pub count: u64,
     /// True when there were more than `limit`.
@@ -228,6 +277,14 @@ pub struct Capture {
 pub struct Captured {
     #[serde(flatten)]
     pub outcome: Outcome,
+    /// The answer, when the call was answered; a refusal carries none.
+    #[serde(flatten)]
+    pub answer: Option<CapturedAnswer>,
+}
+
+/// [`Captured`]'s fields when the call was answered.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CapturedAnswer {
     /// True when there is a match at or after `start`.
     pub found: bool,
     /// Every group of the match, the whole match (0) first.
@@ -241,6 +298,14 @@ pub struct Captured {
 pub struct CapturesAll {
     #[serde(flatten)]
     pub outcome: Outcome,
+    /// The answer, when the call was answered; a refusal carries none.
+    #[serde(flatten)]
+    pub answer: Option<CapturesAllAnswer>,
+}
+
+/// [`CapturesAll`]'s fields when the call was answered.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct CapturesAllAnswer {
     /// How many matches are listed.
     pub count: u64,
     /// True when there were more than `limit`.
@@ -261,6 +326,14 @@ pub struct CapturesAll {
 pub struct Replaced {
     #[serde(flatten)]
     pub outcome: Outcome,
+    /// The answer, when the call was answered; a refusal carries none.
+    #[serde(flatten)]
+    pub answer: Option<ReplacedAnswer>,
+}
+
+/// [`Replaced`]'s fields when the call was answered.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ReplacedAnswer {
     /// The text after replacing.
     pub text: String,
     /// How many matches were replaced.
@@ -284,6 +357,14 @@ pub struct Piece {
 pub struct Split {
     #[serde(flatten)]
     pub outcome: Outcome,
+    /// The answer, when the call was answered; a refusal carries none.
+    #[serde(flatten)]
+    pub answer: Option<SplitAnswer>,
+}
+
+/// [`Split`]'s fields when the call was answered.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SplitAnswer {
     /// How many pieces.
     pub count: u64,
     /// The pieces, in order; one more than the matches, empty ones included.
@@ -304,6 +385,14 @@ pub struct SetRow {
 pub struct SetMatched {
     #[serde(flatten)]
     pub outcome: Outcome,
+    /// The answer, when the call was answered; a refusal carries none.
+    #[serde(flatten)]
+    pub answer: Option<SetMatchedAnswer>,
+}
+
+/// [`SetMatched`]'s fields when the call was answered.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SetMatchedAnswer {
     /// True when any pattern matched.
     pub matched_any: bool,
     /// True when every pattern matched.
@@ -342,6 +431,14 @@ pub struct SavedPattern {
 pub struct Saved {
     #[serde(flatten)]
     pub outcome: Outcome,
+    /// The answer, when the call was answered; a refusal carries none.
+    #[serde(flatten)]
+    pub answer: Option<SavedAnswer>,
+}
+
+/// [`Saved`]'s fields when the call was answered.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SavedAnswer {
     /// True when no pattern had this name before.
     pub created: bool,
     /// The pattern as stored.
@@ -353,6 +450,14 @@ pub struct Saved {
 pub struct Deleted {
     #[serde(flatten)]
     pub outcome: Outcome,
+    /// The answer, when the call was answered; a refusal carries none.
+    #[serde(flatten)]
+    pub answer: Option<DeletedAnswer>,
+}
+
+/// [`Deleted`]'s fields when the call was answered.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DeletedAnswer {
     /// The name asked for.
     pub name: String,
     /// False when nothing was saved under it.
@@ -360,16 +465,16 @@ pub struct Deleted {
 }
 
 refusable!(
-    Checked,
-    Explained,
-    Matched,
-    Found,
-    Matches,
-    Captured,
-    CapturesAll,
-    Replaced,
-    Split,
-    SetMatched,
-    Saved,
-    Deleted,
+    Checked => CheckedAnswer,
+    Explained => ExplainedAnswer,
+    Matched => MatchedAnswer,
+    Found => FoundAnswer,
+    Matches => MatchesAnswer,
+    Captured => CapturedAnswer,
+    CapturesAll => CapturesAllAnswer,
+    Replaced => ReplacedAnswer,
+    Split => SplitAnswer,
+    SetMatched => SetMatchedAnswer,
+    Saved => SavedAnswer,
+    Deleted => DeletedAnswer,
 );

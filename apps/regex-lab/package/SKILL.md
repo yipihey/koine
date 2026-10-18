@@ -22,11 +22,16 @@ and no back-references, and every match runs in linear time.
    says there were more), `captures` / `captures-all` (groups; `records` has
    one row per match keyed by group name), `replace` (`$1`, `${name}`, or
    `literal: true`), `split`, `set-matches` (which of several patterns match,
-   in one pass). Offsets are bytes; `line` and `column` are 1-based.
+   in one pass). Offsets are bytes; `line` and `column` are 1-based. Pass
+   text inline (up to 16 MiB). A refused call answers only `ok: false`,
+   `code` and `message`: never read its other fields as results.
 3. **Save what will be reused.** `save-pattern {"name", "pattern", "flags",
    "description", "sample"}` refuses a pattern that does not match its
    sample, so give one. `patterns` lists them; `delete-pattern` removes one
    (destructive: ask the person first).
+
+From a shell: `regex-lab-host call find-all --pattern '\d+' --haystack '"a1 b2"'`
+(a value that parses as JSON is JSON, so quote a string of digits).
 
 The pages: **Regex tester** runs every verb on one pattern and text as they
 are typed; **Pattern library** lists the saved ones and tries a selected one.

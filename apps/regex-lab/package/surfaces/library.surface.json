@@ -83,7 +83,8 @@
             "field": {
               "text": {
                 "multiline": true,
-                "rows": 4
+                "rows": 4,
+                "live": true
               }
             },
             "label": "Try it on",
