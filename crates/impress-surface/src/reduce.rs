@@ -622,6 +622,7 @@ mod tests {
             state,
             sources: BTreeMap::new(),
             root,
+            extra: Default::default(),
         }
     }
 
@@ -781,6 +782,7 @@ mod tests {
             state: serde_json::json!({"selected": ["x", "y"]}),
             sources: BTreeMap::new(),
             root,
+            extra: Default::default(),
         };
         let params = Value::Null;
         let (_, effects) = reduce(&spec, &spec.state, &params, &Value::Null, &click()).unwrap();

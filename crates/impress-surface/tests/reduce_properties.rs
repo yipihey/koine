@@ -24,6 +24,7 @@ fn spec_with_field(bind: &str, extra_state: Value) -> SurfaceSpec {
         ))))
         .with_id("f")
         .with_bind(bind.to_string()),
+        extra: Default::default(),
     }
 }
 
@@ -118,6 +119,7 @@ fn a_multi_action_handler_keeps_every_key_each_action_did_not_touch() {
             ],
         }))
         .with_id("b"),
+        extra: Default::default(),
     };
     let event = Event {
         widget: "b".to_string(),

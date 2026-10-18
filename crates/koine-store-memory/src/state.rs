@@ -151,6 +151,9 @@ impl State {
     /// path order; one reference per `(target, edge)`, the first one kept).
     /// Returns the stored item.
     pub fn insert_validated(&mut self, mut item: Item, env: &Env<'_>) -> Item {
+        // plan-koine-trust TR-D12: the kind's schema version, and a warn-mode
+        // check of the payload against it.
+        impress_item::kind::stamp_item(&mut item);
         if item.logical_clock == 0 {
             item.logical_clock = self.next_clock(env);
         }
@@ -244,13 +247,17 @@ impl State {
         let op_item = Item {
             id: operation_id,
             schema: CORE_OPERATION,
-            payload: build_operation_payload(
-                spec.target_id,
-                &spec.op_type,
-                spec.intent,
-                spec.reason.as_deref(),
-                prev,
-            ),
+            payload: {
+                let mut payload = build_operation_payload(
+                    spec.target_id,
+                    &spec.op_type,
+                    spec.intent,
+                    spec.reason.as_deref(),
+                    prev,
+                );
+                impress_item::kind::stamp_operation(&mut payload, &target_schema);
+                payload
+            },
             created: at,
             modified: at,
             author: spec.author.clone(),
@@ -270,6 +277,7 @@ impl State {
             batch_id: spec.batch_id.clone().or_else(impress_item::ambient_batch),
             references: Vec::new(),
             parent: None,
+            extra: Default::default(),
         };
         // The routine mechanical artery is steered by the target's kind;
         // an explicit tier from a user verb is left alone.

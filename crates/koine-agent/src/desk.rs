@@ -194,6 +194,7 @@ pub fn file(
         batch_id: None,
         references: Vec::new(),
         parent: None,
+        extra: Default::default(),
     };
     store.insert(item.clone()).map_err(DeskError::store)?;
     Ok(row_of(&item, true))

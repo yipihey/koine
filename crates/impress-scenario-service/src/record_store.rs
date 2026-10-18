@@ -256,6 +256,7 @@ mod tests {
                 batch_id: Some(id.to_string()),
                 references: vec![],
                 parent: None,
+                extra: Default::default(),
             })
             .unwrap();
     }

@@ -597,6 +597,7 @@ impl<S: AttributedStore + ?Sized> LayoutStore<S> {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         // An insert is not an operation, so there is no tier to set on it; see
         // the module docs. `intent` is carried for the caller's log line.

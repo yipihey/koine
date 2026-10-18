@@ -68,6 +68,11 @@ pub struct SurfaceSpec {
     #[serde(default)]
     pub sources: BTreeMap<String, Source>,
     pub root: Node,
+    /// Top-level keys this build does not know — a newer build's — kept so a
+    /// rewrite of the spec does not drop them (plan-koine-trust TR-D13).
+    #[serde(flatten, default, skip_serializing_if = "Map::is_empty")]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub extra: Map<String, Value>,
 }
 
 fn default_state() -> Value {
@@ -1435,4 +1440,31 @@ pub fn walk_actions(root: &Node) -> Vec<(String, &Action)> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod keep_unknown_tests {
+    use super::*;
+
+    /// plan-koine-trust TR-D13: a spec a newer build wrote keeps the
+    /// top-level keys this build does not know through a parse and a write.
+    #[test]
+    fn unknown_top_level_keys_survive_a_rewrite() {
+        let json = serde_json::json!({
+            "surface": "1.0",
+            "name": "Future",
+            "root": {"text": "hello"},
+            "theme_from_a_newer_build": {"accent": "teal"}
+        });
+        let spec: SurfaceSpec = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(
+            spec.extra["theme_from_a_newer_build"],
+            json["theme_from_a_newer_build"]
+        );
+        let back = serde_json::to_value(&spec).unwrap();
+        assert_eq!(
+            back["theme_from_a_newer_build"],
+            json["theme_from_a_newer_build"]
+        );
+    }
 }

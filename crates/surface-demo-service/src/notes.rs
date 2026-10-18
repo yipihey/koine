@@ -296,6 +296,7 @@ pub fn add(
         batch_id: None,
         references: vec![],
         parent: parent.as_ref().map(|p| p.id),
+        extra: Default::default(),
     };
     store.insert(item.clone()).map_err(NoteError::store)?;
     Ok(note_of(&item))

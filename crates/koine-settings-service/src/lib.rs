@@ -185,6 +185,7 @@ impl SyncedBackend for StoreSyncedBackend {
                     batch_id: None,
                     references: vec![],
                     parent: None,
+                    extra: Default::default(),
                 };
                 store.insert(item).map(|_| ()).map_err(store_error)
             }

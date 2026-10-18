@@ -405,6 +405,7 @@ fn task_item(payload: BTreeMap<String, Value>) -> Item {
         // `already_spawned` from ever seeing them.
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 

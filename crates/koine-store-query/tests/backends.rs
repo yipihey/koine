@@ -39,6 +39,7 @@ fn insert(store: &dyn AttributedStore, schema: &str, title: &str) -> String {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         })
         .unwrap()
         .to_string()

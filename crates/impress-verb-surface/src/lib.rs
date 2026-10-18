@@ -363,6 +363,7 @@ fn render_surface(
         state: Value::Object(state),
         sources: Default::default(),
         root: Node::leaf(NodeKind::Column(column)).with_id("root"),
+        extra: Default::default(),
     }
 }
 
@@ -968,6 +969,7 @@ pub fn catalogue() -> SurfaceSpec {
         }),
         sources,
         root,
+        extra: Default::default(),
     }
 }
 

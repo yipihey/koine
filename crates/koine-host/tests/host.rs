@@ -1542,6 +1542,7 @@ fn routine_row(verb: &str) -> impress_item::Item {
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 

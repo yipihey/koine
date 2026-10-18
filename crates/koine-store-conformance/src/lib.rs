@@ -61,6 +61,7 @@ pub mod durable;
 pub mod events;
 pub mod fixture;
 pub mod graph;
+pub mod kinds;
 pub mod ops;
 pub mod port;
 pub mod query;
@@ -71,6 +72,7 @@ pub use crud::*;
 pub use durable::*;
 pub use events::*;
 pub use graph::*;
+pub use kinds::*;
 pub use ops::*;
 pub use port::*;
 pub use query::*;
@@ -89,6 +91,13 @@ macro_rules! __cases {
     ($callback:path; $($args:tt)*) => {
         $callback! { $($args)* ;
             core: [
+                // kinds (plan-koine-trust TR-D12, TR-D13)
+                version_is_stamped_on_write,
+                op_schema_version_is_stamped,
+                unknown_payload_fields_survive,
+                unknown_envelope_fields_survive,
+                unknown_kind_round_trips,
+                item_before_its_kind_schema,
                 // crud
                 an_empty_store_is_empty,
                 insert_get_round_trip,

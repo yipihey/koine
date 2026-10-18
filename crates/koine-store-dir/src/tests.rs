@@ -69,6 +69,7 @@ fn make_item(schema_ref: &str, title: &str) -> Item {
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 

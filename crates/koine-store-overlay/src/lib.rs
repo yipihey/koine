@@ -493,6 +493,7 @@ mod tests {
             batch_id: None,
             references: Vec::new(),
             parent: None,
+            extra: Default::default(),
         }
     }
 

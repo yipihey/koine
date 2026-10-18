@@ -360,6 +360,15 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
     // opened store, not the recording wrapper: they are not the call's reads
     // or writes.
     koine_store::once::install(opened.store.clone());
+    // plan-koine-trust TR-D12: the kind schemas this store carries.
+    match impress_item::kind::load(opened.store.as_ref()) {
+        Ok(refused) => {
+            for refusal in refused {
+                tracing::warn!(%refusal, "a stored kind schema was refused");
+            }
+        }
+        Err(error) => tracing::warn!(%error, "could not read the stored kind schemas"),
+    }
     // plan-koine-trust TR-D4: a call the policy holds for a person is kept as
     // a pending call; approvals made elsewhere run, and stale ones expire.
     #[cfg(feature = "tasks")]

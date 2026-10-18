@@ -332,6 +332,7 @@ pub fn file_verb_task(
             })
             .collect(),
         parent: None,
+        extra: Default::default(),
     };
     let id = store
         .insert(item)

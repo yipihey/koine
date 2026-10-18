@@ -121,6 +121,7 @@ fn row(id: ItemId, schema: SchemaRef, payload: BTreeMap<String, ItemValue>) -> I
         batch_id: None,
         references: Vec::new(),
         parent: None,
+        extra: Default::default(),
     }
 }
 

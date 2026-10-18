@@ -1520,6 +1520,7 @@ impl AiStore {
             batch_id: None,
             references,
             parent,
+            extra: Default::default(),
         }
     }
 

@@ -251,6 +251,7 @@ pub fn file_pending_in(
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     };
     let id = store.insert(item).map_err(|e| e.to_string())?;
     let mut context: BTreeMap<String, Value> = BTreeMap::new();
@@ -482,6 +483,7 @@ pub fn remember(
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         })
         .map_err(|e| e.to_string())
 }

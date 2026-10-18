@@ -2400,6 +2400,7 @@ fn seeded_item(
             })
             .collect(),
         parent,
+        extra: Default::default(),
     }
 }
 

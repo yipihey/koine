@@ -342,6 +342,7 @@ fn insert_paper(store: &MemoryStore, title: &str) -> ItemId {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         })
         .unwrap();
     id

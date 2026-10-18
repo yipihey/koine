@@ -257,6 +257,7 @@ fn provider_item(id: ItemId, payload: BTreeMap<String, ItemValue>) -> Item {
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 

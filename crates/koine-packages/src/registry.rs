@@ -300,6 +300,7 @@ pub async fn add(url: &str) -> Result<(Known, Index), ShippedError> {
             batch_id: None,
             references: Vec::new(),
             parent: None,
+            extra: Default::default(),
         })
         .map_err(|e| fail("store-error", e.to_string()))?;
     let found = known()?

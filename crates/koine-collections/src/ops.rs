@@ -1508,6 +1508,7 @@ pub fn new_item(
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 

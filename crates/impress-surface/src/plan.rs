@@ -239,6 +239,7 @@ mod tests {
             state: serde_json::json!({"freq": 1.0, "bins": 20}),
             sources,
             root: Node::leaf(NodeKind::Spacer),
+            extra: Default::default(),
         }
     }
 

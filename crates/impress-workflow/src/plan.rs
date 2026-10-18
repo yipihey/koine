@@ -33,6 +33,7 @@ pub fn to_surface_spec(workflow: &WorkflowSpec, state: serde_json::Value) -> Sur
         state,
         sources: workflow.sources.clone(),
         root,
+        extra: Default::default(),
     }
 }
 

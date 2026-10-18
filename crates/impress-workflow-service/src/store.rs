@@ -101,6 +101,7 @@ pub fn insert(
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     })?;
     Ok(WorkflowRow {
         id: inserted,

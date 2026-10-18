@@ -367,6 +367,29 @@ protocols' words: `input_required` (held for a person), `auth_required`
 (`missing-secret`), `rejected` (the policy refused; code `rejected`). A verb
 task whose call needs a secret waits on a review instead of failing.
 
+## Kinds that evolve
+
+A record kind's payload may be described by a `KindSchema`
+(`impress_item::kind`; plan-koine-trust TR-D12): fields with a type,
+whether each is required, and the values an enumeration allows. Kinds evolve
+by AT Protocol Lexicon's rules: a new field is optional, a required field
+stays required, a field keeps its type, an enumeration never loses a value.
+`kind::register` refuses a schema that breaks them under the same name — a
+breaking change is a new kind name (`task@2.0.0`). Schemas are records too
+(`core/kind-schema@1.0.0`), loaded by the host at start.
+
+Every write is stamped with the schema version it was written under: an
+item's `version`, and an operation's `op_schema_version`. A payload that does
+not match its kind's schema is counted, not refused (warn mode;
+`notebook-service_health` shows `kind_mismatches`).
+
+What a build does not understand, it keeps (TR-D13): payload fields no
+schema names, envelope fields a newer build added (`Item::extra`), top-level
+keys of a surface spec or a layout (`SurfaceSpec::extra`, `Layout::extra`),
+and items of kinds it has never heard of. The store conformance suite pins
+all of it on every backend. Nested nodes of a surface and tiles of a layout
+are not yet kept: an unknown node or tile kind still fails to parse.
+
 ## What pins this
 
 | Rule | Test |

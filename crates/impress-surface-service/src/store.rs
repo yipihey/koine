@@ -229,6 +229,7 @@ impl<S: AttributedStore + ?Sized> SurfaceStore<S> {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         let id = self
             .store
@@ -803,6 +804,7 @@ impl<S: AttributedStore + ?Sized> SurfaceStore<S> {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         self.store.insert(item)
     }

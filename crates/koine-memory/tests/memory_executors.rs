@@ -184,6 +184,7 @@ fn bare_item(schema: SchemaRef, payload: BTreeMap<String, Value>) -> Item {
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     }
 }
 

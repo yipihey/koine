@@ -87,6 +87,7 @@ pub fn new_item(
         batch_id: None,
         references: Vec::new(),
         parent,
+        extra: Default::default(),
     }
 }
 

@@ -181,6 +181,7 @@ pub fn create_job<S: AttributedStore + ?Sized>(
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     };
     Ok(store.insert(item)?)
 }
@@ -364,6 +365,7 @@ pub fn append_event<S: AttributedStore + ?Sized>(
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         match store.insert(item) {
             Ok(_) => {

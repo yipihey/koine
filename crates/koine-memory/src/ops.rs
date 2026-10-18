@@ -467,6 +467,7 @@ pub fn insert_memory_item(
         batch_id: None,
         references,
         parent: None,
+        extra: Default::default(),
     };
     store.insert(item)
 }
@@ -1633,6 +1634,7 @@ mod tests {
                 batch_id: None,
                 references: vec![],
                 parent: None,
+                extra: Default::default(),
             })
             .expect("insert subject")
     }
@@ -1673,6 +1675,7 @@ mod tests {
                 batch_id: None,
                 references: vec![],
                 parent: None,
+                extra: Default::default(),
             })
             .expect("insert memory claim")
     }

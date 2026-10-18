@@ -170,6 +170,7 @@ impl Caller for TierACaller {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         let id = self
             .store

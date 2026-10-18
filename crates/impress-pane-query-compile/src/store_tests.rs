@@ -57,6 +57,7 @@ fn row(schema: &str, title: &str, refs: Vec<TypedReference>) -> Item {
         batch_id: None,
         references: refs,
         parent: None,
+        extra: Default::default(),
     }
 }
 

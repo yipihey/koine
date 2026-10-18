@@ -55,6 +55,11 @@ pub struct Layout {
     /// followed a detached pane into its own window (review RL-L5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current: Option<WindowId>,
+    /// Top-level keys this build does not know — a newer build's — kept so a
+    /// layout written back does not drop them (plan-koine-trust TR-D13).
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 /// What [`Layout`] deserializes *through*, so that JSON written before
@@ -75,6 +80,8 @@ struct LayoutWire {
     next_window: Option<u64>,
     #[serde(default)]
     current: Option<WindowId>,
+    #[serde(flatten, default)]
+    extra: BTreeMap<String, serde_json::Value>,
 }
 
 impl From<LayoutWire> for Layout {
@@ -93,6 +100,7 @@ impl From<LayoutWire> for Layout {
             next_tile: wire.next_tile,
             next_window: wire.next_window.unwrap_or(floor).max(floor),
             current: wire.current,
+            extra: wire.extra,
         }
     }
 }
@@ -123,6 +131,7 @@ impl Layout {
             next_tile: 0,
             next_window: 1,
             current: None,
+            extra: Default::default(),
         }
     }
 
@@ -1000,5 +1009,24 @@ mod tests {
     fn an_empty_layout_has_no_current_window() {
         let layout = Layout::empty();
         assert!(layout.current_window().is_err());
+    }
+}
+
+#[cfg(test)]
+mod keep_unknown_tests {
+    use super::*;
+
+    /// plan-koine-trust TR-D13: a layout a newer build wrote keeps the
+    /// top-level keys this build does not know through a parse and a write.
+    #[test]
+    fn unknown_top_level_keys_survive_a_rewrite() {
+        let mut value = serde_json::to_value(Layout::empty()).unwrap();
+        value["docking_from_a_newer_build"] = serde_json::json!({"edge": "left"});
+        let layout: Layout = serde_json::from_value(value.clone()).unwrap();
+        let back = serde_json::to_value(&layout).unwrap();
+        assert_eq!(
+            back["docking_from_a_newer_build"],
+            value["docking_from_a_newer_build"]
+        );
     }
 }

@@ -10,6 +10,7 @@
 pub mod ambient;
 pub mod event;
 pub mod item;
+pub mod kind;
 pub mod operation;
 pub mod query;
 pub mod reference;

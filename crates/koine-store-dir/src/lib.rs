@@ -1100,6 +1100,8 @@ impl Txn<'_> {
     /// missing origin is this store's, instants are millisecond-precise, tags
     /// and references are sets.
     fn insert(&mut self, mut item: Item) -> Result<ItemId, StoreError> {
+        // plan-koine-trust TR-D12: stamp the kind's schema version.
+        impress_item::kind::stamp_item(&mut item);
         let id = item.id;
         if self.exists(id)? {
             return Err(StoreError::AlreadyExists(id));
@@ -1351,13 +1353,17 @@ fn operation_row(
     let item = Item {
         id: operation_id,
         schema: SchemaRef::from_stored(OPERATION_SCHEMA.into()),
-        payload: build_operation_payload(
-            spec.target_id,
-            &spec.op_type,
-            spec.intent,
-            spec.reason.as_deref(),
-            prev,
-        ),
+        payload: {
+            let mut payload = build_operation_payload(
+                spec.target_id,
+                &spec.op_type,
+                spec.intent,
+                spec.reason.as_deref(),
+                prev,
+            );
+            impress_item::kind::stamp_operation(&mut payload, target_schema);
+            payload
+        },
         created: now,
         modified: now,
         author: spec.author.clone(),
@@ -1377,6 +1383,7 @@ fn operation_row(
         batch_id: spec.batch_id.clone().or_else(impress_item::ambient_batch),
         references: vec![],
         parent: None,
+        extra: Default::default(),
     };
     Row {
         item,

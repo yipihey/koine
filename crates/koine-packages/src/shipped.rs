@@ -230,6 +230,7 @@ impl Baseline {
                     batch_id: None,
                     references: Vec::new(),
                     parent: None,
+                    extra: Default::default(),
                 })
                 .map(|_| ())
                 .map_err(fail)

@@ -222,6 +222,7 @@ pub fn create_task_dag_from(
             batch_id: None,
             references,
             parent: None,
+            extra: Default::default(),
         };
         ids.push(store.create_item(item)?);
     }

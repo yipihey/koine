@@ -104,6 +104,7 @@ impl StoreMaterializer {
                 batch_id: None,
                 references: vec![],
                 parent: None,
+                extra: Default::default(),
             };
             return self
                 .store

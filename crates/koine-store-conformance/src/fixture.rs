@@ -61,6 +61,7 @@ pub fn item(schema_name: &str, title: &str) -> Item {
         batch_id: None,
         references: Vec::new(),
         parent: None,
+        extra: Default::default(),
     }
 }
 

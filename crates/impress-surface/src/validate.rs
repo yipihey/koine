@@ -315,6 +315,7 @@ pub fn validate_json(raw: &Value) -> (Option<SurfaceSpec>, Vec<Problem>) {
             .unwrap_or_else(|| Value::Object(Map::new())),
         sources,
         root,
+        extra: Default::default(),
     };
     problems.extend(validate(&spec));
     // What this build read, written back out: a key the author wrote that is
@@ -1040,6 +1041,7 @@ mod tests {
             state: serde_json::json!({ "x": 1 }),
             sources: BTreeMap::new(),
             root,
+            extra: Default::default(),
         }
     }
 

@@ -232,6 +232,12 @@ pub struct Item {
     // Graph structure
     pub references: Vec<TypedReference>,
     pub parent: Option<ItemId>,
+
+    /// Envelope fields this build does not know — a newer build's — kept as
+    /// they came so a write back does not drop them (plan-koine-trust
+    /// TR-D13). Empty for every field this build names.
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[cfg(test)]
@@ -296,6 +302,7 @@ mod tests {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         };
         let json = serde_json::to_string_pretty(&item).unwrap();
         let back: Item = serde_json::from_str(&json).unwrap();

@@ -191,6 +191,7 @@ pub fn kernel_item(
         batch_id: None,
         references,
         parent: None,
+        extra: Default::default(),
     }
 }
 

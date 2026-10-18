@@ -778,6 +778,7 @@ mod tests {
             batch_id: None,
             references: vec![],
             parent,
+            extra: Default::default(),
         }
     }
 

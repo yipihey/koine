@@ -93,6 +93,7 @@ pub fn section_surface(section_id: &str, settings: &[Resolved]) -> Option<Surfac
         state: Value::Object(state),
         sources: Default::default(),
         root: Node::leaf(NodeKind::Column(items)),
+        extra: Default::default(),
     })
 }
 

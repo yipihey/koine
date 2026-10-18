@@ -206,6 +206,13 @@ pub struct HistoryHealth {
     pub rows: usize,
     /// The oldest row's `started_at`, when there is one.
     pub oldest: Option<String>,
+    /// Writes whose payload did not match their kind's registered schema
+    /// (plan-koine-trust TR-D12, warn mode: counted, not refused).
+    #[serde(default)]
+    pub kind_mismatches: u64,
+    /// The latest such write: kind, item and what did not match.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_kind_mismatch: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -692,6 +699,7 @@ fn write_proposal(
         batch_id: None,
         references: vec![],
         parent: None,
+        extra: Default::default(),
     });
     let id = outcome.map_err(|_| ProposalWriteError::StoreInsert)?;
     Ok(ProposedWorkflow {
@@ -1098,6 +1106,7 @@ impl HistoryService for DefaultHistoryService {
             batch_id: None,
             references: vec![],
             parent: None,
+            extra: Default::default(),
         });
         match outcome {
             Ok(id) => SaveMacroResult {
@@ -1252,6 +1261,8 @@ impl HistoryService for DefaultHistoryService {
             channel_capacity: sink_health["channel_capacity"].as_u64().unwrap_or(0),
             rows,
             oldest,
+            kind_mismatches: impress_item::kind::validation_failures().0,
+            last_kind_mismatch: impress_item::kind::validation_failures().1,
         }
     }
 }
@@ -1405,6 +1416,7 @@ mod tests {
             batch_id: Some(call_id.to_string()),
             references: vec![],
             parent: None,
+            extra: Default::default(),
         })
     }
 
@@ -1436,6 +1448,7 @@ mod tests {
                 batch_id: None,
                 references: vec![],
                 parent: None,
+                extra: Default::default(),
             })
             .expect("insert item")
             .to_string()
@@ -1474,6 +1487,7 @@ mod tests {
                 batch_id: None,
                 references: vec![],
                 parent: None,
+                extra: Default::default(),
             })
             .expect("insert paper");
         id
@@ -1930,6 +1944,7 @@ mod tests {
                     batch_id: None,
                     references: vec![],
                     parent: None,
+                    extra: Default::default(),
                 })
                 .expect("insert paper");
             impress_service_core::runtime::block_on(pipeline::invoke_on(

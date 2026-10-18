@@ -499,6 +499,7 @@ pub fn editor_spec(frontend: &str) -> Result<SurfaceSpec, StyleError> {
         state: editor_state(&defaults),
         sources: BTreeMap::new(),
         root: Node::leaf(NodeKind::Column(rows)).with_id("style"),
+        extra: Default::default(),
     })
 }
 

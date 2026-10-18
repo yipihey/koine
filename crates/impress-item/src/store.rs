@@ -420,6 +420,7 @@ pub trait AttributedStore: ItemStore {
                     batch_id: None,
                     references: Vec::new(),
                     parent: None,
+                    extra: Default::default(),
                 })
                 .map(|_| ())
             }
