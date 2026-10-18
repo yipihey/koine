@@ -1154,11 +1154,11 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
         }
     }
     if let Some(role) = &out.entity {
-        if out.returns_kind.is_none() || out.rows.is_none() {
+        if out.returns_kind.is_none() {
             return Err(syn::Error::new(
                 role.span(),
-                "`entity(…)` answers rows of a kind: add `returns_kind = \"…\"` and `rows(…)` to \
-                 the same `#[impress_method]`",
+                "`entity(…)` answers records of a kind: add `returns_kind = \"…\"` to the same \
+                 `#[impress_method]`",
             ));
         }
     }

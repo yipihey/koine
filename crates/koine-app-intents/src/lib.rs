@@ -75,8 +75,24 @@ struct Entity {
     type_name: String,
     id_field: String,
     title_field: String,
-    lookup: (String, String),
-    search: (String, String),
+    /// The lookup verb, its id argument, and whether that takes a list (one
+    /// call) or one id (a call per id).
+    lookup: (String, String, bool),
+    /// The search verb, its text argument, and the other required arguments
+    /// with plain defaults (a `limit` of 50, false, empty).
+    search: (String, String, Vec<(String, String)>),
+}
+
+/// A Swift literal for a required argument the generator fills itself.
+fn default_literal(name: &str, prop: &Value) -> String {
+    match json_type(prop).map(|(t, _)| t).as_deref() {
+        Some("integer") | Some("number") if name == "limit" => "50".into(),
+        Some("integer") | Some("number") => "0".into(),
+        Some("boolean") => "false".into(),
+        Some("array") => "[] as [Any]".into(),
+        Some("object") => "[:] as [String: Any]".into(),
+        _ => "\"\"".into(),
+    }
 }
 
 fn camel(text: &str) -> String {
@@ -230,41 +246,51 @@ fn target_args(verb: &VerbHandle) -> Vec<String> {
 }
 
 fn entities(verbs: &[VerbHandle]) -> BTreeMap<String, Entity> {
-    let mut lookups: BTreeMap<String, (&VerbHandle, String)> = BTreeMap::new();
-    let mut searches: BTreeMap<String, (&VerbHandle, String)> = BTreeMap::new();
+    type Lookup<'a> = (&'a VerbHandle, String, bool);
+    type Search<'a> = (&'a VerbHandle, String, Vec<(String, String)>);
+    let mut lookups: BTreeMap<String, Lookup<'_>> = BTreeMap::new();
+    let mut searches: BTreeMap<String, Search<'_>> = BTreeMap::new();
     for verb in verbs {
         let (Some(role), Some(kind)) = (verb.intent().entity, verb.returns_kind()) else {
             continue;
         };
         let schema = verb.input_schema();
         let props = properties(&schema);
+        let is_string = |p: &Value| json_type(p).is_some_and(|(t, _)| t == "string");
         match role {
             EntityRole::Lookup => {
-                if let Some((name, _, _)) = props.iter().find(|(_, p, _)| {
+                let many = props.iter().find(|(_, p, _)| {
                     json_type(p).is_some_and(|(t, _)| t == "array")
-                        && p.get("items")
-                            .and_then(json_type)
-                            .is_some_and(|(t, _)| t == "string")
-                }) {
-                    lookups.insert(kind.to_owned(), (verb, name.clone()));
+                        && p.get("items").is_some_and(is_string)
+                });
+                let one = props.iter().find(|(_, p, _)| is_string(p));
+                if let Some((name, _, _)) = many {
+                    lookups.insert(kind.to_owned(), (verb, name.clone(), true));
+                } else if let Some((name, _, _)) = one {
+                    lookups.insert(kind.to_owned(), (verb, name.clone(), false));
                 }
             }
             EntityRole::Search => {
-                if let Some((name, _, _)) = props
-                    .iter()
-                    .find(|(_, p, _)| json_type(p).is_some_and(|(t, _)| t == "string"))
-                {
-                    searches.insert(kind.to_owned(), (verb, name.clone()));
+                if let Some((name, _, _)) = props.iter().find(|(_, p, _)| is_string(p)) {
+                    let fill: Vec<(String, String)> = props
+                        .iter()
+                        .filter(|(other, _, required)| *required && other != name)
+                        .map(|(other, prop, _)| (other.clone(), default_literal(other, prop)))
+                        .collect();
+                    searches.insert(kind.to_owned(), (verb, name.clone(), fill));
                 }
             }
         }
     }
     let mut out = BTreeMap::new();
-    for (kind, (lookup, ids_arg)) in &lookups {
-        let Some((search, text_arg)) = searches.get(kind) else {
+    for (kind, (lookup, ids_arg, many)) in &lookups {
+        let Some((search, text_arg, fill)) = searches.get(kind) else {
             continue;
         };
-        let Some(rows) = lookup.rows() else { continue };
+        // The row schema: the search's (it answers rows), else the lookup's.
+        let Some(rows) = search.rows().or_else(|| lookup.rows()) else {
+            continue;
+        };
         out.insert(
             kind.clone(),
             Entity {
@@ -272,8 +298,8 @@ fn entities(verbs: &[VerbHandle]) -> BTreeMap<String, Entity> {
                 type_name: format!("{}Entity", camel(kind)),
                 id_field: rows.id.to_owned(),
                 title_field: rows.title.unwrap_or(rows.id).to_owned(),
-                lookup: (lookup.name().to_owned(), ids_arg.clone()),
-                search: (search.name().to_owned(), text_arg.clone()),
+                lookup: (lookup.name().to_owned(), ids_arg.clone(), *many),
+                search: (search.name().to_owned(), text_arg.clone(), fill.clone()),
             },
         );
     }
@@ -394,12 +420,10 @@ public struct {t}Query: EntityQuery, EntityStringQuery {{
     public init() {{}}
 
     public func entities(for identifiers: [String]) async throws -> [{t}] {{
-        let answer = try await {p}Verbs.call("{lookup}", ["{ids_arg}": identifiers])
-        return {p}Verbs.rows(answer).compactMap({t}.init(row:))
-    }}
+{lookup_body}    }}
 
     public func entities(matching string: String) async throws -> [{t}] {{
-        let answer = try await {p}Verbs.call("{search}", ["{text_arg}": string])
+        let answer = try await {p}Verbs.call("{search}", ["{text_arg}": string{fill}])
         return {p}Verbs.rows(answer).compactMap({t}.init(row:))
     }}
 
@@ -412,10 +436,26 @@ public struct {t}Query: EntityQuery, EntityStringQuery {{
             display = swift_str(&camel(&e.kind)),
             id_field = swift_str(&e.id_field),
             title_field = swift_str(&e.title_field),
+            lookup_body = if e.lookup.2 {
+                format!(
+                    "        let answer = try await {p}Verbs.call(\"{}\", [\"{}\": identifiers])\n        return {p}Verbs.rows(answer).compactMap({t}.init(row:))\n",
+                    e.lookup.0, e.lookup.1
+                )
+            } else {
+                format!(
+                    "        var found: [{t}] = []\n        for id in identifiers {{\n            let answer = try await {p}Verbs.call(\"{}\", [\"{}\": id])\n            if let row = answer as? [String: Any], let entity = {t}(row: row) {{\n                found.append(entity)\n            }} else {{\n                found.append(contentsOf: {p}Verbs.rows(answer).compactMap({t}.init(row:)))\n            }}\n        }}\n        return found\n",
+                    e.lookup.0, e.lookup.1
+                )
+            },
             lookup = e.lookup.0,
-            ids_arg = e.lookup.1,
             search = e.search.0,
             text_arg = e.search.1,
+            fill = e
+                .search
+                .2
+                .iter()
+                .map(|(name, value)| format!(", \"{name}\": {value}"))
+                .collect::<String>(),
         );
     }
     s

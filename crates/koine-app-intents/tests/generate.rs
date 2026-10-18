@@ -66,6 +66,18 @@ pub trait PaperService: Send + Sync + 'static {
     /// Import a structure.
     #[impress_method(safety = mutating, intent(title = "Import"))]
     async fn import(&self, nested: Nested) -> Papers;
+
+    /// One note by id.
+    #[impress_method(returns_kind = "note", entity(lookup))]
+    async fn get_note(&self, id: String) -> Option<Paper>;
+
+    /// Notes matching a query.
+    #[impress_method(
+        returns_kind = "note",
+        rows(id = "bibcode", title = "title"),
+        entity(search)
+    )]
+    async fn search_notes(&self, query: String, limit: u32) -> Vec<Paper>;
 }
 
 pub struct Library;
@@ -86,6 +98,12 @@ impl PaperService for Library {
     }
     async fn import(&self, _nested: Nested) -> Papers {
         Papers::default()
+    }
+    async fn get_note(&self, _id: String) -> Option<Paper> {
+        None
+    }
+    async fn search_notes(&self, _query: String, _limit: u32) -> Vec<Paper> {
+        Vec::new()
     }
 }
 
@@ -124,6 +142,18 @@ impress_service_impl! {
             /// The structure.
             nested: Nested
         ) -> Papers,
+        /// One note.
+        get_note(
+            /// Its id.
+            id: String
+        ) -> Option<Paper>,
+        /// Notes.
+        search_notes(
+            /// The text.
+            query: String,
+            /// At most this many.
+            limit: u32
+        ) -> Vec<Paper>,
     ],
 }
 
@@ -150,6 +180,18 @@ fn intents_entities_and_shortcuts_are_generated_and_deterministic() {
     assert!(entities.contains(r#"row["bibcode"]"#));
     assert!(entities.contains(r#"call("paper-service_get-papers", ["ids": identifiers])"#));
     assert!(entities.contains(r#"call("paper-service_search-papers", ["query": string])"#));
+
+    // A lookup by one id is called per id; a search's other required
+    // arguments are filled.
+    assert!(
+        entities.contains("public struct NoteEntity: AppEntity"),
+        "{entities}"
+    );
+    assert!(entities.contains("for id in identifiers"), "{entities}");
+    assert!(
+        entities.contains(r#"["query": string, "limit": 50]"#),
+        "{entities}"
+    );
 
     let intents = &generated.files["LibIntents.swift"];
     assert!(
