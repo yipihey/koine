@@ -340,6 +340,7 @@ pub(crate) mod tests {
             secrets,
             source: Source::Linked,
             handler: |_| Box::pin(async { Ok(serde_json::json!({})) }),
+            consent: crate::Consent::DEFAULT,
         }
     }
 

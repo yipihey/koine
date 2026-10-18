@@ -282,6 +282,24 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                     None => quote! { ::core::option::Option::None },
                 };
                 let secrets = &overrides.secrets;
+                let impact = match &overrides.impact {
+                    Some(v) => {
+                        quote! { ::core::option::Option::Some(::impress_service_core::Impact::#v) }
+                    }
+                    None => quote! { ::core::option::Option::None },
+                };
+                let review = match &overrides.review {
+                    Some(path) => quote! {
+                        ::core::option::Option::Some(#path as ::impress_service_core::ReviewHook)
+                    },
+                    None => quote! { ::core::option::Option::None },
+                };
+                let targets = match &overrides.targets {
+                    Some(lit) => quote! { ::core::option::Option::Some(#lit) },
+                    None => quote! { ::core::option::Option::None },
+                };
+                let alternatives = &overrides.alternatives;
+                let risk = &overrides.risk;
                 metas.push(quote! {
                     ::impress_service_core::MethodMeta {
                         name: #method_name,
@@ -299,6 +317,13 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                         returns_kind: #returns_kind,
                         rows: #rows,
                         secrets: &[#(#secrets),*],
+                        consent: ::impress_service_core::Consent {
+                            impact: #impact,
+                            review: #review,
+                            targets: #targets,
+                            alternatives: &[#(#alternatives),*],
+                            risk: &[#(::impress_service_core::Risk::#risk),*],
+                        },
                     }
                 });
             }
@@ -380,6 +405,18 @@ struct MethodOverrides {
     /// `secrets = ["scix-api-token"]` (plan-koine-followups F-D1): what the
     /// verb reads from the secret slot. Each name validated as a kind id.
     secrets: Vec<syn::LitStr>,
+    /// `impact = "low" | "medium" | "high"` (plan-koine-trust TR-D6).
+    impact: Option<Ident>,
+    /// `review = path::to_fn`: the argument-aware review check (TR-D6).
+    review: Option<syn::Path>,
+    /// `targets = "ids"`: the argument listing the records the call acts on
+    /// (TR-D7).
+    targets: Option<syn::LitStr>,
+    /// `alternatives = ["service_verb", …]`: verbs a person may choose instead
+    /// (TR-D7).
+    alternatives: Vec<syn::LitStr>,
+    /// `risk(private, untrusted)` (TR-D11).
+    risk: Vec<Ident>,
 }
 
 /// A parsed `rows(…)`.
@@ -956,6 +993,70 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
             } else if meta.path.is_ident("secrets") {
                 out.secrets = parse_secrets(&meta)?;
                 Ok(())
+            } else if meta.path.is_ident("impact") {
+                let lit: syn::LitStr = meta.value()?.parse()?;
+                let variant = match lit.value().as_str() {
+                    "low" => "Low",
+                    "medium" => "Medium",
+                    "high" => "High",
+                    other => {
+                        return Err(syn::Error::new(
+                            lit.span(),
+                            format!(
+                                "impact must be \"low\", \"medium\" or \"high\", not \"{other}\""
+                            ),
+                        ))
+                    }
+                };
+                out.impact = Some(Ident::new(variant, lit.span()));
+                Ok(())
+            } else if meta.path.is_ident("review") {
+                out.review = Some(meta.value()?.parse()?);
+                Ok(())
+            } else if meta.path.is_ident("targets") {
+                out.targets = Some(meta.value()?.parse()?);
+                Ok(())
+            } else if meta.path.is_ident("alternatives") {
+                let list: syn::ExprArray = meta.value()?.parse()?;
+                for elem in list.elems {
+                    match elem {
+                        syn::Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Str(name),
+                            ..
+                        }) => out.alternatives.push(name),
+                        other => {
+                            return Err(syn::Error::new_spanned(
+                                other,
+                                "`alternatives` lists verb names as string literals",
+                            ))
+                        }
+                    }
+                }
+                Ok(())
+            } else if meta.path.is_ident("risk") {
+                let content;
+                syn::parenthesized!(content in meta.input);
+                let idents =
+                    syn::punctuated::Punctuated::<Ident, syn::Token![,]>::parse_terminated(
+                        &content,
+                    )?;
+                for ident in idents {
+                    let variant = match ident.to_string().as_str() {
+                        "private" => "Private",
+                        "untrusted" => "Untrusted",
+                        other => {
+                            return Err(syn::Error::new(
+                                ident.span(),
+                                format!(
+                                    "risk is `private` or `untrusted`, not `{other}` (sending \
+                                     data out is implied by an external reach)"
+                                ),
+                            ))
+                        }
+                    };
+                    out.risk.push(Ident::new(variant, ident.span()));
+                }
+                Ok(())
             } else if meta.path.is_ident("replay") {
                 let mode: Ident = meta.value()?.parse()?;
                 if mode != "full" {
@@ -968,7 +1069,8 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
                     "unknown #[impress_method] key; `safety = …`, `idempotent = …`, \
                      `effects(…)`, `deprecated(…)`, `aliases = […]`, `budget_ms = …`, \
                      `replay = full`, `supports(…)`, `adjective(…)`, `returns_kind = \"…\"`, \
-                     `rows(…)` or `secrets = […]`",
+                     `rows(…)`, `secrets = […]`, `impact = \"…\"`, `review = f`, \
+                     `targets = \"…\"`, `alternatives = […]` or `risk(…)`",
                 ))
             }
         })?;
@@ -1735,6 +1837,7 @@ fn expand_method(
                 returns_kind: ::impress_service_core::resolve_returns_kind(&#meta_table, #method_name_str),
                 rows: ::impress_service_core::resolve_rows(&#meta_table, #method_name_str),
                 secrets: ::impress_service_core::resolve_secrets(&#meta_table, #method_name_str),
+                consent: ::impress_service_core::resolve_consent(&#meta_table, #method_name_str),
                 since: #since,
                 deprecated: ::impress_service_core::resolve_deprecated(&#meta_table, #method_name_str),
                 aliases: ::impress_service_core::resolve_aliases(&#meta_table, #method_name_str),

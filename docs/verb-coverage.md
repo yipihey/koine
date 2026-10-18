@@ -26,7 +26,7 @@ There is no second list.
 | `agent-service` | koine-agent | 12 |
 | `package-service` | koine-packages | 15 |
 | `task-service` | koine-tasks | 5 |
-| `review-service` | koine-tasks | 4 |
+| `review-service` | koine-tasks | 6 |
 | `impress-ai-service` | koine-ai | 17 |
 | `perf-service` | perf-service | 4 |
 | `capabilities-service` | capabilities-service | 4 |

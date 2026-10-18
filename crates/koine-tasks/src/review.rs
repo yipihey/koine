@@ -28,7 +28,8 @@ use impress_item::query::{ItemQuery, Predicate, SortDescriptor};
 use impress_item::store::{AttributedStore, GuardedWrite};
 use impress_item::SchemaRef;
 use impress_service_core::pipeline::policy::{
-    self, Approval, ReviewQueue, VerbFacts, STATUS_INPUT_REQUIRED,
+    self, Approval, ConsentRule, PendingRequest, ReviewQueue, RuleSource, VerbFacts,
+    STATUS_INPUT_REQUIRED,
 };
 use impress_service_core::pipeline::{self, context as call_context, Call, CallerIdentity};
 use impress_service_core::refusal::{codes, Refusal};
@@ -108,6 +109,73 @@ pub fn file_pending_call(
     verb: &dyn VerbFacts,
     args: &serde_json::Value,
 ) -> Result<ItemId, String> {
+    file_pending_request(store, caller, verb, args, None)
+}
+
+/// The records a call acts on, as `[{id, argument, kind, title}]`: the ids
+/// in its `targets` argument, or in the argument its effects name as the
+/// target (`Kind::Target`, `Kind::Children`).
+pub fn targets_of(
+    store: &dyn AttributedStore,
+    verb: &dyn VerbFacts,
+    args: &serde_json::Value,
+) -> Vec<serde_json::Value> {
+    use impress_service_core::Kind;
+    let mut arg_names: Vec<&str> = Vec::new();
+    if let Some(arg) = verb.consent().targets {
+        arg_names.push(arg);
+    }
+    for kind in verb.effects().writes {
+        if let Kind::Target(arg) | Kind::Children(arg) = kind {
+            if !arg_names.contains(arg) {
+                arg_names.push(arg);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for arg in arg_names {
+        let ids: Vec<String> = match args.get(arg) {
+            Some(serde_json::Value::String(id)) => vec![id.clone()],
+            Some(serde_json::Value::Array(items)) => items
+                .iter()
+                .filter_map(|i| i.as_str().map(str::to_owned))
+                .collect(),
+            _ => continue,
+        };
+        for id in ids {
+            let found = id
+                .parse::<ItemId>()
+                .ok()
+                .and_then(|parsed| store.get(parsed).ok().flatten());
+            let title = found.as_ref().and_then(|item| {
+                ["title", "name", "label"]
+                    .iter()
+                    .find_map(|field| text(item, field))
+            });
+            out.push(serde_json::json!({
+                "id": id,
+                "argument": arg,
+                "kind": found.as_ref().map(|i| i.schema.as_str().to_owned()),
+                "title": title,
+            }));
+            if out.len() >= 50 {
+                return out;
+            }
+        }
+    }
+    out
+}
+
+/// [`file_pending_call`] with why the call was held (TR-D6): the reason,
+/// the verb's impact, the records it acts on and the alternatives a person
+/// may choose instead go on the pending call and its review request.
+pub fn file_pending_request(
+    store: &dyn AttributedStore,
+    caller: &CallerIdentity,
+    verb: &dyn VerbFacts,
+    args: &serde_json::Value,
+    reason: Option<&str>,
+) -> Result<ItemId, String> {
     let now = Utc::now();
     let safety = verb.safety().class.to_string();
     let [_, writes, reach] = verb.effects().columns();
@@ -121,6 +189,26 @@ pub fn file_pending_call(
     put("caller", caller.author());
     put("state", state::PENDING.into());
     put("safety", safety.clone());
+    let consent = verb.consent();
+    let impact = consent.impact_for(verb.safety().class).to_string();
+    put("impact", impact.clone());
+    if let Some(reason) = reason {
+        put("reason", reason.to_owned());
+    }
+    let targets = targets_of(store, verb, args);
+    if !targets.is_empty() {
+        put(
+            "targets",
+            serde_json::Value::Array(targets.clone()).to_string(),
+        );
+    }
+    if !consent.alternatives.is_empty() {
+        put(
+            "alternatives",
+            serde_json::json!(consent.alternatives).to_string(),
+        );
+    }
+    put("fingerprint", verb.fingerprint());
     if let Some(trace) = session {
         put("trace_id", trace);
     }
@@ -157,14 +245,38 @@ pub fn file_pending_call(
     context.insert("safety".into(), Value::String(safety.clone()));
     context.insert("writes".into(), Value::String(writes));
     context.insert("reach".into(), Value::String(reach));
+    context.insert("impact".into(), Value::String(impact.clone()));
+    if let Some(reason) = reason {
+        context.insert("reason".into(), Value::String(reason.to_owned()));
+    }
+    if !targets.is_empty() {
+        context.insert(
+            "targets".into(),
+            Value::String(serde_json::Value::Array(targets.clone()).to_string()),
+        );
+    }
     kernel::open_review(
         store,
         id,
         ReviewRequest {
-            question: format!(
-                "{caller} asks to run {} ({safety}). Approve it?",
-                verb.name()
-            ),
+            question: {
+                let on = match targets.len() {
+                    0 => String::new(),
+                    1 => format!(
+                        " on {}",
+                        targets[0]["title"]
+                            .as_str()
+                            .or(targets[0]["id"].as_str())
+                            .unwrap_or("one record")
+                    ),
+                    n => format!(" on {n} records"),
+                };
+                format!(
+                    "{caller} asks to run {}{on} ({safety}, {impact} impact){}. Approve it?",
+                    verb.name(),
+                    reason.map(|r| format!(": {r}")).unwrap_or_default()
+                )
+            },
             context: Some(context),
         },
         QUEUE_AUTHOR,
@@ -209,11 +321,161 @@ impl ReviewQueue for TaskReviewQueue {
             .map(|id| id.to_string())
             .map_err(|e| Refusal::new(codes::STORE_ERROR, e))
     }
+
+    fn enqueue_request(&self, request: &PendingRequest<'_>) -> Result<String, Refusal> {
+        if request.verb.name().starts_with("review-service_") {
+            return self.enqueue(request.caller, request.verb, request.args);
+        }
+        let (store, fallback) = koine_store::process::acquire_or_stand_in();
+        if fallback {
+            return self.enqueue(request.caller, request.verb, request.args);
+        }
+        file_pending_request(
+            store.as_ref(),
+            request.caller,
+            request.verb,
+            request.args,
+            request.reason,
+        )
+        .map(|id| id.to_string())
+        .map_err(|e| Refusal::new(codes::STORE_ERROR, e))
+    }
 }
 
-/// Install the review queue for this process.
+// ---------------------------------------------------------------------------
+// Standing rules (TR-D9)
+// ---------------------------------------------------------------------------
+
+/// The kind of a standing consent rule.
+pub const CONSENT_RULE: &str = "koine/consent-rule@1.0.0";
+
+/// How long an "always allow" lasts.
+pub const ALLOW_RULE_DAYS: i64 = 30;
+
+fn rule_of(item: &Item) -> Option<ConsentRule> {
+    if item.schema.as_str() != CONSENT_RULE || text(item, "revoked_at").is_some() {
+        return None;
+    }
+    Some(ConsentRule {
+        id: item.id.to_string(),
+        verb: text(item, "verb")?,
+        caller: text(item, "caller")?,
+        allow: text(item, "decision").as_deref() == Some("allow"),
+        fingerprint: text(item, "fingerprint").unwrap_or_default(),
+        expires_ms: match item.payload.get("expires_ms") {
+            Some(Value::Int(at)) => Some(*at),
+            _ => None,
+        },
+    })
+}
+
+/// Every consent-rule item in `store`, revoked ones included, newest first.
+pub fn rule_items(store: &dyn AttributedStore) -> Result<Vec<Item>, String> {
+    store
+        .query(&ItemQuery {
+            schema: Some(SchemaRef::from_stored(CONSENT_RULE.to_owned())),
+            sort: vec![SortDescriptor {
+                field: "created".into(),
+                ascending: false,
+            }],
+            ..Default::default()
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// The process store's standing rules, read again only when the store
+/// changed.
+struct StoreRules {
+    cache: std::sync::Mutex<Option<(u64, Vec<ConsentRule>)>>,
+}
+
+impl RuleSource for StoreRules {
+    fn rules(&self) -> Vec<ConsentRule> {
+        let Some(store) = koine_store::process::current() else {
+            return Vec::new();
+        };
+        let token = store.change_token().unwrap_or(u64::MAX);
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((seen, rules)) = cache.as_ref() {
+            if *seen == token && token != u64::MAX {
+                return rules.clone();
+            }
+        }
+        let rules: Vec<ConsentRule> = rule_items(store.as_ref())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(rule_of)
+            .collect();
+        *cache = Some((token, rules.clone()));
+        rules
+    }
+}
+
+/// Write a standing rule: `verb` from `caller`, allowed or rejected, made by
+/// `by` (from pending call `from`).
+pub fn remember(
+    store: &dyn AttributedStore,
+    verb: &str,
+    caller: &str,
+    allow: bool,
+    by: &CallerIdentity,
+    from: Option<ItemId>,
+) -> Result<ItemId, String> {
+    let now = Utc::now();
+    let fingerprint = impress_service_core::call::find(verb)
+        .map(|handle| handle.fingerprint())
+        .unwrap_or_default();
+    let mut payload: BTreeMap<String, Value> = BTreeMap::new();
+    payload.insert("verb".into(), Value::String(verb.to_owned()));
+    payload.insert("caller".into(), Value::String(caller.to_owned()));
+    payload.insert(
+        "decision".into(),
+        Value::String(if allow { "allow" } else { "deny" }.into()),
+    );
+    payload.insert("fingerprint".into(), Value::String(fingerprint));
+    payload.insert("made_by".into(), Value::String(by.author()));
+    if let Some(from) = from {
+        payload.insert("from_pending".into(), Value::String(from.to_string()));
+    }
+    if allow {
+        let at = (now + chrono::Duration::days(ALLOW_RULE_DAYS)).timestamp_millis();
+        payload.insert("expires_ms".into(), Value::Int(at));
+    }
+    store
+        .insert(Item {
+            id: Uuid::new_v4(),
+            schema: SchemaRef::from_stored(CONSENT_RULE.to_owned()),
+            payload,
+            created: now,
+            modified: now,
+            author: by.author(),
+            author_kind: actor_kind(by),
+            logical_clock: 0,
+            origin: None,
+            canonical_id: None,
+            tags: vec![],
+            flag: None,
+            is_read: false,
+            is_starred: false,
+            priority: Priority::Normal,
+            visibility: Visibility::Private,
+            message_type: None,
+            produced_by: None,
+            version: None,
+            batch_id: None,
+            references: vec![],
+            parent: None,
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// Install the review queue for this process, and the store's standing
+/// rules as the consent policy's.
 pub fn install_queue() {
     policy::install_queue(Arc::new(TaskReviewQueue));
+    policy::install_rule_source(Arc::new(StoreRules {
+        cache: std::sync::Mutex::new(None),
+    }));
 }
 
 /// The pending call `id` and its newest review request.
@@ -308,8 +570,14 @@ fn claim(store: &dyn AttributedStore, item: &Item, by: &CallerIdentity) -> Resul
 /// Run an approved pending call as its original caller and record the
 /// answer and the final state. The caller must already have claimed it.
 pub async fn run_approved(store: &dyn AttributedStore, item: &Item) -> serde_json::Value {
-    let verb = text(item, "verb").unwrap_or_default();
-    let args = json_text(item, "args").unwrap_or_else(|| serde_json::json!({}));
+    // What the person approved: the call as asked, or a subset of its
+    // targets, or an alternative verb (TR-D7).
+    let verb = text(item, "approved_verb")
+        .or_else(|| text(item, "verb"))
+        .unwrap_or_default();
+    let args = json_text(item, "approved_args")
+        .or_else(|| json_text(item, "args"))
+        .unwrap_or_else(|| serde_json::json!({}));
     let caller = CallerIdentity::from_author(&text(item, "caller").unwrap_or_default());
     let answer = match impress_service_core::call::find(&verb) {
         None => serde_json::json!({
@@ -469,7 +737,81 @@ pub struct PendingCallRow {
     /// The trace the asking call belonged to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
+    /// low, medium, high.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impact: Option<String>,
+    /// Why it was held.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The records it acts on: `[{id, argument, kind, title}]`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub targets: Vec<serde_json::Value>,
+    /// Verbs the person may run on the same arguments instead.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alternatives: Vec<String>,
+    /// What was approved, when it was not the call as asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_verb: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved_args: Option<serde_json::Value>,
     pub created: String,
+}
+
+/// One standing consent rule as the review verbs show it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ConsentRuleRow {
+    pub id: String,
+    pub verb: String,
+    pub caller: String,
+    /// allow or deny.
+    pub decision: String,
+    /// The verb changed since the rule was made, so the rule no longer
+    /// applies; the person is asked again.
+    pub stale: bool,
+    pub revoked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub made_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_pending: Option<String>,
+    pub created: String,
+}
+
+/// `rules`: standing rules, newest first.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+pub struct ConsentRulesResult {
+    pub ok: bool,
+    #[serde(default)]
+    pub rows: Vec<ConsentRuleRow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// A rule as the verbs show it.
+pub fn rule_row(item: &Item) -> ConsentRuleRow {
+    let verb = text(item, "verb").unwrap_or_default();
+    let fingerprint = text(item, "fingerprint").unwrap_or_default();
+    let current = impress_service_core::call::find(&verb).map(|h| h.fingerprint());
+    ConsentRuleRow {
+        id: item.id.to_string(),
+        stale: !verb.ends_with('*')
+            && !fingerprint.is_empty()
+            && current.is_some_and(|now| now != fingerprint),
+        verb,
+        caller: text(item, "caller").unwrap_or_default(),
+        decision: text(item, "decision").unwrap_or_default(),
+        revoked: text(item, "revoked_at").is_some(),
+        expires_ms: match item.payload.get("expires_ms") {
+            Some(Value::Int(at)) => Some(*at),
+            _ => None,
+        },
+        made_by: text(item, "made_by"),
+        from_pending: text(item, "from_pending"),
+        created: item.created.to_rfc3339(),
+    }
 }
 
 /// A review verb that answers one pending call.
@@ -514,6 +856,21 @@ pub fn row(item: &Item, review: Option<&Item>) -> PendingCallRow {
         resolved_by: review.and_then(|r| text(r, "resolved_by")),
         result: json_text(item, "result"),
         trace_id: text(item, "trace_id"),
+        impact: text(item, "impact"),
+        reason: text(item, "reason"),
+        targets: match json_text(item, "targets") {
+            Some(serde_json::Value::Array(targets)) => targets,
+            _ => Vec::new(),
+        },
+        alternatives: match json_text(item, "alternatives") {
+            Some(serde_json::Value::Array(names)) => names
+                .iter()
+                .filter_map(|n| n.as_str().map(str::to_owned))
+                .collect(),
+            _ => Vec::new(),
+        },
+        approved_verb: text(item, "approved_verb"),
+        approved_args: json_text(item, "approved_args"),
         created: item.created.to_rfc3339(),
     }
 }
@@ -539,13 +896,20 @@ pub trait ReviewService: Send + Sync + 'static {
     async fn show(&self, id: String) -> PendingCallResult;
 
     /// Approve a pending call: it runs at once, as the caller that asked,
-    /// and the answer is kept on it. Only the person (or their app) may
-    /// approve.
+    /// and the answer is kept on it. `only` approves a subset of the records
+    /// it acts on (its `targets`); `instead` runs one of its `alternatives`
+    /// on the same arguments; `remember` also allows this verb from this
+    /// caller from now on (for 30 days, until the verb changes or the rule is
+    /// revoked). Only the person (or their app) may approve.
     #[impress_method(
         safety = mutating,
         effects(
             reads = ["koine/pending-call@1.0.0", "review-request@1.0.0"],
-            writes = ["koine/pending-call@1.0.0", "review-request@1.0.0"]
+            writes = [
+                "koine/pending-call@1.0.0",
+                "review-request@1.0.0",
+                "koine/consent-rule@1.0.0"
+            ]
         )
     )]
     #[impress_example(
@@ -553,15 +917,26 @@ pub trait ReviewService: Send + Sync + 'static {
         args = r#"{"id": "00000000-0000-4000-8000-000000000000"}"#,
         expect = r#"{"ok": false, "code": "forbidden"}"#
     )]
-    async fn approve(&self, id: String) -> PendingCallResult;
+    async fn approve(
+        &self,
+        id: String,
+        only: Option<Vec<String>>,
+        instead: Option<String>,
+        remember: Option<bool>,
+    ) -> PendingCallResult;
 
-    /// Reject a pending call: it never runs. Only the person (or their app)
-    /// may reject.
+    /// Reject a pending call: it never runs. `remember` also rejects this
+    /// verb from this caller from now on, until the rule is revoked. Only the
+    /// person (or their app) may reject.
     #[impress_method(
         safety = mutating,
         effects(
             reads = ["koine/pending-call@1.0.0", "review-request@1.0.0"],
-            writes = ["koine/pending-call@1.0.0", "review-request@1.0.0"]
+            writes = [
+                "koine/pending-call@1.0.0",
+                "review-request@1.0.0",
+                "koine/consent-rule@1.0.0"
+            ]
         )
     )]
     #[impress_example(
@@ -569,7 +944,27 @@ pub trait ReviewService: Send + Sync + 'static {
         args = r#"{"id": "00000000-0000-4000-8000-000000000000"}"#,
         expect = r#"{"ok": false, "code": "forbidden"}"#
     )]
-    async fn reject(&self, id: String) -> PendingCallResult;
+    async fn reject(&self, id: String, remember: Option<bool>) -> PendingCallResult;
+
+    /// Standing rules a person made with `remember` ("always allow this verb
+    /// from this agent", "never"): newest first, with whether each is stale
+    /// (its verb changed since, so it no longer applies) or revoked.
+    #[impress_method(effects(reads = ["koine/consent-rule@1.0.0"]))]
+    #[impress_example(name = "default", args = r#"{}"#, expect = r#"{"ok": true}"#)]
+    async fn rules(&self) -> ConsentRulesResult;
+
+    /// Revoke a standing rule: the person is asked again. Only the person
+    /// (or their app) may revoke.
+    #[impress_method(
+        safety = mutating,
+        effects(reads = ["koine/consent-rule@1.0.0"], writes = ["koine/consent-rule@1.0.0"])
+    )]
+    #[impress_example(
+        name = "not-a-person",
+        args = r#"{"id": "00000000-0000-4000-8000-000000000000"}"#,
+        expect = r#"{"ok": false, "code": "forbidden"}"#
+    )]
+    async fn revoke_rule(&self, id: String) -> ConsentRulesResult;
 }
 
 pub struct DefaultReviewService;
@@ -652,8 +1047,79 @@ fn person_only(verb: &str) -> Option<PendingCallResult> {
     })
 }
 
+/// A standing rule from a pending call: its verb, from its caller.
+fn remember_rule(
+    store: &dyn AttributedStore,
+    item: &Item,
+    allow: bool,
+    by: &CallerIdentity,
+) -> Result<ItemId, String> {
+    remember(
+        store,
+        &text(item, "verb").unwrap_or_default(),
+        &text(item, "caller").unwrap_or_default(),
+        allow,
+        by,
+        Some(item.id),
+    )
+}
+
+fn rules_refused(code: &str, message: impl Into<String>) -> ConsentRulesResult {
+    ConsentRulesResult {
+        ok: false,
+        code: Some(code.into()),
+        message: Some(message.into()),
+        ..Default::default()
+    }
+}
+
 #[async_trait::async_trait]
 impl ReviewService for DefaultReviewService {
+    async fn rules(&self) -> ConsentRulesResult {
+        let (store, _) = koine_store::process::acquire_or_stand_in();
+        match rule_items(store.as_ref()) {
+            Ok(items) => ConsentRulesResult {
+                ok: true,
+                rows: items.iter().map(rule_row).collect(),
+                ..Default::default()
+            },
+            Err(e) => rules_refused(codes::STORE_ERROR, e),
+        }
+    }
+
+    async fn revoke_rule(&self, id: String) -> ConsentRulesResult {
+        let who = caller();
+        if !who.is_person() {
+            return rules_refused(
+                policy::FORBIDDEN,
+                format!("only the person (or their app) may revoke a rule, not {who}"),
+            );
+        }
+        let (store, fallback) = koine_store::process::acquire_or_stand_in();
+        if fallback {
+            return rules_refused(codes::STORE_UNAVAILABLE, "no store is installed");
+        }
+        let Ok(parsed) = Uuid::parse_str(id.trim()) else {
+            return rules_refused(codes::INVALID_ARGUMENT, format!("'{id}' is not a rule id"));
+        };
+        match store.get(parsed) {
+            Ok(Some(item)) if item.schema.as_str() == CONSENT_RULE => {
+                if let Err(e) = set(
+                    store.as_ref(),
+                    parsed,
+                    "revoked_at",
+                    Utc::now().to_rfc3339(),
+                    &who,
+                ) {
+                    return rules_refused(codes::STORE_ERROR, e);
+                }
+                self.rules().await
+            }
+            Ok(_) => rules_refused(codes::NOT_FOUND, format!("no rule {id}")),
+            Err(e) => rules_refused(codes::STORE_ERROR, e.to_string()),
+        }
+    }
+
     async fn list(&self, state: Option<String>, limit: Option<u32>) -> PendingCallsResult {
         let store = match the_store(false) {
             Ok(store) => store,
@@ -707,7 +1173,13 @@ impl ReviewService for DefaultReviewService {
         }
     }
 
-    async fn approve(&self, id: String) -> PendingCallResult {
+    async fn approve(
+        &self,
+        id: String,
+        only: Option<Vec<String>>,
+        instead: Option<String>,
+        remember: Option<bool>,
+    ) -> PendingCallResult {
         if let Some(refusal) = person_only("approve") {
             return refusal;
         }
@@ -729,11 +1201,78 @@ impl ReviewService for DefaultReviewService {
                 ),
             );
         }
+        // What exactly is approved (TR-D7).
+        let row_now = row(&item, review.as_ref());
+        if let Some(alternative) = instead.as_deref() {
+            if !row_now.alternatives.iter().any(|a| a == alternative) {
+                return refused(
+                    codes::INVALID_ARGUMENT,
+                    format!(
+                        "'{alternative}' is not an alternative of {} (it offers: {})",
+                        row_now.verb,
+                        row_now.alternatives.join(", ")
+                    ),
+                );
+            }
+            if let Err(e) = set(
+                store.as_ref(),
+                item.id,
+                "approved_verb",
+                alternative.into(),
+                &who,
+            ) {
+                return refused(codes::STORE_ERROR, e);
+            }
+        }
+        if let Some(only) = only {
+            let mut args = row_now.args.clone();
+            let mut narrowed = false;
+            for target in &row_now.targets {
+                let Some(arg) = target["argument"].as_str() else {
+                    continue;
+                };
+                if let Some(serde_json::Value::Array(ids)) = args.get_mut(arg) {
+                    let before = ids.len();
+                    ids.retain(|v| v.as_str().is_some_and(|id| only.iter().any(|o| o == id)));
+                    narrowed |= ids.len() != before;
+                }
+            }
+            let known: Vec<&str> = row_now
+                .targets
+                .iter()
+                .filter_map(|t| t["id"].as_str())
+                .collect();
+            if let Some(stray) = only.iter().find(|id| !known.contains(&id.as_str())) {
+                return refused(
+                    codes::INVALID_ARGUMENT,
+                    format!("'{stray}' is not one of the records this call acts on"),
+                );
+            }
+            if narrowed {
+                if let Err(e) = set(
+                    store.as_ref(),
+                    item.id,
+                    "approved_args",
+                    args.to_string(),
+                    &who,
+                ) {
+                    return refused(codes::STORE_ERROR, e);
+                }
+            }
+        }
+        if remember == Some(true) {
+            if let Err(e) = remember_rule(store.as_ref(), &item, true, &who) {
+                return refused(codes::STORE_ERROR, e);
+            }
+        }
         if let Some(review) = &review {
             if let Err(e) = resolve_review(store.as_ref(), review, resolution::APPROVED, &who) {
                 return refused(codes::STORE_ERROR, e);
             }
         }
+        let Ok(Some((item, _))) = pending_call(store.as_ref(), item.id) else {
+            return refused(codes::STORE_ERROR, format!("pending call {id} vanished"));
+        };
         match claim(store.as_ref(), &item, &who) {
             Ok(true) => {}
             Ok(false) => return refused(codes::CONFLICT, format!("pending call {id} moved first")),
@@ -746,7 +1285,7 @@ impl ReviewService for DefaultReviewService {
         }
     }
 
-    async fn reject(&self, id: String) -> PendingCallResult {
+    async fn reject(&self, id: String, remember: Option<bool>) -> PendingCallResult {
         if let Some(refusal) = person_only("reject") {
             return refusal;
         }
@@ -768,6 +1307,11 @@ impl ReviewService for DefaultReviewService {
             );
         }
         let who = caller();
+        if remember == Some(true) {
+            if let Err(e) = remember_rule(store.as_ref(), &item, false, &who) {
+                return refused(codes::STORE_ERROR, e);
+            }
+        }
         if let Some(review) = &review {
             if let Err(e) = resolve_review(store.as_ref(), review, resolution::REJECTED, &who) {
                 return refused(codes::STORE_ERROR, e);
@@ -816,12 +1360,27 @@ impress_service_impl! {
         /// Approve a pending call; it runs at once.
         approve(
             /// The pending call's id.
-            id: String
+            id: String,
+            /// Approve only these of the records it acts on.
+            only: Option<Vec<String>>,
+            /// Run this alternative verb instead.
+            instead: Option<String>,
+            /// Also allow this verb from this caller from now on.
+            remember: Option<bool>
         ) -> PendingCallResult,
         /// Reject a pending call; it never runs.
         reject(
             /// The pending call's id.
-            id: String
+            id: String,
+            /// Also reject this verb from this caller from now on.
+            remember: Option<bool>
         ) -> PendingCallResult,
+        /// Standing consent rules.
+        rules() -> ConsentRulesResult,
+        /// Revoke a standing rule.
+        revoke_rule(
+            /// The rule's id.
+            id: String
+        ) -> ConsentRulesResult,
     ],
 }

@@ -414,6 +414,7 @@ static LAYOUT_APPLY: VerbDescriptor = VerbDescriptor {
     secrets: &[],
     source: Source::Linked,
     handler: apply_not_callable,
+    consent: ::impress_service_core::Consent::DEFAULT,
 };
 
 fn apply_schema() -> Value {

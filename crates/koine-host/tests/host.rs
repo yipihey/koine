@@ -47,6 +47,7 @@ static NAP: VerbDescriptor = VerbDescriptor {
     secrets: &[],
     source: Source::Linked,
     handler: nap,
+    consent: ::impress_service_core::Consent::DEFAULT,
 };
 inventory::submit! { McpToolDescriptor::of(&NAP) }
 

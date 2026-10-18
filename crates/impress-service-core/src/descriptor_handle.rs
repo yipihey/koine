@@ -133,6 +133,8 @@ impl VerbHandle {
             "safety": safety.class.as_str(),
             "idempotent": safety.idempotent,
             "effects": format!("{:?}", self.effects()),
+            "impact": self.consent().impact_for(safety.class).as_str(),
+            "risk": format!("{:?}", self.consent().risk),
         });
         crate::pipeline::adverbs::fingerprint(&facts)
     }
@@ -210,6 +212,15 @@ impl VerbHandle {
 
     /// The secrets the verb declares (`#[impress_method(secrets = […])]`,
     /// plan-koine-followups F-D1); a provider's verbs declare none.
+    /// How a person is asked about this verb (TR-D6); a provider verb
+    /// declares nothing beyond its safety class.
+    pub fn consent(&self) -> crate::Consent {
+        match self {
+            Self::Linked(verb) => verb.consent,
+            Self::Provider(_) => crate::Consent::DEFAULT,
+        }
+    }
+
     pub fn secrets(&self) -> &'static [&'static str] {
         match self {
             Self::Linked(verb) => verb.secrets,

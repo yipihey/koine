@@ -165,6 +165,7 @@ mod tests {
         secrets: &[],
         source: Source::Linked,
         handler,
+        consent: crate::Consent::DEFAULT,
     };
     inventory::submit! { McpToolDescriptor::of(&RENAMED) }
 

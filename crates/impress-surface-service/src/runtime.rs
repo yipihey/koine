@@ -2333,6 +2333,7 @@ mod call_verb_tests {
             secrets: &[],
             source: impress_service_core::Source::Linked,
             handler: always_fails,
+            consent: ::impress_service_core::Consent::DEFAULT,
         };
     impress_service_core::inventory::submit! { McpToolDescriptor::of(&FAILING_VERB) }
 

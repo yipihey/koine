@@ -996,6 +996,7 @@ mod tests {
             secrets: &[],
             source: Source::Linked,
             handler: |_| Box::pin(async { Ok(Value::Null) }),
+            consent: ::impress_service_core::Consent::DEFAULT,
         }
     }
 

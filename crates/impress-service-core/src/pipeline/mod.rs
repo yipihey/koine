@@ -559,11 +559,19 @@ fn prepare_inner(
         // 4. policy. A call that will not run for the policy's sake
         // (`tentatively`, `with_review`) takes no write lease.
         let leaseless = tentative_answer || adverbs.with_review;
-        let mut decision = if leaseless {
-            policy::decide_without_lease(&caller, verb)
-        } else {
-            policy::decide(&caller, verb)
+        let input = policy::PolicyInput {
+            caller: &caller,
+            verb,
+            args: &args,
+            session: None,
         };
+        let verdict = if leaseless {
+            policy::decide_call_without_lease(&input)
+        } else {
+            policy::decide_call(&input)
+        };
+        let review_reason = verdict.reason.clone();
+        let mut decision = verdict.decision;
         if adverbs.with_review && decision == policy::Decision::Run {
             decision = policy::Decision::Review;
         }
@@ -603,7 +611,15 @@ fn prepare_inner(
         } else {
             match decision {
                 policy::Decision::Run => holds_lease = !leaseless,
-                policy::Decision::Review => return Ok(Err(policy::queue(&caller, verb, &args))),
+                policy::Decision::Review => {
+                    return Ok(Err(policy::queue_request(&policy::PendingRequest {
+                        caller: &caller,
+                        verb,
+                        args: &args,
+                        reason: review_reason.as_deref(),
+                        session: None,
+                    })))
+                }
                 policy::Decision::Deny(reason) => return Ok(Err(policy::deny(verb, reason))),
                 // D-R11: a destructive verb whose declared writes overlap another
                 // call's still in flight on the same kind.
@@ -1295,6 +1311,7 @@ pub(crate) mod tests {
         secrets: &[],
         source: Source::Linked,
         handler: echo,
+        consent: crate::Consent::DEFAULT,
     };
     static FAILING: VerbDescriptor = VerbDescriptor {
         name: "t-service_fail",

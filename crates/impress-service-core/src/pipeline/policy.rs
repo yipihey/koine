@@ -270,9 +270,20 @@ pub trait VerbFacts {
     fn is_provider(&self) -> bool {
         false
     }
+    /// How a person is asked about it (TR-D6).
+    fn consent(&self) -> crate::Consent {
+        crate::Consent::DEFAULT
+    }
+    /// What a standing rule for it was made against (TR-D2, TR-D9).
+    fn fingerprint(&self) -> String {
+        String::new()
+    }
 }
 
 impl VerbFacts for VerbDescriptor {
+    fn consent(&self) -> crate::Consent {
+        self.consent
+    }
     fn name(&self) -> &str {
         self.name
     }
@@ -297,11 +308,260 @@ impl VerbFacts for VerbHandle {
     fn is_provider(&self) -> bool {
         self.linked().is_none()
     }
+    fn consent(&self) -> crate::Consent {
+        self.consent()
+    }
+    fn fingerprint(&self) -> String {
+        self.fingerprint()
+    }
 }
 
-/// A policy is a pure function of the caller and the descriptor.
+/// What a policy decides one call from (plan-koine-trust TR-D6).
+pub struct PolicyInput<'a> {
+    pub caller: &'a CallerIdentity,
+    pub verb: &'a dyn VerbFacts,
+    /// The call's arguments, the `adverbs` key removed.
+    pub args: &'a Value,
+    /// The session the call belongs to, when the transport named one.
+    pub session: Option<&'a str>,
+}
+
+/// A decision and, for a review or a denial, why — the person reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Verdict {
+    pub decision: Decision,
+    pub reason: Option<String>,
+}
+
+impl Verdict {
+    pub fn run() -> Self {
+        Self {
+            decision: Decision::Run,
+            reason: None,
+        }
+    }
+
+    pub fn review(reason: impl Into<String>) -> Self {
+        Self {
+            decision: Decision::Review,
+            reason: Some(reason.into()),
+        }
+    }
+}
+
+/// A policy decides from the caller and the descriptor ([`Policy::decide`]),
+/// or from the whole call ([`Policy::decide_call`], which by default asks
+/// `decide`).
 pub trait Policy: Send + Sync {
     fn decide(&self, caller: &CallerIdentity, verb: &dyn VerbFacts) -> Decision;
+
+    fn decide_call(&self, input: &PolicyInput<'_>) -> Verdict {
+        Verdict {
+            decision: self.decide(input.caller, input.verb),
+            reason: None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Consent (plan-koine-trust TR-D6, TR-D9)
+// ---------------------------------------------------------------------------
+
+/// A standing decision a person made ("always allow", "always reject"),
+/// kept as a `koine/consent-rule@1.0.0` item (TR-D9).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsentRule {
+    pub id: String,
+    /// A verb name, or a prefix ending in `*` (`collection-service_*`).
+    pub verb: String,
+    /// A caller author (`agent:claude`), or a prefix ending in `*`
+    /// (`agent:*`).
+    pub caller: String,
+    pub allow: bool,
+    /// The verb's fingerprint when the rule was made; a rule for a verb whose
+    /// fingerprint changed no longer applies.
+    pub fingerprint: String,
+    /// Milliseconds since the epoch; `None` never expires.
+    pub expires_ms: Option<i64>,
+}
+
+fn pattern_matches(pattern: &str, value: &str) -> bool {
+    match pattern.strip_suffix('*') {
+        Some(prefix) => value.starts_with(prefix),
+        None => pattern == value,
+    }
+}
+
+impl ConsentRule {
+    /// Whether this rule decides a call of `verb` (with `fingerprint`) by
+    /// `caller` at `now_ms`.
+    pub fn applies(&self, verb: &str, fingerprint: &str, caller: &str, now_ms: i64) -> bool {
+        pattern_matches(&self.verb, verb)
+            && pattern_matches(&self.caller, caller)
+            && self.expires_ms.is_none_or(|at| at > now_ms)
+            && (self.verb.ends_with('*')
+                || self.fingerprint.is_empty()
+                || self.fingerprint == fingerprint)
+    }
+}
+
+/// Where the consent policy reads standing rules from (the review queue's
+/// store, installed with it).
+pub trait RuleSource: Send + Sync {
+    fn rules(&self) -> Vec<ConsentRule>;
+}
+
+static RULES: RwLock<Option<Arc<dyn RuleSource>>> = RwLock::new(None);
+
+/// Install where standing consent rules come from.
+pub fn install_rule_source(source: Arc<dyn RuleSource>) {
+    if let Ok(mut slot) = RULES.write() {
+        *slot = Some(source);
+    }
+}
+
+/// The standing rules, when a source is installed.
+pub fn rules() -> Vec<ConsentRule> {
+    RULES
+        .read()
+        .ok()
+        .and_then(|r| r.clone())
+        .map(|source| source.rules())
+        .unwrap_or_default()
+}
+
+type StoreSource = fn() -> Option<Arc<dyn impress_item::AttributedStore>>;
+static STORE_SOURCE: std::sync::OnceLock<StoreSource> = std::sync::OnceLock::new();
+
+/// Register how a review hook reaches the store (`koine_store::process`
+/// does it).
+pub fn set_store_source(source: StoreSource) {
+    let _ = STORE_SOURCE.set(source);
+}
+
+fn store_for_hooks() -> Option<Arc<dyn impress_item::AttributedStore>> {
+    STORE_SOURCE.get().and_then(|source| source())
+}
+
+/// A session's risk check (TR-D11), installed by the pipeline.
+pub type RiskCheck = fn(&PolicyInput<'_>) -> Option<String>;
+static RISK_CHECK: std::sync::OnceLock<RiskCheck> = std::sync::OnceLock::new();
+
+/// Register the session risk check the consent policy consults.
+pub fn set_risk_check(check: RiskCheck) {
+    let _ = RISK_CHECK.set(check);
+}
+
+/// The impact at or above which a caller's call is reviewed; `None` never.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Thresholds {
+    pub person: Option<crate::Impact>,
+    pub app: Option<crate::Impact>,
+    pub agent: Option<crate::Impact>,
+    /// The task kernel's agent (`agent:tasks`): scheduled work a person
+    /// filed.
+    pub tasks: Option<crate::Impact>,
+    pub provider: Option<crate::Impact>,
+    pub system: Option<crate::Impact>,
+}
+
+impl Thresholds {
+    /// A person and their app are never asked (they may ask for it with
+    /// `with_review`); an agent is asked from medium impact (a write);
+    /// scheduled tasks from high; a provider from medium.
+    pub const DEFAULT: Thresholds = Thresholds {
+        person: None,
+        app: None,
+        agent: Some(crate::Impact::Medium),
+        tasks: Some(crate::Impact::High),
+        provider: Some(crate::Impact::Medium),
+        system: None,
+    };
+
+    pub fn for_caller(&self, caller: &CallerIdentity) -> Option<crate::Impact> {
+        match caller {
+            CallerIdentity::Person => self.person,
+            CallerIdentity::App(_) => self.app,
+            CallerIdentity::Agent(name) if name == "tasks" => self.tasks,
+            CallerIdentity::Agent(_) => self.agent,
+            CallerIdentity::Provider(_) => self.provider,
+            CallerIdentity::System(_) => self.system,
+        }
+    }
+}
+
+/// The consent policy (TR-D6): a standing rule first, then the session's
+/// risk, then the verb's own review check, then the verb's impact against
+/// the caller's threshold.
+pub struct ConsentPolicy {
+    pub thresholds: Thresholds,
+}
+
+impl ConsentPolicy {
+    pub const DEFAULT: ConsentPolicy = ConsentPolicy {
+        thresholds: Thresholds::DEFAULT,
+    };
+}
+
+impl Policy for ConsentPolicy {
+    fn decide(&self, caller: &CallerIdentity, verb: &dyn VerbFacts) -> Decision {
+        self.decide_call(&PolicyInput {
+            caller,
+            verb,
+            args: &Value::Null,
+            session: None,
+        })
+        .decision
+    }
+
+    fn decide_call(&self, input: &PolicyInput<'_>) -> Verdict {
+        let caller = input.caller.author();
+        let verb = input.verb.name();
+        let fingerprint = input.verb.fingerprint();
+        let now = chrono::Utc::now().timestamp_millis();
+        let rules = rules();
+        let applying: Vec<&ConsentRule> = rules
+            .iter()
+            .filter(|r| r.applies(verb, &fingerprint, &caller, now))
+            .collect();
+        if let Some(rule) = applying.iter().find(|r| !r.allow) {
+            return Verdict {
+                decision: Decision::Deny(format!(
+                    "a standing rule rejects {verb} from {caller} (rule {})",
+                    rule.id
+                )),
+                reason: None,
+            };
+        }
+        // A read changes nothing to ask about. A session that has gathered
+        // too much risk is asked even where an allow rule would let the call
+        // through; otherwise an allow rule settles it.
+        let class = input.verb.safety().class;
+        if class == SafetyClass::ReadOnly {
+            return Verdict::run();
+        }
+        if let Some(reason) = RISK_CHECK.get().and_then(|check| check(input)) {
+            return Verdict::review(reason);
+        }
+        if applying.iter().any(|r| r.allow) {
+            return Verdict::run();
+        }
+        let consent = input.verb.consent();
+        if let Some(hook) = consent.review {
+            let store = store_for_hooks();
+            return match hook(input.args, store.as_deref()) {
+                crate::ReviewNeed::Review(reason) => Verdict::review(reason),
+                crate::ReviewNeed::No => Verdict::run(),
+            };
+        }
+        let impact = consent.impact_for(class);
+        match self.thresholds.for_caller(input.caller) {
+            Some(threshold) if impact >= threshold => Verdict::review(format!(
+                "{verb} has {impact} impact, and {caller} is asked from {threshold}"
+            )),
+            _ => Verdict::run(),
+        }
+    }
 }
 
 /// Runs everything: the default until a host configures otherwise.
@@ -357,6 +617,22 @@ pub trait ReviewQueue: Send + Sync {
         verb: &dyn VerbFacts,
         args: &Value,
     ) -> Result<String, Refusal>;
+
+    /// Queue a held call with why it was held (TR-D6, TR-D7). By default
+    /// [`Self::enqueue`].
+    fn enqueue_request(&self, request: &PendingRequest<'_>) -> Result<String, Refusal> {
+        self.enqueue(request.caller, request.verb, request.args)
+    }
+}
+
+/// A call held for a person, as the queue receives it.
+pub struct PendingRequest<'a> {
+    pub caller: &'a CallerIdentity,
+    pub verb: &'a dyn VerbFacts,
+    pub args: &'a Value,
+    /// Why it was held.
+    pub reason: Option<&'a str>,
+    pub session: Option<&'a str>,
 }
 
 static POLICY: RwLock<Option<Arc<dyn Policy>>> = RwLock::new(None);
@@ -383,6 +659,7 @@ fn from_env() -> Option<Arc<dyn Policy>> {
         .get_or_init(|| match std::env::var("IMPRESS_VERB_POLICY").as_deref() {
             Ok("review-agent-writes") => Some(Arc::new(ReviewAgents::WRITES) as Arc<dyn Policy>),
             Ok("review-agent-destructive") => Some(Arc::new(ReviewAgents::DESTRUCTIVE)),
+            Ok("consent") => Some(Arc::new(ConsentPolicy::DEFAULT)),
             _ => None,
         })
         .clone()
@@ -407,6 +684,39 @@ pub fn decide(caller: &CallerIdentity, verb: &dyn VerbFacts) -> Decision {
         }
     }
     decision
+}
+
+/// [`decide`] from the whole call (TR-D6): the installed policy's
+/// [`Policy::decide_call`], then D-R11's conflict check.
+pub fn decide_call(input: &PolicyInput<'_>) -> Verdict {
+    let installed = POLICY.read().ok().and_then(|p| p.clone());
+    let verdict = match installed.or_else(from_env) {
+        Some(policy) => policy.decide_call(input),
+        None if input.verb.is_provider() => Verdict {
+            decision: ReviewAgents::DESTRUCTIVE.decide(input.caller, input.verb),
+            reason: None,
+        },
+        None => Verdict::run(),
+    };
+    if verdict.decision == Decision::Run {
+        if let Some(conflict) = check_conflict(input.verb) {
+            return Verdict {
+                decision: conflict,
+                reason: None,
+            };
+        }
+    }
+    verdict
+}
+
+/// [`decide_call`] without keeping a write lease (see
+/// [`decide_without_lease`]).
+pub fn decide_call_without_lease(input: &PolicyInput<'_>) -> Verdict {
+    let verdict = decide_call(input);
+    if verdict.decision == Decision::Run {
+        give_back_lease(input.verb);
+    }
+    verdict
 }
 
 /// Whether [`decide`] took a write lease when it answered `Run` for `verb`
@@ -439,9 +749,21 @@ pub fn give_back_lease(verb: &dyn VerbFacts) {
 
 /// Queue a reviewed call and build its answer.
 pub fn queue(caller: &CallerIdentity, verb: &dyn VerbFacts, args: &Value) -> Value {
+    queue_request(&PendingRequest {
+        caller,
+        verb,
+        args,
+        reason: None,
+        session: None,
+    })
+}
+
+/// [`queue`] with why the call was held.
+pub fn queue_request(request: &PendingRequest<'_>) -> Value {
+    let (caller, verb) = (request.caller, request.verb);
     let queue = QUEUE.read().ok().and_then(|q| q.clone());
     let mut answer = match queue {
-        Some(queue) => match queue.enqueue(caller, verb, args) {
+        Some(queue) => match queue.enqueue_request(request) {
             Ok(pending_id) => {
                 let mut v = crate::strict::refusal_value(&Refusal::new(
                     REVIEW_PENDING,
@@ -472,6 +794,9 @@ pub fn queue(caller: &CallerIdentity, verb: &dyn VerbFacts, args: &Value) -> Val
         object.insert("verb".into(), Value::String(verb.name().to_string()));
         if object.get("code").and_then(Value::as_str) == Some(REVIEW_PENDING) {
             object.insert("status".into(), Value::String(STATUS_INPUT_REQUIRED.into()));
+            if let Some(reason) = request.reason {
+                object.insert("reason".into(), Value::String(reason.to_owned()));
+            }
         }
     }
     answer
@@ -536,6 +861,7 @@ mod tests {
             secrets: &[],
             source: Source::Linked,
             handler,
+            consent: crate::Consent::DEFAULT,
         }
     }
 
@@ -577,6 +903,7 @@ mod tests {
             secrets: &[],
             source: Source::Linked,
             handler,
+            consent: crate::Consent::DEFAULT,
         }
     }
 
@@ -683,5 +1010,146 @@ mod tests {
     #[test]
     fn a_read_only_verb_never_conflicts() {
         assert_eq!(check_conflict(&verb(SafetyClass::ReadOnly)), None);
+    }
+}
+
+#[cfg(test)]
+mod consent_tests {
+    use super::*;
+    use crate::descriptor::{Consent, Impact, ReviewNeed};
+
+    struct Facts {
+        class: SafetyClass,
+        consent: Consent,
+        fingerprint: &'static str,
+    }
+    impl VerbFacts for Facts {
+        fn name(&self) -> &str {
+            "t-service_consent"
+        }
+        fn safety(&self) -> Safety {
+            Safety {
+                class: self.class,
+                idempotent: false,
+            }
+        }
+        fn effects(&self) -> Effects {
+            Effects::NONE
+        }
+        fn consent(&self) -> Consent {
+            self.consent
+        }
+        fn fingerprint(&self) -> String {
+            self.fingerprint.to_owned()
+        }
+    }
+    fn facts(class: SafetyClass) -> Facts {
+        Facts {
+            class,
+            consent: Consent::DEFAULT,
+            fingerprint: "fp1",
+        }
+    }
+    fn decide(caller: &CallerIdentity, verb: &Facts, args: Value) -> Verdict {
+        ConsentPolicy::DEFAULT.decide_call(&PolicyInput {
+            caller,
+            verb,
+            args: &args,
+            session: None,
+        })
+    }
+
+    #[test]
+    fn impact_is_compared_with_the_callers_threshold() {
+        let agent = CallerIdentity::agent("claude");
+        let tasks = CallerIdentity::agent("tasks");
+        let person = CallerIdentity::Person;
+        let mutating = facts(SafetyClass::Mutating);
+        let destructive = facts(SafetyClass::Destructive);
+        let read = facts(SafetyClass::ReadOnly);
+        assert_eq!(
+            decide(&agent, &mutating, Value::Null).decision,
+            Decision::Review
+        );
+        assert!(decide(&agent, &mutating, Value::Null)
+            .reason
+            .unwrap()
+            .contains("medium impact"));
+        assert_eq!(decide(&agent, &read, Value::Null).decision, Decision::Run);
+        assert_eq!(
+            decide(&tasks, &mutating, Value::Null).decision,
+            Decision::Run
+        );
+        assert_eq!(
+            decide(&tasks, &destructive, Value::Null).decision,
+            Decision::Review
+        );
+        assert_eq!(
+            decide(&person, &destructive, Value::Null).decision,
+            Decision::Run
+        );
+        // A verb that declares a lower impact than its class is not asked.
+        let low = Facts {
+            consent: Consent {
+                impact: Some(Impact::Low),
+                ..Consent::DEFAULT
+            },
+            ..facts(SafetyClass::Mutating)
+        };
+        assert_eq!(decide(&agent, &low, Value::Null).decision, Decision::Run);
+    }
+
+    fn drafts_are_free(args: &Value, _: Option<&dyn impress_item::AttributedStore>) -> ReviewNeed {
+        if args["draft"] == true {
+            ReviewNeed::No
+        } else {
+            ReviewNeed::Review("it is cited".into())
+        }
+    }
+
+    #[test]
+    fn a_review_hook_decides_from_the_arguments() {
+        let agent = CallerIdentity::agent("claude");
+        let hooked = Facts {
+            consent: Consent {
+                review: Some(drafts_are_free),
+                ..Consent::DEFAULT
+            },
+            ..facts(SafetyClass::Destructive)
+        };
+        assert_eq!(
+            decide(&agent, &hooked, serde_json::json!({"draft": true})).decision,
+            Decision::Run
+        );
+        let held = decide(&agent, &hooked, serde_json::json!({"draft": false}));
+        assert_eq!(held, Verdict::review("it is cited"));
+    }
+
+    #[test]
+    fn a_rule_applies_to_its_verb_caller_and_fingerprint_until_it_expires() {
+        let rule = ConsentRule {
+            id: "r".into(),
+            verb: "t-service_consent".into(),
+            caller: "agent:*".into(),
+            allow: true,
+            fingerprint: "fp1".into(),
+            expires_ms: Some(1_000),
+        };
+        assert!(rule.applies("t-service_consent", "fp1", "agent:claude", 999));
+        assert!(
+            !rule.applies("t-service_consent", "fp2", "agent:claude", 999),
+            "the verb changed"
+        );
+        assert!(!rule.applies("t-service_consent", "fp1", "human", 999));
+        assert!(
+            !rule.applies("t-service_consent", "fp1", "agent:claude", 1_000),
+            "expired"
+        );
+        assert!(!rule.applies("t-service_other", "fp1", "agent:claude", 999));
+        let prefix = ConsentRule {
+            verb: "t-service_*".into(),
+            ..rule
+        };
+        assert!(prefix.applies("t-service_other", "anything", "agent:x", 0));
     }
 }

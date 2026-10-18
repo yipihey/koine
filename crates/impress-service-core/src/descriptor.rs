@@ -326,6 +326,126 @@ pub enum Source {
 /// `impress_service_impl!` to resolve at compile time: the doc comment, the
 /// safety override and the examples. One table per trait, a `static` so the
 /// generated descriptor can point into it.
+/// How much a call could change (plan-koine-trust TR-D6): compared with a
+/// caller's threshold to decide whether a person reviews it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Impact {
+    Low,
+    Medium,
+    High,
+}
+
+impl Impact {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Impact::Low => "low",
+            Impact::Medium => "medium",
+            Impact::High => "high",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Impact> {
+        match text.trim() {
+            "low" => Some(Impact::Low),
+            "medium" => Some(Impact::Medium),
+            "high" => Some(Impact::High),
+            _ => None,
+        }
+    }
+
+    /// A class's impact when the verb declares none: read-only low,
+    /// mutating medium, destructive and external high.
+    pub const fn of_class(class: SafetyClass) -> Impact {
+        match class {
+            SafetyClass::ReadOnly => Impact::Low,
+            SafetyClass::Mutating => Impact::Medium,
+            SafetyClass::Destructive | SafetyClass::External => Impact::High,
+        }
+    }
+}
+
+impl std::fmt::Display for Impact {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// What a verb's review hook says about one call (TR-D6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReviewNeed {
+    /// These arguments need no review.
+    No,
+    /// A person should review these arguments, and why.
+    Review(String),
+}
+
+/// A verb's argument-aware review check (`#[impress_method(review = f)]`):
+/// the call's arguments and, when the host has one, the store.
+pub type ReviewHook =
+    fn(&serde_json::Value, Option<&dyn impress_item::AttributedStore>) -> ReviewNeed;
+
+/// What a verb's data says about the person (plan-koine-trust TR-D11),
+/// beyond what it reads and writes. Sending data out of the process
+/// (`egress`) is not declared: any external reach implies it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Risk {
+    /// Reads the person's own data.
+    Private,
+    /// Takes in content the person did not write: the web, a fetched
+    /// package, an imported document, a model's output.
+    Untrusted,
+}
+
+impl Risk {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Risk::Private => "private",
+            Risk::Untrusted => "untrusted",
+        }
+    }
+}
+
+/// How a person is asked about a verb (plan-koine-trust TR-D6, TR-D7,
+/// TR-D11): its impact, an argument-aware review check, the argument that
+/// lists the records it acts on, the verbs a person may choose instead, and
+/// its risk.
+#[derive(Debug, Clone, Copy)]
+pub struct Consent {
+    /// `None`: the class's ([`Impact::of_class`]).
+    pub impact: Option<Impact>,
+    pub review: Option<ReviewHook>,
+    /// An argument holding the ids the call acts on; a person may approve a
+    /// subset of them.
+    pub targets: Option<&'static str>,
+    /// Verbs a person may run on the same arguments instead.
+    pub alternatives: &'static [&'static str],
+    pub risk: &'static [Risk],
+}
+
+impl Consent {
+    pub const DEFAULT: Consent = Consent {
+        impact: None,
+        review: None,
+        targets: None,
+        alternatives: &[],
+        risk: &[],
+    };
+
+    /// The impact of a verb of `class` with this consent.
+    pub const fn impact_for(&self, class: SafetyClass) -> Impact {
+        match self.impact {
+            Some(impact) => impact,
+            None => Impact::of_class(class),
+        }
+    }
+}
+
+impl Default for Consent {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
 #[derive(Debug)]
 pub struct MethodMeta {
     /// The Rust method identifier.
@@ -379,6 +499,9 @@ pub struct MethodMeta {
     /// [`crate::secrets::get`]. The pipeline refuses the call, before policy,
     /// while one is absent.
     pub secrets: &'static [&'static str],
+    /// `impact`, `review`, `targets`, `alternatives`, `risk` (TR-D6, TR-D7,
+    /// TR-D11).
+    pub consent: Consent,
 }
 
 /// The shape of a verb's rows (`rows(…)`, plan-koine-followups F-D2): the
@@ -503,6 +626,14 @@ pub const fn resolve_rows(table: &'static [MethodMeta], method: &str) -> Option<
 
 /// The secrets a method declares (`#[impress_method(secrets = […])]`); empty
 /// for every verb that declares none.
+/// The consent a method declares ([`Consent::DEFAULT`] when none).
+pub const fn resolve_consent(table: &'static [MethodMeta], method: &str) -> Consent {
+    match method_meta(table, method) {
+        Some(meta) => meta.consent,
+        None => Consent::DEFAULT,
+    }
+}
+
 pub const fn resolve_secrets(
     table: &'static [MethodMeta],
     method: &str,
@@ -649,6 +780,8 @@ pub struct VerbDescriptor {
     /// The secrets this verb needs (plan-koine-followups F-D1); empty for a
     /// verb that needs none.
     pub secrets: &'static [&'static str],
+    /// How a person is asked about this verb (plan-koine-trust TR-D6).
+    pub consent: Consent,
     pub source: Source,
     pub handler: fn(Value) -> ServiceFuture,
 }
@@ -936,6 +1069,7 @@ mod tests {
             returns_kind: None,
             rows: None,
             secrets: &[],
+            consent: crate::Consent::DEFAULT,
         },
         MethodMeta {
             name: "set_flag",
@@ -957,6 +1091,7 @@ mod tests {
             returns_kind: Some("publication"),
             rows: None,
             secrets: &[],
+            consent: crate::Consent::DEFAULT,
         },
     ];
 
@@ -1003,6 +1138,7 @@ mod tests {
                 returns_kind: None,
                 rows: None,
                 secrets: &[],
+                consent: crate::Consent::DEFAULT,
             },
             MethodMeta {
                 name: "b",
@@ -1020,6 +1156,7 @@ mod tests {
                 returns_kind: None,
                 rows: None,
                 secrets: &[],
+                consent: crate::Consent::DEFAULT,
             },
         ];
         const DEFAULT: &[Adverb] = &[Adverb::Reversibly];
@@ -1187,6 +1324,7 @@ mod tests {
             secrets: &[],
             source: Source::Linked,
             handler,
+            consent: crate::Consent::DEFAULT,
         };
         assert_eq!(verb.deprecation_notice(), None);
         assert_eq!(verb.mcp_meta(), None, "nothing declared, no _meta");
@@ -1264,6 +1402,7 @@ mod tests {
             secrets: &[],
             source: Source::Linked,
             handler,
+            consent: crate::Consent::DEFAULT,
         };
         assert_eq!(
             verb.deprecation_notice(),
@@ -1343,6 +1482,7 @@ mod tests {
             secrets: &[],
             source: Source::Linked,
             handler,
+            consent: crate::Consent::DEFAULT,
         }
     }
 
@@ -1488,6 +1628,7 @@ mod tests {
             secrets: &[],
             source: Source::Linked,
             handler,
+            consent: crate::Consent::DEFAULT,
         };
         assert_eq!(
             verb.mcp_annotations(),

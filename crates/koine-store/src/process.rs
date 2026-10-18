@@ -68,6 +68,8 @@ fn write() -> std::sync::RwLockWriteGuard<'static, Slot> {
 pub fn install(store: Arc<dyn AttributedStore>) {
     // A process with a real store rehearses its dry runs over it (TR-D3).
     crate::rehearse::install();
+    // A verb's review check reads the store it would change (TR-D6).
+    impress_service_core::pipeline::policy::set_store_source(current);
     let mut slot = write();
     slot.store = Some(store);
     slot.fallback = false;

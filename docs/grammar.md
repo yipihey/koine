@@ -304,6 +304,29 @@ approval made elsewhere (a review resolved through another app) is run by
 the host's sweep, and a pending call expires after 7 days
 (`KOINE_REVIEW_EXPIRY_DAYS`).
 
+What holds a call (TR-D6) is the consent policy, `ConsentPolicy`
+(`IMPRESS_VERB_POLICY=consent`, or `policy::install`). For a call that is
+not a read, in order: a standing rule that rejects it refuses it (code
+`rejected`); the session's risk may hold it (TR-D11); a standing rule that
+allows it lets it run; the verb's own review check,
+`#[impress_method(review = f)]`, decides from the arguments (deleting a draft
+needs no review, deleting a cited paper does); otherwise its impact —
+`impact = "…"`, else low for read-only, medium for mutating, high for
+destructive and external — is compared with the caller's threshold (agents
+from medium, the `tasks` agent from high, the person and their app never;
+`policy::Thresholds`). The answer and the pending call say why (`reason`).
+
+A pending call names the records it acts on (`targets`: the argument
+`targets = "…"` names, or the effects' target argument, with each record's
+kind and title) and the verbs a person may choose instead
+(`alternatives = […]`). `review-service_approve` takes `only` (a subset of
+the targets) and `instead` (one of the alternatives), and `remember` writes
+a standing rule (`koine/consent-rule@1.0.0`): allow this verb from this
+caller for 30 days, or (on reject) refuse it. A rule records the verb's
+fingerprint; when the verb changes, the rule no longer applies and the
+person is asked again. `review-service_rules` lists rules (and which are
+stale); `_revoke-rule` revokes one.
+
 Every answer that is not a result carries a `status` in the agent
 protocols' words: `input_required` (held for a person), `auth_required`
 (`missing-secret`), `rejected` (the policy refused; code `rejected`). A verb

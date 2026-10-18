@@ -265,6 +265,7 @@ mod tests {
         secrets: &[],
         source: Source::Linked,
         handler: tokio_handler,
+        consent: crate::Consent::DEFAULT,
     };
     inventory::submit! { McpToolDescriptor::of(&FOREIGN) }
 
