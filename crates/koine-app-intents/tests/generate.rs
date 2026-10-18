@@ -28,6 +28,14 @@ pub struct Nested {
     pub inner: Vec<Paper>,
 }
 
+/// Where a paper sits.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum Shelf {
+    ToRead,
+    Done,
+}
+
 #[impress_service]
 pub trait PaperService: Send + Sync + 'static {
     /// Papers by id.
@@ -59,9 +67,18 @@ pub trait PaperService: Send + Sync + 'static {
         returns_kind = "paper",
         rows(id = "bibcode", title = "title"),
         targets = "ids",
+        alternatives = ["paper-service_archive-papers"],
         intent(title = "Delete Papers")
     )]
     async fn delete_papers(&self, ids: Vec<String>) -> Papers;
+
+    /// Archive papers.
+    #[impress_method(safety = mutating, targets = "ids")]
+    async fn archive_papers(&self, ids: Vec<String>) -> Papers;
+
+    /// Shelve papers.
+    #[impress_method(safety = mutating, targets = "ids", intent(title = "Shelve"))]
+    async fn shelve(&self, ids: Vec<String>, shelf: Shelf) -> Papers;
 
     /// Mark papers read.
     #[impress_method(safety = mutating, targets = "ids", intent(title = "Mark Read"))]
@@ -98,6 +115,12 @@ impl PaperService for Library {
         Papers::default()
     }
     async fn delete_papers(&self, _ids: Vec<String>) -> Papers {
+        Papers::default()
+    }
+    async fn archive_papers(&self, _ids: Vec<String>) -> Papers {
+        Papers::default()
+    }
+    async fn shelve(&self, _ids: Vec<String>, _shelf: Shelf) -> Papers {
         Papers::default()
     }
     async fn mark_read(&self, _ids: Vec<String>, _read: bool) -> Papers {
@@ -143,6 +166,18 @@ impress_service_impl! {
         delete_papers(
             /// The papers.
             ids: Vec<String>
+        ) -> Papers,
+        /// Archive papers.
+        archive_papers(
+            /// The papers.
+            ids: Vec<String>
+        ) -> Papers,
+        /// Shelve papers.
+        shelve(
+            /// The papers.
+            ids: Vec<String>,
+            /// The shelf.
+            shelf: Shelf
         ) -> Papers,
         /// Mark papers read.
         mark_read(
@@ -215,10 +250,29 @@ fn intents_entities_and_shortcuts_are_generated_and_deterministic() {
     assert!(intents.contains("var title: String\n"));
     assert!(intents.contains("var year: Int?"));
     assert!(intents.contains(r#"if let value = year { args["year"] = value }"#));
-    // The destructive verb takes paper entities and asks first.
+    // The destructive verb takes paper entities and asks first, as a choice.
     assert!(intents.contains("var ids: [PaperEntity]"));
     assert!(intents.contains(r#"args["ids"] = ids.map(\.id)"#));
-    assert!(intents.contains("try await requestConfirmation"));
+    assert!(
+        !intents.contains("try await requestConfirmation"),
+        "the choice asks instead"
+    );
+    // A verb with alternatives offers them as a choice (TR-D7).
+    assert!(
+        intents.contains(r#"IntentChoiceOption(title: "Archive papers instead")"#),
+        "{intents}"
+    );
+    assert!(intents.contains("requestChoice(between: [asked, alternative0, .cancel]"));
+    assert!(
+        intents.contains(r#"if choice == alternative0 { verb = "paper-service_archive-papers" }"#)
+    );
+    // A string enumeration is an AppEnum.
+    assert!(
+        intents.contains("public enum PaperShelveShelf: String, AppEnum"),
+        "{intents}"
+    );
+    assert!(intents.contains(r#"case toRead = "to-read""#));
+    assert!(intents.contains(r#"args["shelf"] = shelf.rawValue"#));
     assert!(intents.contains("waits for your approval"));
     // Lookups and searches are not intents of their own.
     assert!(!intents.contains("GetPapersIntent"));

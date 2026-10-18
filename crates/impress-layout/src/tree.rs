@@ -261,13 +261,65 @@ pub(crate) fn average_share(shares: &[f32]) -> f32 {
 /// window holds tens of tiles, not thousands, and every walk in this crate
 /// reads panes far more often than it moves tiles, so the indirection would
 /// cost more than the padding.
+///
+/// A stored tile of a kind this build does not know (a newer build's) is
+/// kept, not refused (plan-koine-trust TR-D13): it loads as a `placeholder`
+/// pane holding the tile's JSON in its `view_state`, and writes back exactly
+/// as it came ([`UNKNOWN_TILE`] marks it).
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[serde(rename_all = "kebab-case")]
+#[cfg_attr(feature = "schema", serde(rename_all = "kebab-case"))]
 pub enum Tile {
     Pane(PaneSpec),
     Container(Container),
+}
+
+/// The `PaneSpec::extra` key that marks a placeholder standing in for a tile
+/// of an unknown kind; its `view_state` is that tile's JSON.
+pub const UNKNOWN_TILE: &str = "koine_unknown_tile";
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum TileWire {
+    Pane(PaneSpec),
+    Container(Container),
+}
+
+impl Serialize for Tile {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Tile::Pane(pane) if pane.extra.contains_key(UNKNOWN_TILE) => {
+                pane.view_state.serialize(serializer)
+            }
+            Tile::Pane(pane) => TileWire::Pane(pane.clone()).serialize(serializer),
+            Tile::Container(container) => {
+                TileWire::Container(container.clone()).serialize(serializer)
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Tile {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let known = value.as_object().is_some_and(|o| {
+            o.len() == 1 && (o.contains_key("pane") || o.contains_key("container"))
+        });
+        if known {
+            return match serde_json::from_value::<TileWire>(value)
+                .map_err(serde::de::Error::custom)?
+            {
+                TileWire::Pane(pane) => Ok(Tile::Pane(pane)),
+                TileWire::Container(container) => Ok(Tile::Container(container)),
+            };
+        }
+        let mut pane = PaneSpec::new(Default::default(), crate::ids::ViewKindId::PLACEHOLDER);
+        pane.view_state = value;
+        pane.extra
+            .insert(UNKNOWN_TILE.to_owned(), serde_json::Value::Bool(true));
+        Ok(Tile::Pane(pane))
+    }
 }
 
 impl Tile {
@@ -341,6 +393,11 @@ pub struct Window {
     /// and every session exactly as they were.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub maximized: Option<TileId>,
+    /// Keys this build does not know — a newer build's — kept through a
+    /// rewrite (plan-koine-trust TR-D13).
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Window {
@@ -352,6 +409,7 @@ impl Window {
             geometry: None,
             default_channel: ChannelId::ONE,
             maximized: None,
+            extra: Default::default(),
         }
     }
 }

@@ -1029,4 +1029,32 @@ mod keep_unknown_tests {
             value["docking_from_a_newer_build"]
         );
     }
+    /// Panes and windows keep their unknown keys, and a tile of a kind this
+    /// build does not know comes back exactly as it came.
+    #[test]
+    fn nested_unknown_keys_and_tile_kinds_survive_a_rewrite() {
+        let layout = Layout::new_single_pane(crate::spec::PaneSpec::new(
+            Default::default(),
+            crate::ids::ViewKindId::LIST,
+        ));
+        let mut value = serde_json::to_value(&layout).unwrap();
+        let pane_key = value["tiles"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .find(|(_, t)| t.get("pane").is_some())
+            .map(|(k, _)| k.clone())
+            .expect("a pane tile");
+        value["tiles"][&pane_key]["pane"]["badge_from_a_newer_build"] = serde_json::json!("new");
+        value["tiles"]["999"] = serde_json::json!({"orbit": {"satellites": [1, 2]}});
+        value["windows"][0]["tint_from_a_newer_build"] = serde_json::json!("teal");
+        let parsed: Layout = serde_json::from_value(value.clone()).unwrap();
+        let back = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(back["tiles"]["999"], value["tiles"]["999"], "{back}");
+        assert_eq!(
+            back["tiles"][&pane_key]["pane"]["badge_from_a_newer_build"],
+            "new"
+        );
+        assert_eq!(back["windows"][0]["tint_from_a_newer_build"], "teal");
+    }
 }

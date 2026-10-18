@@ -20,6 +20,7 @@ fn register_stamped() {
             FieldDef::required("title", FieldType::String),
             FieldDef::optional("author_text", FieldType::String),
         ],
+        enforce: false,
     });
 }
 
@@ -112,6 +113,7 @@ pub fn item_before_its_kind_schema(store: &dyn AttributedStore) {
         name: kind_name.clone(),
         version: "1.0.0".into(),
         fields: vec![FieldDef::required("title", FieldType::String)],
+        enforce: false,
     })
     .unwrap();
     let got = store.get(id).unwrap().unwrap();
@@ -145,4 +147,29 @@ pub fn unknown_envelope_fields_survive(store: &dyn AttributedStore) {
             op.extra
         );
     }
+}
+
+/// An enforced kind refuses an insert whose payload does not match its
+/// schema, and writes nothing; a matching one goes in.
+pub fn an_enforced_kind_refuses_an_invalid_insert(store: &dyn AttributedStore) {
+    let kind_name = "conformance/enforced@1.0.0";
+    let _ = kind::register(KindSchema {
+        name: kind_name.into(),
+        version: "1.0.0".into(),
+        fields: vec![
+            FieldDef::required("title", FieldType::String),
+            FieldDef::optional("year", FieldType::Int),
+        ],
+        enforce: true,
+    });
+    let mut bad = item(kind_name, "Bad");
+    bad.payload.insert("year".into(), text("not a year"));
+    let refused = store.insert(bad.clone());
+    assert!(
+        matches!(refused, Err(impress_item::StoreError::Validation(_))),
+        "{refused:?}"
+    );
+    assert!(store.get(bad.id).unwrap().is_none(), "nothing was written");
+    let good = insert(store, kind_name, "Good");
+    assert!(store.get(good).unwrap().is_some());
 }

@@ -1468,3 +1468,23 @@ mod keep_unknown_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod nested_unknown_tests {
+    use super::*;
+
+    /// plan-koine-trust TR-D13: a nested node keeps a key this build does
+    /// not know, and a node of a kind it does not know comes back whole.
+    #[test]
+    fn nested_nodes_keep_what_this_build_does_not_know() {
+        let json = serde_json::json!({
+            "surface": "1.0", "name": "P",
+            "root": {"column": [
+                {"text": "hi", "glow_from_a_newer_build": 3},
+                {"hologram": {"x": 1}, "id": "h"}
+            ]}
+        });
+        let spec: SurfaceSpec = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&spec).unwrap()["root"], json["root"]);
+    }
+}

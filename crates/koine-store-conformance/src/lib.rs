@@ -98,6 +98,7 @@ macro_rules! __cases {
                 unknown_envelope_fields_survive,
                 unknown_kind_round_trips,
                 item_before_its_kind_schema,
+                an_enforced_kind_refuses_an_invalid_insert,
                 // crud
                 an_empty_store_is_empty,
                 insert_get_round_trip,

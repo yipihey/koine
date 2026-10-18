@@ -162,13 +162,36 @@ fn properties(schema: &Value) -> Vec<(String, Value, bool)> {
                 .map(|(name, prop)| {
                     (
                         name.clone(),
-                        prop.clone(),
+                        resolve(schema, prop),
                         required.contains(&name.as_str()),
                     )
                 })
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// `prop` with a local `$ref` (directly or as an `allOf` of one) replaced by
+/// the definition it names, its own description kept.
+fn resolve(schema: &Value, prop: &Value) -> Value {
+    let reference = prop.get("$ref").or_else(|| {
+        prop.get("allOf")
+            .and_then(Value::as_array)
+            .filter(|all| all.len() == 1)
+            .and_then(|all| all[0].get("$ref"))
+    });
+    let Some(target) = reference
+        .and_then(Value::as_str)
+        .and_then(|r| r.strip_prefix("#/"))
+        .and_then(|path| schema.pointer(&format!("/{path}")))
+    else {
+        return prop.clone();
+    };
+    let mut resolved = target.clone();
+    if let (Some(object), Some(description)) = (resolved.as_object_mut(), prop.get("description")) {
+        object.insert("description".into(), description.clone());
+    }
+    resolved
 }
 
 /// A property's JSON type, `null` aside: `("string", nullable)`.
@@ -200,6 +223,8 @@ enum Param {
 enum Encode {
     AsIs,
     Date,
+    /// An `AppEnum`'s raw value.
+    Raw,
 }
 
 fn param_of(prop: &Value) -> Result<Param, String> {
@@ -234,6 +259,62 @@ fn param_of(prop: &Value) -> Result<Param, String> {
         }
         other => return Err(format!("an argument of type {other}")),
     })
+}
+
+/// A string enumeration's values, when `prop` is one.
+fn enum_values(prop: &Value) -> Option<Vec<String>> {
+    let values = prop.get("enum")?.as_array()?;
+    let strings: Vec<String> = values
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_owned))
+        .collect();
+    (strings.len() == values.len() && !strings.is_empty()).then_some(strings)
+}
+
+/// A Swift case name for an enumeration value.
+fn case_name(value: &str) -> String {
+    let name = lower_camel(value);
+    match name.chars().next() {
+        Some(c) if c.is_ascii_alphabetic() => name,
+        Some(_) => format!("v{name}"),
+        None => "empty".into(),
+    }
+}
+
+/// An `AppEnum` for a string enumeration argument.
+fn app_enum(type_name: &str, title: &str, values: &[String]) -> Result<String, String> {
+    let cases: Vec<(String, &String)> = values.iter().map(|v| (case_name(v), v)).collect();
+    let mut seen = std::collections::BTreeSet::new();
+    for (case, _) in &cases {
+        if !seen.insert(case) {
+            return Err(format!(
+                "enumeration values that name the same Swift case `{case}`"
+            ));
+        }
+    }
+    let mut s = String::new();
+    let _ = writeln!(
+        s,
+        "\n/// {title}.\npublic enum {type_name}: String, AppEnum {{"
+    );
+    for (case, value) in &cases {
+        let _ = writeln!(s, "    case {case} = \"{}\"", swift_str(value));
+    }
+    let _ = writeln!(
+        s,
+        "    public static var typeDisplayRepresentation: TypeDisplayRepresentation {{ \"{}\" }}",
+        swift_str(title)
+    );
+    let display: Vec<String> = cases
+        .iter()
+        .map(|(case, value)| format!(".{case}: \"{}\"", swift_str(value)))
+        .collect();
+    let _ = writeln!(
+        s,
+        "    public static var caseDisplayRepresentations: [{type_name}: DisplayRepresentation] {{\n        [{}]\n    }}\n}}",
+        display.join(", ")
+    );
+    Ok(s)
 }
 
 /// The arguments a verb names as what it acts on.
@@ -499,6 +580,7 @@ fn intent_source(
     };
     let mut params = String::new();
     let mut encode = String::new();
+    let mut enums = String::new();
     for (name, prop, required) in properties(&schema) {
         if name == "adverbs" {
             continue;
@@ -511,19 +593,34 @@ fn intent_source(
                 .map(|d| d.split('.').next().unwrap_or(d).to_owned())
                 .unwrap_or_else(|| camel(&name)),
         );
-        let param = match (targets.contains(&name), entity) {
-            (true, Some(e)) => match json_type(&prop).map(|(t, _)| t).as_deref() {
-                Some("string") => Param::Entity {
-                    type_name: e.type_name.clone(),
-                    many: false,
-                },
-                Some("array") => Param::Entity {
-                    type_name: e.type_name.clone(),
-                    many: true,
+        let enum_type = format!(
+            "{}{}",
+            intent_type(verb).trim_end_matches("Intent"),
+            camel(&name)
+        );
+        let param = if let Some(values) = enum_values(&prop) {
+            enums.push_str(
+                &app_enum(&enum_type, &label, &values).map_err(|why| format!("`{name}`: {why}"))?,
+            );
+            Param::Plain {
+                swift: enum_type.clone(),
+                encode: Encode::Raw,
+            }
+        } else {
+            match (targets.contains(&name), entity) {
+                (true, Some(e)) => match json_type(&prop).map(|(t, _)| t).as_deref() {
+                    Some("string") => Param::Entity {
+                        type_name: e.type_name.clone(),
+                        many: false,
+                    },
+                    Some("array") => Param::Entity {
+                        type_name: e.type_name.clone(),
+                        many: true,
+                    },
+                    _ => param_of(&prop).map_err(|why| format!("`{name}`: {why}"))?,
                 },
                 _ => param_of(&prop).map_err(|why| format!("`{name}`: {why}"))?,
-            },
-            _ => param_of(&prop).map_err(|why| format!("`{name}`: {why}"))?,
+            }
         };
         let (swift, value) = match &param {
             Param::Plain { swift, encode } => (
@@ -531,6 +628,7 @@ fn intent_source(
                 match encode {
                     Encode::AsIs => "$0".to_owned(),
                     Encode::Date => format!("{}Verbs.iso8601($0)", app.prefix),
+                    Encode::Raw => "$0.rawValue".to_owned(),
                 },
             ),
             Param::Entity {
@@ -580,7 +678,39 @@ public struct {ty}: AppIntent {{
         ty = intent_type(verb),
         title = swift_str(title),
     );
-    if confirm {
+    let alternatives = verb.consent().alternatives;
+    let mut chosen = String::new();
+    if !alternatives.is_empty() {
+        // TR-D7: the person may run an alternative on the same arguments.
+        let _ = writeln!(
+            s,
+            "        let asked = IntentChoiceOption(title: \"{}\")",
+            swift_str(title)
+        );
+        let mut options = vec!["asked".to_owned()];
+        for (i, alternative) in alternatives.iter().enumerate() {
+            let words = alternative
+                .split_once('_')
+                .map(|(_, method)| method.replace('-', " "))
+                .unwrap_or_else(|| alternative.to_string());
+            let _ = writeln!(
+                s,
+                "        let alternative{i} = IntentChoiceOption(title: \"{} instead\")",
+                swift_str(&(words[..1].to_uppercase() + &words[1..]))
+            );
+            options.push(format!("alternative{i}"));
+            let _ = writeln!(
+                chosen,
+                "        if choice == alternative{i} {{ verb = \"{alternative}\" }}"
+            );
+        }
+        let _ = writeln!(
+            s,
+            "        let choice = try await requestChoice(between: [{}, .cancel], dialog: \"{} — or instead?\")",
+            options.join(", "),
+            swift_str(title)
+        );
+    } else if confirm {
         let _ = writeln!(
             s,
             "        try await requestConfirmation(result: .result(dialog: \"{} is a {} action. Go ahead?\"))",
@@ -590,8 +720,9 @@ public struct {ty}: AppIntent {{
     }
     let _ = write!(
         s,
-        r#"        var args: [String: Any] = [:]
-{encode}        let answer = try await {p}Verbs.call("{name}", args)
+        r#"        {binding} verb = "{name}"
+{chosen}        var args: [String: Any] = [:]
+{encode}        let answer = try await {p}Verbs.call(verb, args)
         if {p}Verbs.isPending(answer) {{
             return .result(dialog: "This waits for your approval in the app's review list.")
         }}
@@ -601,16 +732,9 @@ public struct {ty}: AppIntent {{
 "#,
         p = app.prefix,
         name = verb.name(),
+        binding = if chosen.is_empty() { "let" } else { "var" },
     );
-    if !verb.consent().alternatives.is_empty() {
-        // Alternatives (TR-D7) are offered in the app's review, not here yet.
-        let _ = writeln!(
-            s,
-            "// {} offers alternatives ({}); choose them in the app's review.",
-            verb.name(),
-            verb.consent().alternatives.join(", ")
-        );
-    }
+    s.push_str(&enums);
     Ok(s)
 }
 

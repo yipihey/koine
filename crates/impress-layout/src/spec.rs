@@ -114,6 +114,11 @@ pub struct PaneSpec {
     /// happened (a drag, a resize, an undo).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collapsed_share: Option<f32>,
+    /// Keys this build does not know — a newer build's — kept through a
+    /// rewrite (plan-koine-trust TR-D13).
+    #[serde(flatten, default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl PaneSpec {
@@ -129,6 +134,7 @@ impl PaneSpec {
             role: None,
             session: None,
             collapsed_share: None,
+            extra: serde_json::Map::new(),
         }
     }
 

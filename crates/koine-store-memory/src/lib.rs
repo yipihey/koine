@@ -277,6 +277,11 @@ impl ItemStore for MemoryStore {
 
     fn insert_batch(&self, items: Vec<Item>) -> Result<Vec<ItemId>, StoreError> {
         impress_item::ambient::check_dry_run_write()?;
+        // plan-koine-trust TR-D12: an enforced kind refuses a payload that
+        // does not match its schema, before anything is written.
+        for item in &items {
+            impress_item::kind::enforce(item)?;
+        }
         let mut guard = self.write()?;
         let inner = &mut *guard;
         // Validated as a whole first: after this nothing can fail, so a

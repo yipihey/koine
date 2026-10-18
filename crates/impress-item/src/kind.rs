@@ -107,6 +107,10 @@ pub struct KindSchema {
     /// move it.
     pub version: String,
     pub fields: Vec<FieldDef>,
+    /// Refuse a write whose payload does not match, instead of counting it
+    /// (warn mode). Turned on per kind once its writers are clean.
+    #[serde(default)]
+    pub enforce: bool,
 }
 
 /// One way a new schema breaks the old one's readers.
@@ -346,6 +350,29 @@ pub fn stamp_item(item: &mut Item) {
     }
 }
 
+/// Before a store inserts `item`: when its kind's schema is enforced, the
+/// payload must match it. Every backend calls this on insert, before it
+/// writes; a mismatch is `StoreError::Validation` naming what did not match.
+pub fn enforce(item: &Item) -> Result<(), crate::StoreError> {
+    let Some(schema) = get(item.schema.as_str()) else {
+        return Ok(());
+    };
+    if !schema.enforce {
+        return Ok(());
+    }
+    let problems = validate(&schema, &item.payload);
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(crate::StoreError::Validation(format!(
+            "{} does not match its schema {}: {}",
+            schema.name,
+            schema.version,
+            problems.join("; ")
+        )))
+    }
+}
+
 /// On an operation's payload: the version of the target kind's schema it
 /// was written under (`op_schema_version`). Every backend calls this when it
 /// builds an operation row.
@@ -456,6 +483,7 @@ mod tests {
             name: "t/kind@1".into(),
             version: version.into(),
             fields,
+            enforce: false,
         }
     }
 
@@ -507,6 +535,7 @@ mod tests {
             name: name.into(),
             version: "1.0.0".into(),
             fields: vec![FieldDef::required("title", FieldType::String)],
+            enforce: false,
         };
         register(v1.clone()).unwrap();
         let v2 = KindSchema {

@@ -1100,7 +1100,9 @@ impl Txn<'_> {
     /// missing origin is this store's, instants are millisecond-precise, tags
     /// and references are sets.
     fn insert(&mut self, mut item: Item) -> Result<ItemId, StoreError> {
-        // plan-koine-trust TR-D12: stamp the kind's schema version.
+        // plan-koine-trust TR-D12: an enforced kind refuses a payload that
+        // does not match; every insert is stamped with the kind's version.
+        impress_item::kind::enforce(&item)?;
         impress_item::kind::stamp_item(&mut item);
         let id = item.id;
         if self.exists(id)? {
