@@ -391,8 +391,9 @@ them in their own sessions.
 
 ## Status
 
-Implemented 2026-10-18 in koine (TR1–TR10); TR11, the impress-apps adoption,
-is under way on impress-apps branch `claude/trust-adopt` (PR #198).
+Implemented 2026-10-18: TR1–TR10 in koine, TR11 on impress-apps branch
+`claude/trust-adopt` (yipihey/impress-apps PR #198, green; merging it is the
+person's call).
 
 | WP | State | Where |
 |---|---|---|
@@ -406,7 +407,7 @@ is under way on impress-apps branch `claude/trust-adopt` (PR #198).
 | TR8 | done | `impress_item::kind`: `KindSchema`, Lexicon-rule `compatible`, registry, version stamps on items and operations, warn-mode validation (`notebook-service_health`), `core/kind-schema@1.0.0` loaded at host start |
 | TR9 | done | `Item::extra`, `SurfaceSpec::extra`, `Layout::extra`; six conformance cases on every backend |
 | TR10 | done | `intent(…)`, `entity(lookup|search)`, `koine-app-intents`, `<host> app-intents`; output type-checks against the macOS 26 SDK |
-| TR11 | under way | impress-apps: TR1–TR4 adopted (PR #198); TR5–TR10 adoption — SQLite `extra` column, kind stamps, sync envelope extras, impress schemas in the kind registry, reach/class, App Intents for imbib — in progress |
+| TR11 | done (PR #198) | impress-apps pins koine c5aa252: durable `once`, the review queue and sweep, SQLite's dry-run gate, kind stamps and `extra` column, sync-envelope extras, impress schemas in the kind registry, reach/class agreement, imbib's App Intents (`gen-app-intents`, `scripts/check-app-intents.sh`) and the paper on screen named to Siri; imbib builds on macOS and iOS |
 
 ### Left open
 
@@ -414,6 +415,10 @@ is under way on impress-apps branch `claude/trust-adopt` (PR #198).
   unknown node or tile kind still fails to parse); only the top level does.
 - The kind registry validates in warn mode; enforcement per kind is open.
 - App Intents: alternatives are not offered as `requestChoice` yet; enums
-  are plain strings, not `AppEnum`s.
+  are plain strings, not `AppEnum`s. imbib keeps its hand-written intents
+  and Shortcuts provider beside the generated ones; imprint and implore are
+  not generated yet.
+- impress-apps' review lists (imbib, imprint) show the review requests but
+  not yet the pending call's targets and reason.
 - MCP tasks (`taskSupport`, `tasks/get`) and URL-mode elicitation remain
   open, as planned.
