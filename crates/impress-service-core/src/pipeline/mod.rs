@@ -574,6 +574,9 @@ fn prepare_inner(
                 let mut answer =
                     crate::strict::refusal_value(&missing_secret_refusal(linked.name, &missing));
                 answer["status"] = Value::String(policy::STATUS_AUTH_REQUIRED.into());
+                // Which secrets, by name, for a client to ask the person for
+                // (an MCP URL elicitation); never their values.
+                answer["missing_secrets"] = serde_json::json!(missing);
                 return Ok(Err(answer));
             }
         }

@@ -267,6 +267,7 @@ mod tests {
                 resources: vec![],
                 tool_ui: vec![],
                 tool_file_params: vec![],
+                secret_url: None,
             }),
             bearer_token: Arc::from("host-secret"),
         }

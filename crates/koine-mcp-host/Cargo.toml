@@ -11,6 +11,8 @@ axum = { workspace = true }
 impress-service-core = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
 tokio = { workspace = true }
 koine-workspace-hack.workspace = true
 

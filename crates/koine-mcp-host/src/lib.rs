@@ -9,8 +9,14 @@
 //! F-D2 and F-D1) when it declares any, and
 //! [`handle_message`] is the public form of the triage both transports apply,
 //! for a host that mounts `/mcp` inside its own server (`koine-host`).
+//!
+//! A client that negotiates protocol 2025-11-25 may run any tool as a task
+//! (`tasks.rs`, plan-koine-trust TR-D5), and one that declares URL-mode
+//! elicitation is sent to [`HostConfig::secret_url`] for a secret a verb
+//! is missing (`-32042`) instead of a refusal to relay.
 
 mod providers;
+mod tasks;
 
 use std::io::{BufRead, Write};
 use std::net::SocketAddr;
@@ -73,6 +79,12 @@ pub struct HostConfig {
     /// Top-level tool arguments that ChatGPT may populate from files shared in
     /// the conversation. The parameter schemas still come from Rust types.
     pub tool_file_params: Vec<ToolFileParams>,
+    /// Where a person sets a secret, for URL-mode elicitation: `{name}` is
+    /// the secret's name and `{elicitation}` the elicitation id. The page
+    /// is the host's own (it authenticates the person) and the URL carries
+    /// neither the secret nor a credential. `None`: a missing secret stays
+    /// the `auth_required` refusal.
+    pub secret_url: Option<String>,
 }
 
 impl HostConfig {
@@ -87,7 +99,8 @@ impl HostConfig {
 
 pub fn run_stdio(config: HostConfig) -> Result<(), Box<dyn std::error::Error>> {
     let stdin = std::io::stdin();
-    let mut stdout = std::io::stdout().lock();
+    let config = Arc::new(config);
+    let out = Arc::new(std::sync::Mutex::new(std::io::stdout()));
     for line in stdin.lock().lines() {
         let line = line?;
         if line.trim().is_empty() {
@@ -96,21 +109,35 @@ pub fn run_stdio(config: HostConfig) -> Result<(), Box<dyn std::error::Error>> {
         let request: Value = match serde_json::from_str(&line) {
             Ok(value) => value,
             Err(error) => {
-                writeln!(
-                    stdout,
-                    "{}",
-                    json_rpc_error(Value::Null, -32700, format!("Parse error: {error}"))
+                write_line(
+                    &out,
+                    &json_rpc_error(Value::Null, -32700, format!("Parse error: {error}")),
                 )?;
-                stdout.flush()?;
                 continue;
             }
         };
+        // `tasks/result` blocks until its task is done, so it answers from
+        // its own thread and the client can keep polling meanwhile.
+        if request.get("method").and_then(Value::as_str) == Some("tasks/result") {
+            let (config, out) = (config.clone(), out.clone());
+            std::thread::spawn(move || {
+                if let Some(response) = dispatch_message(&config, &request) {
+                    let _ = write_line(&out, &response);
+                }
+            });
+            continue;
+        }
         if let Some(response) = dispatch_message(&config, &request) {
-            writeln!(stdout, "{response}")?;
-            stdout.flush()?;
+            write_line(&out, &response)?;
         }
     }
     Ok(())
+}
+
+fn write_line(out: &std::sync::Mutex<std::io::Stdout>, message: &Value) -> std::io::Result<()> {
+    let mut out = out.lock().unwrap_or_else(|e| e.into_inner());
+    writeln!(out, "{message}")?;
+    out.flush()
 }
 
 /// Triage one parsed top-level message for either transport. Returns the
@@ -119,8 +146,8 @@ pub fn run_stdio(config: HostConfig) -> Result<(), Box<dyn std::error::Error>> {
 /// them: Claude Code emits `notifications/roots/list_changed`).
 ///
 /// A top-level array is a JSON-RPC batch, which this host does not implement
-/// — the reason it pins protocolVersion 2024-11-05 rather than 2025-03-26,
-/// whose batch support is mandatory. Dropping a batch silently left the
+/// — the reason it never answers protocolVersion 2025-03-26, whose batch
+/// support is mandatory (2025-06-18 dropped batching again). Dropping a batch silently left the
 /// client waiting forever; refuse it loudly instead, with the null id
 /// JSON-RPC prescribes when no single request id can be extracted.
 fn dispatch_message(config: &HostConfig, request: &Value) -> Option<Value> {
@@ -326,23 +353,31 @@ fn handle_request_as(
 ) -> Value {
     let id = request.get("id").cloned().unwrap_or(Value::Null);
     match request.get("method").and_then(Value::as_str).unwrap_or("") {
-        "initialize" => json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {
-                // 2024-11-05, like impress-mcp's stdio server: the 2025-03-26
-                // revision makes JSON-RPC batching mandatory, and this host
-                // refuses batches (see `dispatch_message`), so claiming it
-                // would advertise support that is not there.
-                "protocolVersion": "2024-11-05",
-                "capabilities": { "tools": {}, "resources": {} },
-                "serverInfo": {
-                    "name": config.server_name,
-                    "version": config.server_version,
-                },
-                "instructions": config.instructions,
+        "initialize" => {
+            let version = negotiate(request);
+            remember_client(request, version);
+            let mut capabilities = json!({ "tools": {}, "resources": {} });
+            if version == TASKS_VERSION {
+                capabilities["tasks"] = json!({
+                    "list": {},
+                    "cancel": {},
+                    "requests": { "tools": { "call": {} } },
+                });
             }
-        }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "protocolVersion": version,
+                    "capabilities": capabilities,
+                    "serverInfo": {
+                        "name": config.server_name,
+                        "version": config.server_version,
+                    },
+                    "instructions": config.instructions,
+                }
+            })
+        }
         "ping" => success(id, json!({})),
         "tools/list" => success(id, json!({ "tools": tool_definitions(config) })),
         "tools/call" => handle_tool_call(
@@ -372,8 +407,74 @@ fn handle_request_as(
             }),
         ),
         "resources/read" => handle_resource_read(config, id, request),
+        "tasks/get" => tasks::get(id, request, caller),
+        "tasks/result" => tasks::result(id, request, caller),
+        "tasks/list" => tasks::list(id, request, caller),
+        "tasks/cancel" => tasks::cancel(id, request, caller),
         method => json_rpc_error(id, -32601, format!("Method not found: {method}")),
     }
+}
+
+/// The protocol revision with tasks and URL-mode elicitation.
+const TASKS_VERSION: &str = "2025-11-25";
+
+/// The protocol version to answer: the client's when this host speaks it
+/// (2025-11-25, 2025-06-18), else 2024-11-05 — never 2025-03-26, whose
+/// JSON-RPC batching this host refuses (see `dispatch_message`), so
+/// claiming it would advertise support that is not there.
+fn negotiate(request: &Value) -> &'static str {
+    match request
+        .pointer("/params/protocolVersion")
+        .and_then(Value::as_str)
+    {
+        Some("2025-11-25") => TASKS_VERSION,
+        Some("2025-06-18") => "2025-06-18",
+        _ => "2024-11-05",
+    }
+}
+
+/// What a client said it can do at `initialize`, by session.
+#[derive(Debug, Clone, Copy, Default)]
+struct Client {
+    url_elicitation: bool,
+}
+
+fn clients() -> &'static std::sync::Mutex<std::collections::HashMap<String, Client>> {
+    static CLIENTS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, Client>>,
+    > = std::sync::OnceLock::new();
+    CLIENTS.get_or_init(Default::default)
+}
+
+/// The session a request belongs to: its MCP session, else stdio's one.
+fn session_key() -> String {
+    SESSION
+        .with(|slot| slot.borrow().clone())
+        .unwrap_or_else(|| "stdio".into())
+}
+
+fn remember_client(request: &Value, version: &str) {
+    let client = Client {
+        url_elicitation: version == TASKS_VERSION
+            && request
+                .pointer("/params/capabilities/elicitation/url")
+                .is_some(),
+    };
+    let mut clients = clients().lock().unwrap_or_else(|e| e.into_inner());
+    // Sessions come and go; keep the table bounded.
+    if clients.len() > 4096 {
+        clients.clear();
+    }
+    clients.insert(session_key(), client);
+}
+
+fn this_client() -> Client {
+    clients()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&session_key())
+        .copied()
+        .unwrap_or_default()
 }
 
 pub fn tool_definitions(config: &HostConfig) -> Vec<Value> {
@@ -389,6 +490,9 @@ pub fn tool_definitions(config: &HostConfig) -> Vec<Value> {
                 "description": descriptor.description(),
                 "inputSchema": impress_service_core::with_adverbs_property(descriptor.input_schema().into_owned()),
                 "annotations": descriptor.mcp_annotations(),
+                // Any tool may run as a task (protocol 2025-11-25); a
+                // client that did not negotiate tasks ignores this.
+                "execution": { "taskSupport": "optional" },
             });
             if let Some(ui) = config
                 .tool_ui
@@ -486,14 +590,84 @@ fn handle_tool_call(
     call.trace_id = trace;
     call.parent_call = parent;
     call.session = session;
-    let result = impress_service_core::runtime::block_on(
-        impress_service_core::pipeline::invoke_handle(descriptor, call),
-    )
-    .map_err(|error| match error {
-        impress_service_core::pipeline::PipelineError::Handler(e) => e.to_string(),
-        unavailable => unavailable.to_string(),
-    });
-    tool_result(id, result)
+    let secret_url = config
+        .secret_url
+        .clone()
+        .filter(|_| this_client().url_elicitation);
+    let run = move || {
+        let result = impress_service_core::runtime::block_on(
+            impress_service_core::pipeline::invoke_handle(descriptor, call),
+        )
+        .map_err(|error| match error {
+            impress_service_core::pipeline::PipelineError::Handler(e) => e.to_string(),
+            unavailable => unavailable.to_string(),
+        });
+        match secret_url
+            .as_deref()
+            .and_then(|url| elicit_secrets(&result, url))
+        {
+            Some(error) => error,
+            None => tool_outcome(result),
+        }
+    };
+    match request.pointer("/params/task") {
+        Some(task) if task.is_object() => tasks::create(id, caller, task, run),
+        _ => with_id(id, run()),
+    }
+}
+
+/// A `-32042` URL elicitation for each secret a refused call is missing:
+/// the person sets it on the host's own page, out of the client's sight.
+fn elicit_secrets(result: &Result<Value, String>, template: &str) -> Option<Value> {
+    let answer = result.as_ref().ok()?;
+    if answer.get("status").and_then(Value::as_str) != Some("auth_required") {
+        return None;
+    }
+    let missing = answer.get("missing_secrets")?.as_array()?;
+    let elicitations: Vec<Value> = missing
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|name| {
+            let elicitation = uuid::Uuid::new_v4().to_string();
+            json!({
+                "mode": "url",
+                "elicitationId": elicitation,
+                "url": template
+                    .replace("{name}", &percent_encode(name))
+                    .replace("{elicitation}", &elicitation),
+                "message": format!("The call needs the secret {name}; set it, then retry the call."),
+            })
+        })
+        .collect();
+    if elicitations.is_empty() {
+        return None;
+    }
+    Some(json!({
+        "error": {
+            "code": -32042,
+            "message": "This request needs a secret the person has not set.",
+            "data": { "elicitations": elicitations },
+        }
+    }))
+}
+
+fn percent_encode(text: &str) -> String {
+    text.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// A response object without its id (`result` or `error`) answered as the
+/// response to request `id`.
+fn with_id(id: Value, mut outcome: Value) -> Value {
+    outcome["jsonrpc"] = json!("2.0");
+    outcome["id"] = id;
+    outcome
 }
 
 fn handle_resource_read(config: &HostConfig, id: Value, request: &Value) -> Value {
@@ -518,6 +692,11 @@ fn handle_resource_read(config: &HostConfig, id: Value, request: &Value) -> Valu
 }
 
 fn tool_result(id: Value, result: Result<Value, String>) -> Value {
+    with_id(id, tool_outcome(result))
+}
+
+/// A tool call's answer as a response object without its id.
+pub(crate) fn tool_outcome(result: Result<Value, String>) -> Value {
     match result {
         Ok(value) => {
             let (mut content, raw) = impress_service_core::split_mcp_content(value);
@@ -540,22 +719,16 @@ fn tool_result(id: Value, result: Result<Value, String>) -> Value {
                 .get("ok")
                 .and_then(Value::as_bool)
                 .is_some_and(|ok| !ok);
-            success(
-                id,
-                json!({
+            json!({ "result": json!({
                     "content": content,
                     "structuredContent": structured,
                     "isError": is_error,
-                }),
-            )
+                }) })
         }
-        Err(message) => success(
-            id,
-            json!({
+        Err(message) => json!({ "result": json!({
                 "content": [{ "type": "text", "text": message }],
                 "isError": true,
-            }),
-        ),
+            }) }),
     }
 }
 
@@ -668,6 +841,7 @@ mod tests {
             }],
             tool_ui: Vec::new(),
             tool_file_params: Vec::new(),
+            secret_url: None,
         }
     }
 
@@ -927,5 +1101,177 @@ mod tests {
         assert!(response["result"]["structuredContent"]
             .get("_mcp_content")
             .is_none());
+    }
+
+    fn ask(request: Value, caller: &CallerIdentity, session: &str) -> Value {
+        handle_message_in(&config(), &request, caller, Some(session.into())).expect("a response")
+    }
+
+    fn agent(name: &str) -> CallerIdentity {
+        CallerIdentity::agent(name.to_string())
+    }
+
+    #[test]
+    fn the_version_is_negotiated_and_tasks_come_with_2025_11_25() {
+        let me = agent("negotiator");
+        for (asked, answered, tasks) in [
+            (Some("2025-11-25"), "2025-11-25", true),
+            (Some("2025-06-18"), "2025-06-18", false),
+            // Batching is mandatory in 2025-03-26 and refused here.
+            (Some("2025-03-26"), "2024-11-05", false),
+            (None, "2024-11-05", false),
+        ] {
+            let mut init = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{}});
+            if let Some(asked) = asked {
+                init["params"]["protocolVersion"] = json!(asked);
+            }
+            let answer = ask(init, &me, "negotiate");
+            assert_eq!(answer["result"]["protocolVersion"], answered, "{asked:?}");
+            assert_eq!(
+                answer["result"]["capabilities"]["tasks"]["requests"]["tools"]["call"].is_object(),
+                tasks,
+                "{asked:?}"
+            );
+        }
+        let tools = ask(
+            json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
+            &me,
+            "negotiate",
+        );
+        assert!(tools["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|tool| tool["execution"]["taskSupport"] == "optional"));
+    }
+
+    #[test]
+    fn a_tool_call_runs_as_a_task_its_caller_alone_can_see() {
+        let me = agent("tasker");
+        let created = ask(
+            json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
+                "name":"allowed-fixture_echo-arguments",
+                "arguments":{"x":1},
+                "task":{"ttl":60000}
+            }}),
+            &me,
+            "tasks",
+        );
+        let task = &created["result"]["task"];
+        assert_eq!(task["status"], "working", "{created}");
+        assert_eq!(task["ttl"], 60000);
+        assert!(task["createdAt"].is_string() && task["lastUpdatedAt"].is_string());
+        let task_id = task["taskId"].as_str().unwrap().to_owned();
+
+        // tasks/result blocks until the call is done and answers the call's
+        // own result, tied to the task.
+        let result = ask(
+            json!({"jsonrpc":"2.0","id":4,"method":"tasks/result","params":{"taskId":task_id}}),
+            &me,
+            "tasks",
+        );
+        assert_eq!(result["id"], 4);
+        assert_eq!(
+            result["result"]["structuredContent"]["arguments"]["x"], 1,
+            "{result}"
+        );
+        assert_eq!(
+            result["result"]["_meta"][tasks::RELATED_TASK]["taskId"],
+            task_id.as_str()
+        );
+
+        let got = ask(
+            json!({"jsonrpc":"2.0","id":5,"method":"tasks/get","params":{"taskId":task_id}}),
+            &me,
+            "tasks",
+        );
+        assert_eq!(got["result"]["status"], "completed", "{got}");
+        assert!(got["result"].get("pollInterval").is_none());
+
+        let listed = ask(
+            json!({"jsonrpc":"2.0","id":6,"method":"tasks/list"}),
+            &me,
+            "tasks",
+        );
+        assert!(listed["result"]["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|t| t["taskId"] == task_id.as_str()));
+
+        // A finished task cannot be cancelled.
+        let cancel = ask(
+            json!({"jsonrpc":"2.0","id":7,"method":"tasks/cancel","params":{"taskId":task_id}}),
+            &me,
+            "tasks",
+        );
+        assert_eq!(cancel["error"]["code"], -32602, "{cancel}");
+
+        // Another caller does not see it at all.
+        let other = agent("someone-else");
+        let theirs = ask(
+            json!({"jsonrpc":"2.0","id":8,"method":"tasks/get","params":{"taskId":task_id}}),
+            &other,
+            "tasks-other",
+        );
+        assert_eq!(theirs["error"]["code"], -32602, "{theirs}");
+        let none = ask(
+            json!({"jsonrpc":"2.0","id":9,"method":"tasks/list"}),
+            &other,
+            "tasks-other",
+        );
+        assert!(none["result"]["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t["taskId"] != task_id.as_str()));
+        let unknown = ask(
+            json!({"jsonrpc":"2.0","id":10,"method":"tasks/result","params":{"taskId":"nope"}}),
+            &me,
+            "tasks",
+        );
+        assert_eq!(unknown["error"]["code"], -32602);
+    }
+
+    #[test]
+    fn a_missing_secret_is_a_url_elicitation_for_a_client_that_can_open_one() {
+        let me = agent("eliciter");
+        let mut host = config();
+        host.secret_url = Some("http://127.0.0.1:9/secret/{name}?elicitation={elicitation}".into());
+        let call = json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+            "name":"allowed-fixture_search-papers","arguments":{}
+        }});
+        let send = |request: &Value, session: &str| {
+            handle_message_in(&host, request, &me, Some(session.into())).unwrap()
+        };
+
+        // A client without URL elicitation gets the refusal, naming the secret.
+        let plain = send(&call, "eliciting-plain");
+        assert_eq!(
+            plain["result"]["structuredContent"]["status"], "auth_required",
+            "{plain}"
+        );
+        assert_eq!(
+            plain["result"]["structuredContent"]["missing_secrets"][0],
+            "scix-api-token"
+        );
+
+        // One that declared it is sent to the host's page instead.
+        send(
+            &json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+                "protocolVersion":"2025-11-25",
+                "capabilities":{"elicitation":{"form":{},"url":{}}}
+            }}),
+            "eliciting-url",
+        );
+        let elicited = send(&call, "eliciting-url");
+        assert_eq!(elicited["error"]["code"], -32042, "{elicited}");
+        let elicitation = &elicited["error"]["data"]["elicitations"][0];
+        assert_eq!(elicitation["mode"], "url");
+        let id = elicitation["elicitationId"].as_str().unwrap();
+        assert_eq!(
+            elicitation["url"],
+            format!("http://127.0.0.1:9/secret/scix-api-token?elicitation={id}")
+        );
     }
 }

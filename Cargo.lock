@@ -4235,11 +4235,13 @@ name = "koine-mcp-host"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "chrono",
  "impress-service-core",
  "koine-workspace-hack",
  "serde",
  "serde_json",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -4562,6 +4564,7 @@ dependencies = [
  "impress-service-core",
  "impress-service-macros",
  "koine-agent",
+ "koine-mcp-host",
  "koine-store",
  "koine-store-dir",
  "koine-store-memory",

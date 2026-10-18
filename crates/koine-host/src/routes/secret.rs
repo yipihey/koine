@@ -5,10 +5,19 @@
 //! removed — the slot is explicit or it is not a slot. No answer here ever
 //! carries a value: the list is `{name, present, source, verbs}`. `PUT` and
 //! `DELETE` are non-GET, so the guard already demands the loopback token.
+//!
+//! `GET /secret/<name>` is the page an MCP client's URL elicitation opens
+//! (plan-koine-trust TR-D5): a form that `PUT`s the value from the person's
+//! browser straight to this host, so it never passes through the client or
+//! the model. Like `/ui`, only a loopback peer gets the token in the page,
+//! so only someone at this machine can set the secret.
+
+use std::net::SocketAddr;
 
 use axum::body::Bytes;
-use axum::extract::{Path, State};
-use axum::response::Response;
+use axum::extract::{ConnectInfo, Path, State};
+use axum::http::{header, HeaderValue};
+use axum::response::{IntoResponse, Response};
 use impress_service_core::refusal::codes;
 use impress_service_core::secrets::{self, SecretError};
 use impress_service_core::wire::WIRE_VERSION;
@@ -60,6 +69,76 @@ fn secret_error(error: SecretError) -> Response {
         SecretError::ReadOnly | SecretError::Io(_) => codes::STORE_ERROR,
     };
     refusal(code, error.to_string())
+}
+
+fn escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// `GET /secret/<name>`: the page that sets secret `name`.
+pub(super) async fn page(
+    State(state): State<Shared>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Path(name): Path<String>,
+) -> Response {
+    if !is_declared(&name) {
+        return undeclared(&name);
+    }
+    let token = if peer.ip().to_canonical().is_loopback() {
+        state.token.as_str()
+    } else {
+        ""
+    };
+    let verbs = secrets::declared()
+        .into_iter()
+        .filter(|d| d.name == name)
+        .flat_map(|d| d.verbs)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let html = format!(
+        r#"<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<meta name="koine-token" content="{token}">
+<title>Set {name}</title>
+<style>body{{font:15px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem}}
+input{{font:inherit;width:100%;padding:.4rem;box-sizing:border-box}}
+button{{font:inherit;margin-top:.8rem}}</style></head>
+<body><h1>Set the secret <code>{name}</code></h1>
+<p>Used by: {verbs}. The value goes from this page to the host on this machine and is not
+shown to the agent that asked for it.</p>
+<form id="f"><input id="v" type="password" autocomplete="off" autofocus required>
+<button type="submit">Save</button></form><p id="s" role="status"></p>
+<script>
+const token = document.querySelector('meta[name="koine-token"]').content;
+const status = document.getElementById("s");
+if (!token) status.textContent = "Open this page on the machine the host runs on.";
+document.getElementById("f").addEventListener("submit", async (e) => {{
+  e.preventDefault();
+  const r = await fetch("/api/secret/" + encodeURIComponent("{name}"), {{
+    method: "PUT",
+    headers: {{"Authorization": "Bearer " + token, "Content-Type": "application/json"}},
+    body: JSON.stringify({{value: document.getElementById("v").value}}),
+  }});
+  document.getElementById("v").value = "";
+  status.textContent = r.ok ? "Saved. Go back and retry the call." : "Not saved (" + r.status + ").";
+}});
+</script></body></html>"#,
+        token = escape(token),
+        name = escape(&name),
+        verbs = escape(&verbs),
+    );
+    let mut response = html.into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 /// `PUT /api/secret/<name>` with `{"value": "…"}`.

@@ -76,6 +76,7 @@ pub(crate) fn router(state: Shared) -> Router {
                 .layer(DefaultBodyLimit::max(BLOB_LIMIT)),
         )
         .route("/api/secret", get(secret::list))
+        .route("/secret/{name}", get(secret::page))
         .route(
             "/api/secret/{name}",
             axum::routing::put(secret::put).delete(secret::delete),

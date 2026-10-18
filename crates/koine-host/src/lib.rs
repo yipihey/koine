@@ -541,6 +541,11 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
                 config.app_id
             ),
             allowed_tool_prefixes: Vec::new(),
+            // TR-D5: a missing secret is set on this host's own page.
+            secret_url: Some(format!(
+                "http://127.0.0.1:{}/secret/{{name}}?elicitation={{elicitation}}",
+                addr.port()
+            )),
             // S-D2: the skill, for an agent that reads resources.
             resources: vec![koine_mcp_host::Resource {
                 uri: "koine://skill".into(),

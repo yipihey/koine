@@ -41,6 +41,8 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 # A verb whose answer names its caller, for the verb-task tests.
 koine-agent = { workspace = true }
 koine-store-memory = { workspace = true }
+# MCP tasks over a held call (plan-koine-trust TR-D5).
+koine-mcp-host = { workspace = true }
 koine-store-dir = { workspace = true }
 tempfile = { workspace = true }
 

@@ -373,3 +373,127 @@ async fn a_session_holding_two_risks_is_asked_before_the_third() {
         "{write}"
     );
 }
+
+/// One MCP message to a host exposing the note verbs, as `caller`.
+async fn mcp(caller: CallerIdentity, request: Value) -> Value {
+    process_store();
+    tokio::task::spawn_blocking(move || {
+        let config = koine_mcp_host::HostConfig {
+            server_name: "consent".into(),
+            server_version: "1".into(),
+            instructions: String::new(),
+            allowed_tool_prefixes: vec!["note-service_".into()],
+            resources: Vec::new(),
+            tool_ui: Vec::new(),
+            tool_file_params: Vec::new(),
+            secret_url: None,
+        };
+        koine_mcp_host::handle_message_in(&config, &request, &caller, Some("mcp-tasks".into()))
+            .expect("a response")
+    })
+    .await
+    .unwrap()
+}
+
+async fn task_status(task_id: &str) -> Value {
+    mcp(
+        agent(),
+        json!({"jsonrpc":"2.0","id":2,"method":"tasks/get","params":{"taskId":task_id}}),
+    )
+    .await["result"]
+        .clone()
+}
+
+/// Poll `task_id` until its status is `want` (or fail after a few seconds).
+async fn until_status(task_id: &str, want: &str) -> Value {
+    for _ in 0..100 {
+        let task = task_status(task_id).await;
+        if task["status"] == want {
+            return task;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    panic!(
+        "task {task_id} never reached {want}: {}",
+        task_status(task_id).await
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_held_call_is_an_mcp_task_awaiting_input_until_the_person_decides() {
+    let _one = serial().lock().await;
+    take_done();
+    let created = mcp(
+        agent(),
+        json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+            "name":"note-service_delete","arguments":{"ids":["q"]},"task":{}
+        }}),
+    )
+    .await;
+    let task_id = created["result"]["task"]["taskId"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{created}"))
+        .to_string();
+    let held = until_status(&task_id, "input_required").await;
+    assert!(
+        held["statusMessage"]
+            .as_str()
+            .unwrap()
+            .contains("review list"),
+        "{held}"
+    );
+    assert!(take_done().is_empty(), "nothing ran before the approval");
+
+    // The person approves in the app; the task completes with the answer.
+    let pending = as_caller(person(), "review-service_list", json!({})).await["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["verb"] == "note-service_delete")
+        .map(|row| row["id"].as_str().unwrap().to_string())
+        .expect("the held call is listed");
+    as_caller(person(), "review-service_approve", json!({"id": pending})).await;
+    let result = mcp(
+        agent(),
+        json!({"jsonrpc":"2.0","id":3,"method":"tasks/result","params":{"taskId":task_id}}),
+    )
+    .await;
+    assert_eq!(result["result"]["isError"], false, "{result}");
+    assert_eq!(
+        result["result"]["_meta"]["io.modelcontextprotocol/related-task"]["taskId"],
+        task_id.as_str()
+    );
+    assert_eq!(task_status(&task_id).await["status"], "completed");
+    assert_eq!(take_done(), ["delete q"]);
+
+    // A rejected call fails its task.
+    let created = mcp(
+        agent(),
+        json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{
+            "name":"note-service_delete","arguments":{"ids":["r"]},"task":{}
+        }}),
+    )
+    .await;
+    let task_id = created["result"]["task"]["taskId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    until_status(&task_id, "input_required").await;
+    let pending = as_caller(person(), "review-service_list", json!({})).await["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["verb"] == "note-service_delete")
+        .map(|row| row["id"].as_str().unwrap().to_string())
+        .unwrap();
+    as_caller(person(), "review-service_reject", json!({"id": pending})).await;
+    let failed = until_status(&task_id, "failed").await;
+    assert!(
+        failed["statusMessage"]
+            .as_str()
+            .unwrap()
+            .contains("did not approve"),
+        "{failed}"
+    );
+    assert!(take_done().is_empty(), "the rejected call never ran");
+}
