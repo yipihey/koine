@@ -145,6 +145,28 @@ impl TaskExecutor for VerbTaskExecutor {
                 write_result(store, task, &answer, &author)?;
                 if answer.get("ok") == Some(&serde_json::Value::Bool(false)) {
                     let code = answer["code"].as_str().unwrap_or(codes::VERB_FAILED);
+                    // plan-koine-trust TR-D5: a missing secret waits for the
+                    // person to set it, like a review; the task runs again
+                    // once the review is resolved.
+                    if code == codes::MISSING_SECRET {
+                        let message = answer["message"].as_str().unwrap_or("a secret is missing");
+                        store.open_review(
+                            task.id,
+                            crate::store::ReviewRequest {
+                                question: format!(
+                                    "{verb} needs a secret before it can run: {message}. \
+                                     Set it, then resolve this request."
+                                ),
+                                context: None,
+                            },
+                            &author,
+                        )?;
+                        return Ok(ExecutionOutcome::Suspended);
+                    }
+                    // Held for a person: the pending call carries it now.
+                    if code == impress_service_core::pipeline::policy::REVIEW_PENDING {
+                        return Ok(ExecutionOutcome::Complete);
+                    }
                     let message = answer["message"].as_str().unwrap_or("refused");
                     let why = format!("{verb} refused ({code}): {message}");
                     return Err(if RETRYABLE_CODES.contains(&code) {

@@ -71,6 +71,21 @@ impl CallerIdentity {
         }
     }
 
+    /// The caller an [`author`](Self::author) string names, as a stored row
+    /// (a job, a pending call) records it: `human`, `agent:mcp`,
+    /// `app:imbib`. An author no caller writes reads as `system:unknown`,
+    /// never as the person.
+    pub fn from_author(author: &str) -> CallerIdentity {
+        match author.split_once(':') {
+            None if author == "human" => CallerIdentity::Person,
+            Some(("agent", name)) => CallerIdentity::agent(name),
+            Some(("app", name)) => CallerIdentity::App(name.into()),
+            Some(("provider", name)) => CallerIdentity::Provider(name.into()),
+            Some(("system", name)) => CallerIdentity::system(name),
+            _ => CallerIdentity::system("unknown"),
+        }
+    }
+
     /// The row's `{kind, name}` object.
     pub fn to_json(&self) -> serde_json::Value {
         match self.name() {

@@ -360,6 +360,21 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
     // opened store, not the recording wrapper: they are not the call's reads
     // or writes.
     koine_store::once::install(opened.store.clone());
+    // plan-koine-trust TR-D4: a call the policy holds for a person is kept as
+    // a pending call; approvals made elsewhere run, and stale ones expire.
+    #[cfg(feature = "tasks")]
+    {
+        koine_tasks::review::install_queue();
+        let swept = store.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Err(error) = koine_tasks::review::sweep(swept.as_ref()).await {
+                    tracing::warn!(%error, "review sweep failed");
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+        });
+    }
     // AI-D3: the workspace beside the store (the AI preferences, blobs).
     koine_store::process::set_workspace(&config.workspace);
     if let Some(blobs) = opened.blobs.clone() {

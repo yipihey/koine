@@ -560,6 +560,21 @@ impl Rehearsal {
 
 tokio::task_local! {
     static REHEARSAL: Arc<Rehearsal>;
+    static APPROVAL: Arc<String>;
+}
+
+/// The pending call whose approval the current call runs under (TR-D4),
+/// when it does: a call made inside an approved call is approved too.
+pub fn current_approval() -> Option<Arc<String>> {
+    APPROVAL.try_with(Arc::clone).ok()
+}
+
+/// Run `future` under the approval of pending call `pending_id`.
+pub async fn approval_scope<F: std::future::Future>(
+    pending_id: Arc<String>,
+    future: F,
+) -> F::Output {
+    APPROVAL.scope(pending_id, future).await
 }
 
 /// The rehearsal the current call runs inside, when it does.

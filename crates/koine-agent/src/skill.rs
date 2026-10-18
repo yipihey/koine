@@ -108,9 +108,12 @@ pub fn render(app: &AppInfo) -> String {
     md.push_str(
         "## Rules\n\n\
          1. **A refusal is an answer.** A result with `\"ok\": false` carries a `code` and a \
-         `message`; read them. `review-pending` means a person must confirm your write: tell \
-         them, do not retry it. `missing-secret` names a secret the person must set; never \
-         pass a secret as an argument.\n\
+         `message`; read them, and its `status` when it has one. `input_required` \
+         (`review-pending`): a person must approve your call; it is kept as a pending call \
+         (`pending_id`) and runs once approved — tell them, do not retry, and read \
+         `review-service_show` for the answer. `auth_required` (`missing-secret`) names a \
+         secret the person must set; never pass a secret as an argument. `rejected`: the \
+         policy refused it; do not retry.\n\
          2. **Look before you change.** Pass `\"adverbs\": {\"tentatively\": true}` to learn \
          what a destructive or external verb would do, and under which policy, without doing \
          it.\n\

@@ -92,6 +92,9 @@ pub struct Call {
     /// sets directly; merged with any the transport carried under the
     /// `adverbs` argument key (docs/grammar.md § Adverbs).
     pub adverbs: Adverbs,
+    /// A person's approval of this exact call (TR-D4), set in process by the
+    /// review queue; never read from the wire.
+    pub approval: Option<policy::Approval>,
 }
 
 impl Call {
@@ -104,7 +107,14 @@ impl Call {
             store: None,
             requested_name: None,
             adverbs: Adverbs::default(),
+            approval: None,
         }
+    }
+
+    /// This call, approved by a person (TR-D4).
+    pub fn with_approval(mut self, approval: policy::Approval) -> Self {
+        self.approval = Some(approval);
+        self
     }
 
     /// This call with `adverbs` set.
@@ -254,6 +264,8 @@ struct Prepared {
     /// The store the call record is written to: the call's own store
     /// override, never a rehearsal's overlay.
     record_store: Option<Arc<dyn std::any::Any + Send + Sync>>,
+    /// The pending call whose approval this call runs under (TR-D4).
+    approved_scope: Option<Arc<String>>,
 }
 
 /// What the invoke step does for a prepared call.
@@ -418,6 +430,7 @@ fn prepare_inner(
         store,
         requested_name,
         adverbs: call_adverbs,
+        approval,
     } = call;
     let mut args = if args.is_null() {
         Value::Object(Default::default())
@@ -504,6 +517,7 @@ fn prepare_inner(
     let mut once = None;
     let mut store = store;
     let mut record_store: Option<Arc<dyn std::any::Any + Send + Sync>> = None;
+    let mut approved_scope: Option<Arc<String>> = None;
 
     // 3. reachability.
     if !preflight_refusal {
@@ -535,10 +549,10 @@ fn prepare_inner(
         if let Some(linked) = verb.linked() {
             let missing = crate::secrets::missing_for(linked);
             if !missing.is_empty() {
-                return Ok(Err(crate::strict::refusal_value(&missing_secret_refusal(
-                    linked.name,
-                    &missing,
-                ))));
+                let mut answer =
+                    crate::strict::refusal_value(&missing_secret_refusal(linked.name, &missing));
+                answer["status"] = Value::String(policy::STATUS_AUTH_REQUIRED.into());
+                return Ok(Err(answer));
             }
         }
 
@@ -552,6 +566,16 @@ fn prepare_inner(
         };
         if adverbs.with_review && decision == policy::Decision::Run {
             decision = policy::Decision::Review;
+        }
+        // TR-D4: a person approved this call (or the call it runs inside);
+        // the policy does not ask again. A denial or a conflict still holds.
+        let approved_here = approval
+            .as_ref()
+            .filter(|a| a.covers(verb.name(), &args))
+            .map(|a| Arc::new(a.pending_id().to_owned()));
+        approved_scope = approved_here.or_else(context::current_approval);
+        if approved_scope.is_some() && decision == policy::Decision::Review {
+            decision = policy::Decision::Run;
         }
         if tentative_answer {
             // Answered after policy has decided, before it acts.
@@ -624,6 +648,7 @@ fn prepare_inner(
                             store: store.clone(),
                             requested_name: requested_name.clone(),
                             adverbs: inner,
+                            approval: approval.clone(),
                         };
                         let started = match adverbs.every {
                             Some(interval) => runner.repeat(verb.clone(), handed, interval),
@@ -717,6 +742,7 @@ fn prepare_inner(
         requested_name,
         audit_always: adverbs.tentatively || adverbs.in_background || adverbs.every.is_some(),
         record_store,
+        approved_scope,
         adverbs,
         disposition,
         holds_lease,
@@ -1128,11 +1154,18 @@ where
                 Disposition::Rehearse(_, rehearsal) => Some(rehearsal.clone()),
                 _ => None,
             };
+            let approved = prepared.approved_scope.clone();
             let scoped = async {
                 let scoped = context::scope(prepared.context.clone(), future);
-                match rehearsal {
-                    Some(rehearsal) => context::rehearsal_scope(rehearsal, scoped).await,
-                    None => scoped.await,
+                let rehearsed = async {
+                    match rehearsal {
+                        Some(rehearsal) => context::rehearsal_scope(rehearsal, scoped).await,
+                        None => scoped.await,
+                    }
+                };
+                match approved {
+                    Some(pending) => context::approval_scope(pending, rehearsed).await,
+                    None => rehearsed.await,
                 }
             };
             let run = tracing::Instrument::instrument(scoped, entered);
@@ -2169,6 +2202,84 @@ pub(crate) mod tests {
         assert_eq!(answer["ok"], false);
         assert_eq!(answer["code"], "review-pending");
         assert_eq!(hits("t-service_adv-review"), 0);
+    }
+
+    #[test]
+    fn a_pending_call_is_an_input_required_state() {
+        let answer = invoke_blocking(
+            &REVIEW,
+            with(Adverbs {
+                with_review: true,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        assert_eq!(answer["status"], "input_required", "{answer}");
+    }
+
+    /// Approves a write of the nested verb when asked, so a test can see an
+    /// approval cover the calls an approved call makes.
+    fn approved_nesting(_: Value) -> ServiceFuture {
+        Box::pin(async move {
+            bump();
+            let inner = invoke(
+                &APPROVE_INNER,
+                Call::agent("a", json!({})).with_adverbs(Adverbs {
+                    with_review: true,
+                    ..Default::default()
+                }),
+            )
+            .await
+            .unwrap();
+            Ok(json!({"ok": true, "inner": inner}))
+        })
+    }
+    adv_verb!(APPROVE_OUTER, "t-service_approve-outer", approved_nesting);
+    adv_verb!(APPROVE_INNER, "t-service_approve-inner", counting);
+
+    #[test]
+    fn an_approval_runs_that_call_once_and_covers_what_it_calls() {
+        let review = Adverbs {
+            with_review: true,
+            ..Default::default()
+        };
+        let args = json!({"n": 1});
+        let queued = invoke_blocking(
+            &APPROVE_OUTER,
+            Call::agent("a", args.clone()).with_adverbs(review.clone()),
+        )
+        .unwrap();
+        assert_eq!(queued["code"], "review-pending");
+        assert_eq!(hits("t-service_approve-outer"), 0);
+        // Other arguments are not what the person approved.
+        let wrong = policy::Approval::grant("p1", "t-service_approve-outer", &json!({"n": 2}));
+        let still = invoke_blocking(
+            &APPROVE_OUTER,
+            Call::agent("a", args.clone())
+                .with_adverbs(review.clone())
+                .with_approval(wrong),
+        )
+        .unwrap();
+        assert_eq!(still["code"], "review-pending");
+        let approval = policy::Approval::grant("p1", "t-service_approve-outer", &args);
+        let ran = invoke_blocking(
+            &APPROVE_OUTER,
+            Call::agent("a", args)
+                .with_adverbs(review)
+                .with_approval(approval),
+        )
+        .unwrap();
+        assert_eq!(ran["ok"], true, "{ran}");
+        assert_eq!(ran["inner"]["ok"], true, "the inner call is covered: {ran}");
+        assert_eq!(hits("t-service_approve-outer"), 1);
+        assert_eq!(hits("t-service_approve-inner"), 1);
+    }
+
+    #[test]
+    fn a_policy_denial_is_rejected_not_failed() {
+        let answer = policy::deny(&VerbHandle::Linked(&REVIEW), "no".into());
+        assert_eq!(answer["code"], "rejected");
+        assert_eq!(answer["status"], "rejected");
     }
 
     #[test]

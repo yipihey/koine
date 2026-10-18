@@ -25,6 +25,8 @@ pub mod executor;
 #[cfg(feature = "runtime")]
 pub mod inline;
 #[cfg(feature = "runtime")]
+pub mod review;
+#[cfg(feature = "runtime")]
 pub mod scheduler;
 #[cfg(feature = "runtime")]
 pub mod service;
@@ -57,4 +59,5 @@ pub use verb::{VerbTaskExecutor, VERB_TASK_KIND};
 #[cfg(feature = "runtime")]
 pub fn ensure_linked() {
     std::hint::black_box(DefaultTaskService::new as *const ());
+    std::hint::black_box(review::DefaultReviewService::new as *const ());
 }

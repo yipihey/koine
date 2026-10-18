@@ -36,8 +36,58 @@ use crate::refusal::Refusal;
 
 /// The generic refusal code for a call the policy queued.
 pub const REVIEW_PENDING: &str = "review-pending";
-/// The generic refusal code for a call the policy refused outright.
+/// The generic refusal code a verb uses for a caller it does not serve
+/// ("person only").
 pub const FORBIDDEN: &str = "forbidden";
+/// The code for a call the policy refused outright (plan-koine-trust
+/// TR-D5): distinct from a failure, never worth retrying.
+pub const REJECTED: &str = "rejected";
+
+/// `status` on an envelope that is not a result (TR-D5), in the agent
+/// protocols' words: waiting for a person (MCP `input_required`, A2A
+/// `INPUT_REQUIRED`).
+pub const STATUS_INPUT_REQUIRED: &str = "input_required";
+/// A secret the verb needs is not set (A2A `AUTH_REQUIRED`).
+pub const STATUS_AUTH_REQUIRED: &str = "auth_required";
+/// The policy refused the call (A2A `REJECTED`).
+pub const STATUS_REJECTED: &str = "rejected";
+
+/// A person's approval of one pending call (plan-koine-trust TR-D4): the
+/// call runs once more as its original caller and the policy does not ask
+/// again — for that verb with those arguments, and for the calls it makes.
+/// Built only in process (by the review queue when a person approves), so a
+/// caller cannot send one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Approval {
+    pending_id: String,
+    verb: String,
+    fingerprint: String,
+}
+
+impl Approval {
+    /// The approval of pending call `pending_id`: `verb` with `args` (the
+    /// `adverbs` key, if any, is not part of what was approved).
+    pub fn grant(pending_id: impl Into<String>, verb: impl Into<String>, args: &Value) -> Self {
+        let mut args = args.clone();
+        if let Some(object) = args.as_object_mut() {
+            object.remove(crate::Adverbs::KEY);
+        }
+        Self {
+            pending_id: pending_id.into(),
+            verb: verb.into(),
+            fingerprint: super::adverbs::fingerprint(&args),
+        }
+    }
+
+    pub fn pending_id(&self) -> &str {
+        &self.pending_id
+    }
+
+    /// Whether this approval is for `verb` called with `args`.
+    pub fn covers(&self, verb: &str, args: &Value) -> bool {
+        self.verb == verb && self.fingerprint == super::adverbs::fingerprint(args)
+    }
+}
 
 /// What the policy decided.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -392,15 +442,18 @@ pub fn queue(caller: &CallerIdentity, verb: &dyn VerbFacts, args: &Value) -> Val
     let queue = QUEUE.read().ok().and_then(|q| q.clone());
     let mut answer = match queue {
         Some(queue) => match queue.enqueue(caller, verb, args) {
-            Ok(surface_id) => {
+            Ok(pending_id) => {
                 let mut v = crate::strict::refusal_value(&Refusal::new(
                     REVIEW_PENDING,
                     format!(
-                        "{} from {caller} is queued for review; confirm surface {surface_id}",
+                        "{} from {caller} is waiting for a person to approve it (pending call \
+                         {pending_id}); it runs once approved — do not retry",
                         verb.name()
                     ),
                 ));
-                v["surface_id"] = Value::String(surface_id);
+                v["pending_id"] = Value::String(pending_id.clone());
+                // The id under its older name, for clients that read it.
+                v["surface_id"] = Value::String(pending_id);
                 v
             }
             Err(refusal) => crate::strict::refusal_value(&refusal),
@@ -417,16 +470,21 @@ pub fn queue(caller: &CallerIdentity, verb: &dyn VerbFacts, args: &Value) -> Val
     };
     if let Some(object) = answer.as_object_mut() {
         object.insert("verb".into(), Value::String(verb.name().to_string()));
+        if object.get("code").and_then(Value::as_str) == Some(REVIEW_PENDING) {
+            object.insert("status".into(), Value::String(STATUS_INPUT_REQUIRED.into()));
+        }
     }
     answer
 }
 
 /// The answer for a denied call.
 pub fn deny(verb: &dyn VerbFacts, reason: String) -> Value {
-    crate::strict::refusal_value(&Refusal::new(
-        FORBIDDEN,
+    let mut answer = crate::strict::refusal_value(&Refusal::new(
+        REJECTED,
         format!("{}: {reason}", verb.name()),
-    ))
+    ));
+    answer["status"] = Value::String(STATUS_REJECTED.into());
+    answer
 }
 
 /// The answer for a call refused over D-R11: a destructive verb whose

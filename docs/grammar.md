@@ -288,6 +288,27 @@ reads the inverse the handler recorded, in the envelope layer.
 - A runtime provider declares no adverb support; it honors the universal
   three only.
 
+## Consent: pending calls
+
+A call the policy holds for a person (plan-koine-trust TR-D4, TR-D5) is not
+lost. With a review queue installed (`koine_tasks::review`, which koine-host
+installs), it is kept as a `koine/pending-call@1.0.0` item with a
+`review-request@1.0.0` on it, and the caller gets `code: "review-pending"`,
+`status: "input_required"` and the `pending_id`. `review-service_list`,
+`_show`, `_approve` and `_reject` read and decide them; only the person or
+their app may decide. Approving runs the call at once, as the caller that
+asked, under a one-use approval the policy honours for that verb with
+those arguments and for the calls it makes; a clock-guarded move from
+`pending` to `running` keeps two approvers from running it twice. An
+approval made elsewhere (a review resolved through another app) is run by
+the host's sweep, and a pending call expires after 7 days
+(`KOINE_REVIEW_EXPIRY_DAYS`).
+
+Every answer that is not a result carries a `status` in the agent
+protocols' words: `input_required` (held for a person), `auth_required`
+(`missing-secret`), `rejected` (the policy refused; code `rejected`). A verb
+task whose call needs a secret waits on a review instead of failing.
+
 ## What pins this
 
 | Rule | Test |
