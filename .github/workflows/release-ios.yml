@@ -1,14 +1,15 @@
 # A koine app onto an iPhone through TestFlight (docs/plan-koine-mobile.md M-D8,
 # docs/mobile.md "Onto a phone"). Reusable: an app's own workflow calls it with
 # the crate, the bundle id and the version; the demo's caller is
-# release-demo-ios.yml.
+# release-demo-ios.yml, and an app in its own Cargo workspace (apps/regex-lab)
+# names that workspace too (release-regex-lab-ios.yml).
 #
 # Steps: fastlane `signing` (a distribution certificate and an App Store
 # profile for the bundle id, made with the App Store Connect API key and kept
 # encrypted on this repository's `signing` branch), `dx build --device`
 # (signed with that identity and profile), scripts/release/sign-ipa.sh (the
 # version and build number stamped, the Xcode keys and the app icon from
-# crates/<crate>/icon.png added, re-sealed, packed), fastlane `upload`
+# <workspace>/crates/<crate>/icon.png added, re-sealed, packed), fastlane `upload`
 # (uploaded), and the .ipa attached to the GitHub Release when a tag started
 # the run.
 #
@@ -21,9 +22,14 @@ on:
   workflow_call:
     inputs:
       crate:
-        description: "The crate under crates/ that is the app (its Dioxus.toml names the bundle)"
+        description: "The crate under <workspace>/crates/ that is the app (its Dioxus.toml names the bundle)"
         type: string
         required: true
+      workspace:
+        description: "The Cargo workspace holding crates/<crate>, relative to the repository root"
+        type: string
+        required: false
+        default: "."
       bundle_id:
         description: "The app's CFBundleIdentifier (registered in the developer portal; an App record exists in App Store Connect)"
         type: string
@@ -40,9 +46,13 @@ on:
   workflow_dispatch:
     inputs:
       crate:
-        description: "The crate under crates/ that is the app"
+        description: "The crate under <workspace>/crates/ that is the app"
         type: string
         default: koine-demo-mobile
+      workspace:
+        description: "The Cargo workspace holding crates/<crate> (e.g. apps/regex-lab)"
+        type: string
+        default: "."
       bundle_id:
         description: "The app's CFBundleIdentifier"
         type: string
@@ -70,6 +80,7 @@ jobs:
     timeout-minutes: 90
     env:
       CRATE: ${{ inputs.crate }}
+      WORKSPACE: ${{ inputs.workspace }}
       IOS_BUNDLE_ID: ${{ inputs.bundle_id }}
       # `x.y.z`, or a tag like `demo-v0.1.0` (a caller passes the tag name;
       # expressions cannot strip it, the "Version" step does).
@@ -143,7 +154,7 @@ jobs:
           scripts/release/sign-ipa.sh entitlements --profile "$PROFILE" --out "$RUNNER_TEMP/entitlements.plist"
 
       - name: Build for the device (dx)
-        working-directory: crates/${{ inputs.crate }}
+        working-directory: ${{ inputs.workspace }}/crates/${{ inputs.crate }}
         run: |
           dx build --platform ios --device --release --features mobile \
             --apple-team-id "${{ steps.ent.outputs.identity }}" \
@@ -152,12 +163,13 @@ jobs:
       - name: Stamp, re-seal and pack the .ipa
         id: ipa
         run: |
-          APP="$(ls -d "target/dx/$CRATE/release/ios/"*.app | head -n 1)"
-          [ -d "$APP" ] || { echo "::error::no .app under target/dx/$CRATE/release/ios"; exit 1; }
+          # dx writes under its workspace's target directory.
+          APP="$(ls -d "$WORKSPACE/target/dx/$CRATE/release/ios/"*.app | head -n 1)"
+          [ -d "$APP" ] || { echo "::error::no .app under $WORKSPACE/target/dx/$CRATE/release/ios"; exit 1; }
           NAME="$(basename "$APP" .app)"
           OUT="$RUNNER_TEMP/$NAME-$VERSION-$BUILD_NUMBER.ipa"
           ICON=()
-          [ -f "crates/$CRATE/icon.png" ] && ICON=(--icon "crates/$CRATE/icon.png")
+          [ -f "$WORKSPACE/crates/$CRATE/icon.png" ] && ICON=(--icon "$WORKSPACE/crates/$CRATE/icon.png")
           scripts/release/sign-ipa.sh ipa "${ICON[@]}" \
             --app "$APP" \
             --profile "${{ steps.ent.outputs.profile }}" \
