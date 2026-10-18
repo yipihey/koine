@@ -331,13 +331,19 @@ impl DirStore {
             let _ = tx.send(event);
         })
         .map_err(|e| storage("start the file watcher", e))?;
+        // Both paths in one commit: FSEvents restarts its stream for every
+        // `watch` call, which cost about 1.5 s each on macOS.
+        let mut paths = watcher.paths_mut();
         for dir in ["items", "operations"] {
             let path = root.join(dir);
             std::fs::create_dir_all(&path).map_err(|e| storage(format!("create {dir}/"), e))?;
-            watcher
-                .watch(&path, RecursiveMode::Recursive)
+            paths
+                .add(&path, RecursiveMode::Recursive)
                 .map_err(|e| storage(format!("watch {}", path.display()), e))?;
         }
+        paths
+            .commit()
+            .map_err(|e| storage("start watching the root", e))?;
         let worker = Worker {
             root,
             subscribers: self.subscribers.clone(),

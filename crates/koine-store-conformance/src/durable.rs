@@ -250,14 +250,12 @@ fn hear(rx: &Receiver<ItemEvent>, what: &str, want: impl Fn(&ItemEvent) -> bool)
 /// writes: a row inserted, changed and deleted through one handle reaches a
 /// subscriber on a second (which stands in for a second process).
 ///
-/// Skipped, loudly, when the store does not declare it, or when the handle
-/// the `reopen` arm hands out is not one that listens (a backend whose
-/// listening is opt-in starts it in that closure).
+/// Skipped, loudly, when the handle the `reopen` arm hands out does not
+/// declare it. That handle is the one asked, not the probe: a backend whose
+/// listening is opt-in starts it in that closure, and its other arms need
+/// not pay for a watcher.
 pub fn cross_process_write_reaches_another_handle(probe: &dyn AttributedStore, open: Open<'_>) {
     let case = "cross_process_write_reaches_another_handle";
-    if !probe.capabilities().cross_process_events {
-        return skip(case, "the store declares cross_process_events: false");
-    }
     let Some(open) = opener(case, probe, open, true) else {
         return;
     };
@@ -266,7 +264,7 @@ pub fn cross_process_write_reaches_another_handle(probe: &dyn AttributedStore, o
     if !listener.capabilities().cross_process_events {
         return skip(
             case,
-            "the handle the reopen arm opens does not declare cross_process_events",
+            "the handle the reopen arm opens declares cross_process_events: false",
         );
     }
     let rx = listener.subscribe(ItemQuery::default()).expect("subscribe");
