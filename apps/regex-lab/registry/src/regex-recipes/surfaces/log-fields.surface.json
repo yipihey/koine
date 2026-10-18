@@ -1,0 +1,54 @@
+{
+  "surface": "1.0",
+  "name": "Log fields",
+  "state": {
+    "logs": "2026-10-17T23:20:17Z  INFO koine-host: kit installed\n2026-10-17T23:20:18Z  WARN koine-store: slow write (212 ms)\n2026-10-17T23:20:19Z ERROR regex-lab: pattern refused at column 4\nnot a log line\n2026-10-17T23:20:21Z DEBUG koine-host::feed: 3 surfaces re-rendered"
+  },
+  "sources": {
+    "fields": {
+      "verb": "regex-lab-service_captures-all",
+      "args": {
+        "pattern": "^(?P<time>\\S+) +(?P<level>TRACE|DEBUG|INFO|WARN|ERROR) +(?P<target>[\\w:.-]+): (?P<message>.*)$",
+        "flags": "m",
+        "haystack": "{{state.logs}}",
+        "limit": 5000
+      }
+    }
+  },
+  "root": {
+    "column": [
+      {
+        "text": "Paste log lines; each one that has a time, a level, a target and a message becomes a row. Lines that do not are left out."
+      },
+      {
+        "id": "logs",
+        "field": {
+          "text": {
+            "multiline": true,
+            "rows": 8
+          }
+        },
+        "label": "Logs",
+        "bind": "state.logs"
+      },
+      {
+        "id": "count",
+        "kv": {
+          "lines read": "{{source.fields.count}}"
+        }
+      },
+      {
+        "id": "fields-table",
+        "table": {
+          "rows": "{{source.fields.records}}",
+          "columns": [
+            "time",
+            "level",
+            "target",
+            "message"
+          ]
+        }
+      }
+    ]
+  }
+}

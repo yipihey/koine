@@ -1,0 +1,16 @@
+# The page proxy. `koine-web` (crates/koine-web in a koine checkout) is the
+# page; `dx serve` there forwards /api to a running host so the page is
+# same-origin with it (the host sends no CORS headers). Copy this file over
+# crates/koine-web/Dioxus.toml, or pass it with `dx serve --config`, to aim
+# the page at regex-lab's host. The host serves the built page itself under
+# /ui/ (open http://localhost:23130/ui/).
+[application]
+name = "regex-lab"
+
+[web.app]
+title = "regex-lab"
+# The host serves the bundle under /ui/ and the router reads this as its prefix.
+base_path = "ui"
+
+[[web.proxy]]
+backend = "http://localhost:23130/api"

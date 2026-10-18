@@ -1,0 +1,20 @@
+[package]
+name = "regex-lab-host"
+description = "The host of regex-lab: links regex-lab-service and serves its verbs"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+regex-lab-service = { path = "../regex-lab-service" }
+# What the host links beyond the core (scripts/new-app.sh --with): "tasks",
+# "ai", "http-registries", "tier-b". Each one is code and a start-up cost; a host asked
+# for one it was built without (`--tasks`, `--ai`) refuses to start.
+koine-host = { workspace = true, features = [] }
+# The app's own package (`package/`): its pages and its skill, built into the
+# binary and installed at start.
+koine-packages.workspace = true
+
+[dev-dependencies]
+impress-surface.workspace = true
+impress-service-core.workspace = true
+serde_json.workspace = true

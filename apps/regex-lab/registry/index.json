@@ -1,0 +1,21 @@
+{
+  "registry": "1.0",
+  "name": "regex-lab",
+  "description": "Packages for regex-lab: add with package-service_registry-add or --registry.",
+  "packages": [
+    {
+      "name": "regex-recipes",
+      "version": "0.1.0",
+      "description": "Ready-made patterns for regex-lab (DOI, arXiv id, ISO date, semver, email, URL, IPv4, UUID, log lines), and a page that turns log lines into a table.",
+      "bundle": "regex-recipes-0.1.0.koinepkg.json",
+      "digest": "sha256:4990014e678b8f6b92ae7151e1ab3b01a98befa3ed1de6071a0579c960a80beb",
+      "requires": {
+        "verbs": [
+          "regex-lab-service_captures-all",
+          "regex-lab-service_save-pattern"
+        ],
+        "secrets": []
+      }
+    }
+  ]
+}
