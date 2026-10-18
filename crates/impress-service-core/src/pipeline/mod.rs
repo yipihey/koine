@@ -2421,6 +2421,9 @@ pub(crate) mod tests {
 
     #[test]
     fn once_replays_the_first_envelope_and_does_not_rerun() {
+        // Before the calls: the sink is installed on first use, and a call
+        // made before it exists is not recorded (alone, this test saw none).
+        let sink = captured();
         let once = |key: &str| Adverbs {
             once: Some(key.into()),
             ..Default::default()
@@ -2439,7 +2442,7 @@ pub(crate) mod tests {
         assert!(other.get("replayed").is_none());
         assert_eq!(hits("t-service_adv-once"), 2);
         // The key's value is never on the record.
-        let rows = captured()
+        let rows = sink
             .0
             .lock()
             .unwrap_or_else(|e| e.into_inner())
