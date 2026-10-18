@@ -639,6 +639,46 @@ async fn a_verb_is_reached_by_name_and_refusals_have_statuses() {
     host.served.shutdown().await;
 }
 
+/// A body over the request limit is refused as every other refusal is, JSON
+/// with a code, before anything runs; one under it (well past axum's own
+/// 2 MiB default) is read.
+#[tokio::test]
+async fn a_body_over_the_limit_is_a_json_too_large_refusal() {
+    let _turn = TURN.lock().await;
+    let host = start("memory:", "limit-app").await;
+    let path = "/api/verb/surface-demo-service_histogram";
+    let under = koine_host::REQUEST_LIMIT / 2;
+    let values = format!("[{}]", vec!["1"; under / 2].join(","));
+    let read = host
+        .client
+        .post(host.url(path))
+        .bearer_auth(host.served.token())
+        .header("content-type", "application/json")
+        .body(format!(r#"{{"values":{values},"bins":4}}"#))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(read.status(), 200, "a body under the limit is read");
+
+    let over = host
+        .client
+        .post(host.url(path))
+        .bearer_auth(host.served.token())
+        .body(vec![b' '; koine_host::REQUEST_LIMIT + 1])
+        .send()
+        .await
+        .unwrap();
+    let (status, refusal) = json_of(over).await;
+    assert_eq!(status, 413, "{refusal}");
+    assert_eq!(refusal["ok"], false);
+    assert_eq!(refusal["code"], "too-large");
+    assert!(
+        refusal["message"].as_str().unwrap().contains("16 MiB"),
+        "{refusal}"
+    );
+    host.served.shutdown().await;
+}
+
 // ------------------------------------------------------------------- layout
 
 #[tokio::test]
@@ -2079,7 +2119,14 @@ async fn the_kit_the_call_log_and_the_skill_are_served() {
         .await;
     let rows = shipped["rows"].as_array().unwrap();
     let names: Vec<&str> = rows.iter().map(|r| r["name"].as_str().unwrap()).collect();
-    assert_eq!(names, ["Notebook", "Agent desk", "Packages"], "{shipped}");
+    // The Review surface (plan-koine-trust TR-D8) is the kit's when its
+    // verbs are linked, which the `tasks` feature does.
+    let expected: &[&str] = if cfg!(feature = "tasks") {
+        &["Notebook", "Agent desk", "Packages", "Review"]
+    } else {
+        &["Notebook", "Agent desk", "Packages"]
+    };
+    assert_eq!(names, expected, "{shipped}");
     assert!(rows.iter().all(|r| r["status"] == "pristine"), "{shipped}");
 
     // KM-D5: the packages of the capabilities the host links are installed
