@@ -679,15 +679,26 @@ fn object_with_row_lists(output_schema: &Value) -> Option<Node> {
     if tables.is_empty() {
         return None;
     }
-    // The fields every answer has; an optional one (a refusal's `code`, a
-    // match that may be absent) would be a blank row on most answers.
-    let required: Option<Vec<&str>> = top
+    // The fields an answer has: the required ones, and any scalar that is
+    // never null (an answer flattened beside its refusal is not required,
+    // yet its `count` is always there). A nullable field (a refusal's
+    // `code`, a match that may be absent) would be a blank row on most
+    // answers, and an array that is not rows is no row at all.
+    let required: Vec<&str> = top
         .get("required")
         .and_then(Value::as_array)
-        .map(|names| names.iter().filter_map(Value::as_str).collect());
+        .map(|names| names.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let always_scalar = |name: &str| {
+        let property = schema_target(output_schema, &properties[name]);
+        match property.get("type") {
+            Some(Value::String(kind)) => !matches!(kind.as_str(), "array" | "object" | "null"),
+            _ => false,
+        }
+    };
     let pairs: serde_json::Map<String, Value> = fields
         .iter()
-        .filter(|name| required.as_ref().is_none_or(|r| r.contains(&name.as_str())))
+        .filter(|name| required.contains(&name.as_str()) || always_scalar(name))
         .map(|name| (name.clone(), json!(format!("{{{{state.result.{name}}}}}"))))
         .collect();
     let mut items = Vec::new();
@@ -1469,7 +1480,9 @@ mod tests {
                 "code": {"type": ["string", "null"]},
                 "count": {"type": "integer"},
                 "pieces": {"type": "array", "items": {"$ref": "#/definitions/Piece"}},
-                "words": {"type": "array", "items": {"type": "string"}}
+                "words": {"type": "array", "items": {"type": "string"}},
+                "truncated": {"type": "boolean"},
+                "next": {"type": ["integer", "null"]}
             },
             "definitions": {"Piece": {"type": "object", "properties": {
                 "index": {"type": "integer"}, "text": {"type": "string"}
@@ -1505,11 +1518,16 @@ mod tests {
             other => panic!("{other:?}"),
         }
         match find("result-summary") {
-            // Required fields only: no blank `code` row; an array of strings
-            // is not rows and stays a field (here not required, so absent).
+            // Required fields and scalars never null: no blank `code` or
+            // `next` row, no array of strings, but `truncated` (an answer
+            // flattened beside a refusal is not required).
             NodeKind::Kv(pairs) => assert_eq!(
                 pairs,
-                json!({"count": "{{state.result.count}}", "ok": "{{state.result.ok}}"})
+                json!({
+                    "count": "{{state.result.count}}",
+                    "ok": "{{state.result.ok}}",
+                    "truncated": "{{state.result.truncated}}"
+                })
             ),
             other => panic!("{other:?}"),
         }
