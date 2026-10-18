@@ -1083,12 +1083,18 @@ dependencies = [
 name = "koine-store"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "impress-item",
  "impress-pane-query-compile",
  "impress-service-core",
  "koine-store-dir",
  "koine-store-memory",
+ "koine-store-overlay",
+ "serde_json",
+ "sha2",
  "thiserror",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -1116,6 +1122,16 @@ dependencies = [
  "koine-workspace-hack",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "koine-store-overlay"
+version = "0.1.0"
+dependencies = [
+ "impress-item",
+ "koine-store-memory",
+ "koine-workspace-hack",
+ "serde_json",
 ]
 
 [[package]]
