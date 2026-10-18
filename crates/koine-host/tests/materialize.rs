@@ -47,6 +47,7 @@ static PAPERS: VerbDescriptor = VerbDescriptor {
     source: Source::Linked,
     handler: papers,
     consent: ::impress_service_core::Consent::DEFAULT,
+    intent: ::impress_service_core::IntentDecl::NONE,
 };
 inventory::submit! { McpToolDescriptor::of(&PAPERS) }
 

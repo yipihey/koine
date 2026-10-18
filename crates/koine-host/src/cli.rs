@@ -68,6 +68,11 @@ OPTIONS:
     -h, --help               this text
 
 SUBCOMMANDS (no server is started):
+    {program} app-intents print|write <dir> [--prefix <Swift type prefix>]
+                             Apple App Intents for the verbs that declare intent(…)
+                             and the kinds with entity(lookup|search) verbs: print
+                             the files, or write them into <dir> (plan-koine-trust
+                             TR-D14)
     {program} skill print [--app-id <id>]
                              write this app's agent skill (SKILL.md) to stdout
     {program} skill install [--into <dir>]... [--force] [--app-id <id>]
@@ -257,6 +262,62 @@ pub fn parse_with_env(
         check,
         window,
     }))
+}
+
+/// `<host> app-intents print|write <dir> [--prefix P]` (plan-koine-trust
+/// TR-D14): the App Intents Swift for this binary's linked verbs.
+pub fn app_intents_command(
+    args: impl IntoIterator<Item = String>,
+    app_id: &str,
+) -> Result<String, String> {
+    let mut args = args.into_iter();
+    let action = args.next().unwrap_or_default();
+    let mut dir: Option<PathBuf> = None;
+    let mut prefix: Option<String> = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--prefix" => prefix = Some(args.next().ok_or("--prefix needs a value")?),
+            other if !other.starts_with('-') && dir.is_none() => dir = Some(PathBuf::from(other)),
+            other => return Err(format!("app-intents: unknown option {other} (see --help)")),
+        }
+    }
+    let prefix = prefix.unwrap_or_else(|| {
+        app_id
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(|w| w[..1].to_ascii_uppercase() + &w[1..])
+            .collect()
+    });
+    let generated = koine_app_intents::generate(
+        &impress_service_core::call::descriptors().collect::<Vec<_>>(),
+        &koine_app_intents::AppInfo::impress(prefix),
+    );
+    let mut report = String::new();
+    for (verb, why) in &generated.skipped {
+        report.push_str(&format!("skipped {verb}: {why}\n"));
+    }
+    match action.as_str() {
+        "print" => {
+            let mut out = String::new();
+            for (name, text) in &generated.files {
+                out.push_str(&format!("// ---- {name}\n{text}\n"));
+            }
+            Ok(out + &report)
+        }
+        "write" => {
+            let dir = dir.ok_or("app-intents write needs a directory")?;
+            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            let mut out = String::new();
+            for (name, text) in &generated.files {
+                let path = dir.join(name);
+                std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+                out.push_str(&format!("wrote {}\n", path.display()));
+            }
+            Ok(out + &report)
+        }
+        "" => Err("app-intents needs print or write (see --help)".into()),
+        other => Err(format!("app-intents {other}: expected print or write")),
+    }
 }
 
 /// `<host> skill print|install …` (plan-koine-research-os S-D3): what to
@@ -470,6 +531,18 @@ pub fn main_configured(
         .unwrap_or_else(|| "koine-host".into());
     if std::env::args().nth(1).as_deref() == Some("package") {
         return match package_command(std::env::args().skip(2)) {
+            Ok(text) => {
+                print!("{text}");
+                ExitCode::SUCCESS
+            }
+            Err(message) => {
+                eprintln!("{program}: {message}");
+                ExitCode::from(2)
+            }
+        };
+    }
+    if std::env::args().nth(1).as_deref() == Some("app-intents") {
+        return match app_intents_command(std::env::args().skip(2), app_id) {
             Ok(text) => {
                 print!("{text}");
                 ExitCode::SUCCESS
@@ -743,6 +816,23 @@ mod tests {
         .unwrap();
         assert_eq!(cli.config.workspace, PathBuf::from("/tmp/flag"));
         assert!(parse_with_env(args(&[]), "x", &env(None, None, None)).is_err());
+    }
+
+    /// plan-koine-trust TR-D14: `app-intents print` answers the generated
+    /// Swift; `write` writes it.
+    #[test]
+    fn app_intents_print_and_write_the_generated_swift() {
+        let printed = app_intents_command(args(&["print"]), "regex-lab").unwrap();
+        assert!(printed.contains("RegexLabIntentsPackage"), "{printed}");
+        let dir = tempfile::tempdir().unwrap();
+        let out = app_intents_command(
+            args(&["write", dir.path().to_str().unwrap(), "--prefix", "Lab"]),
+            "x",
+        )
+        .unwrap();
+        assert!(out.contains("LabIntentsSupport.swift"), "{out}");
+        assert!(dir.path().join("LabIntentsSupport.swift").exists());
+        assert!(app_intents_command(args(&["write"]), "x").is_err());
     }
 
     /// plan-koine-research-os S-D3: `skill print` and `skill install`.

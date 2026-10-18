@@ -272,6 +272,7 @@ mod tests {
         source: Source::Linked,
         handler: tokio_handler,
         consent: crate::Consent::DEFAULT,
+        intent: crate::IntentDecl::NONE,
     };
     inventory::submit! { McpToolDescriptor::of(&FOREIGN) }
 

@@ -604,6 +604,7 @@ mod tests {
         source: impress_service_core::Source::Linked,
         handler: fixture_echo,
         consent: ::impress_service_core::Consent::DEFAULT,
+        intent: ::impress_service_core::IntentDecl::NONE,
     };
     impress_service_core::inventory::submit! { McpToolDescriptor::of(&FIXTURE) }
 

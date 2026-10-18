@@ -384,6 +384,50 @@ pub enum ReviewNeed {
 pub type ReviewHook =
     fn(&serde_json::Value, Option<&dyn impress_item::AttributedStore>) -> ReviewNeed;
 
+/// How a verb takes part in Apple App Intents (plan-koine-trust TR-D14):
+/// as an intent of its own (`intent(title = …, phrase = …)`), and/or as the
+/// lookup or search behind its `returns_kind`'s app entity
+/// (`entity(lookup)`, `entity(search)`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IntentDecl {
+    /// The intent's title in Shortcuts; `None`: the verb is not an intent.
+    pub title: Option<&'static str>,
+    /// A Siri phrase naming `${applicationName}`.
+    pub phrase: Option<&'static str>,
+    /// What the verb is for its kind's entity.
+    pub entity: Option<EntityRole>,
+}
+
+impl IntentDecl {
+    pub const NONE: IntentDecl = IntentDecl {
+        title: None,
+        phrase: None,
+        entity: None,
+    };
+
+    pub const fn is_none(&self) -> bool {
+        self.title.is_none() && self.phrase.is_none() && self.entity.is_none()
+    }
+}
+
+/// A verb's part in its kind's app entity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntityRole {
+    /// Answers the entities with the given ids (an array-of-strings argument).
+    Lookup,
+    /// Answers the entities matching a string (a string argument).
+    Search,
+}
+
+impl EntityRole {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            EntityRole::Lookup => "lookup",
+            EntityRole::Search => "search",
+        }
+    }
+}
+
 /// What a verb's data says about the person (plan-koine-trust TR-D11),
 /// beyond what it reads and writes. Sending data out of the process
 /// (`egress`) is not declared: any external reach implies it.
@@ -502,6 +546,8 @@ pub struct MethodMeta {
     /// `impact`, `review`, `targets`, `alternatives`, `risk` (TR-D6, TR-D7,
     /// TR-D11).
     pub consent: Consent,
+    /// `intent(…)`, `entity(…)` (TR-D14).
+    pub intent: IntentDecl,
 }
 
 /// The shape of a verb's rows (`rows(…)`, plan-koine-followups F-D2): the
@@ -626,6 +672,14 @@ pub const fn resolve_rows(table: &'static [MethodMeta], method: &str) -> Option<
 
 /// The secrets a method declares (`#[impress_method(secrets = […])]`); empty
 /// for every verb that declares none.
+/// The App Intents part a method declares ([`IntentDecl::NONE`] when none).
+pub const fn resolve_intent(table: &'static [MethodMeta], method: &str) -> IntentDecl {
+    match method_meta(table, method) {
+        Some(meta) => meta.intent,
+        None => IntentDecl::NONE,
+    }
+}
+
 /// The consent a method declares ([`Consent::DEFAULT`] when none).
 pub const fn resolve_consent(table: &'static [MethodMeta], method: &str) -> Consent {
     match method_meta(table, method) {
@@ -782,6 +836,8 @@ pub struct VerbDescriptor {
     pub secrets: &'static [&'static str],
     /// How a person is asked about this verb (plan-koine-trust TR-D6).
     pub consent: Consent,
+    /// How it takes part in App Intents (plan-koine-trust TR-D14).
+    pub intent: IntentDecl,
     pub source: Source,
     pub handler: fn(Value) -> ServiceFuture,
 }
@@ -861,6 +917,19 @@ impl VerbDescriptor {
         let risk = self.risk_words();
         if !risk.is_empty() {
             meta.insert("risk".into(), json!(risk));
+        }
+        if !self.intent.is_none() {
+            let mut intent = serde_json::Map::new();
+            if let Some(title) = self.intent.title {
+                intent.insert("title".into(), json!(title));
+            }
+            if let Some(phrase) = self.intent.phrase {
+                intent.insert("phrase".into(), json!(phrase));
+            }
+            if let Some(role) = self.intent.entity {
+                intent.insert("entity".into(), json!(role.as_str()));
+            }
+            meta.insert("intent".into(), Value::Object(intent));
         }
         (!meta.is_empty()).then_some(Value::Object(meta))
     }
@@ -1087,6 +1156,7 @@ mod tests {
             rows: None,
             secrets: &[],
             consent: crate::Consent::DEFAULT,
+            intent: crate::IntentDecl::NONE,
         },
         MethodMeta {
             name: "set_flag",
@@ -1109,6 +1179,7 @@ mod tests {
             rows: None,
             secrets: &[],
             consent: crate::Consent::DEFAULT,
+            intent: crate::IntentDecl::NONE,
         },
     ];
 
@@ -1156,6 +1227,7 @@ mod tests {
                 rows: None,
                 secrets: &[],
                 consent: crate::Consent::DEFAULT,
+                intent: crate::IntentDecl::NONE,
             },
             MethodMeta {
                 name: "b",
@@ -1174,6 +1246,7 @@ mod tests {
                 rows: None,
                 secrets: &[],
                 consent: crate::Consent::DEFAULT,
+                intent: crate::IntentDecl::NONE,
             },
         ];
         const DEFAULT: &[Adverb] = &[Adverb::Reversibly];
@@ -1342,6 +1415,7 @@ mod tests {
             source: Source::Linked,
             handler,
             consent: crate::Consent::DEFAULT,
+            intent: crate::IntentDecl::NONE,
         };
         assert_eq!(verb.deprecation_notice(), None);
         assert_eq!(verb.mcp_meta(), None, "nothing declared, no _meta");
@@ -1420,6 +1494,7 @@ mod tests {
             source: Source::Linked,
             handler,
             consent: crate::Consent::DEFAULT,
+            intent: crate::IntentDecl::NONE,
         };
         assert_eq!(
             verb.deprecation_notice(),
@@ -1500,6 +1575,7 @@ mod tests {
             source: Source::Linked,
             handler,
             consent: crate::Consent::DEFAULT,
+            intent: crate::IntentDecl::NONE,
         }
     }
 
@@ -1646,6 +1722,7 @@ mod tests {
             source: Source::Linked,
             handler,
             consent: crate::Consent::DEFAULT,
+            intent: crate::IntentDecl::NONE,
         };
         assert_eq!(
             verb.mcp_annotations(),

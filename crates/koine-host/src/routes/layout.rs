@@ -415,6 +415,7 @@ static LAYOUT_APPLY: VerbDescriptor = VerbDescriptor {
     source: Source::Linked,
     handler: apply_not_callable,
     consent: ::impress_service_core::Consent::DEFAULT,
+    intent: ::impress_service_core::IntentDecl::NONE,
 };
 
 fn apply_schema() -> Value {

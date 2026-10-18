@@ -300,6 +300,18 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                 };
                 let alternatives = &overrides.alternatives;
                 let risk = &overrides.risk;
+                let opt_lit = |lit: &Option<syn::LitStr>| match lit {
+                    Some(lit) => quote! { ::core::option::Option::Some(#lit) },
+                    None => quote! { ::core::option::Option::None },
+                };
+                let intent_title = opt_lit(&overrides.intent_title);
+                let intent_phrase = opt_lit(&overrides.intent_phrase);
+                let entity = match &overrides.entity {
+                    Some(v) => {
+                        quote! { ::core::option::Option::Some(::impress_service_core::EntityRole::#v) }
+                    }
+                    None => quote! { ::core::option::Option::None },
+                };
                 metas.push(quote! {
                     ::impress_service_core::MethodMeta {
                         name: #method_name,
@@ -323,6 +335,11 @@ fn expand_service(mut trait_item: ItemTrait) -> syn::Result<TokenStream2> {
                             targets: #targets,
                             alternatives: &[#(#alternatives),*],
                             risk: &[#(::impress_service_core::Risk::#risk),*],
+                        },
+                        intent: ::impress_service_core::IntentDecl {
+                            title: #intent_title,
+                            phrase: #intent_phrase,
+                            entity: #entity,
                         },
                     }
                 });
@@ -417,6 +434,11 @@ struct MethodOverrides {
     alternatives: Vec<syn::LitStr>,
     /// `risk(private, untrusted)` (TR-D11).
     risk: Vec<Ident>,
+    /// `intent(title = "…", phrase = "…")` (TR-D14).
+    intent_title: Option<syn::LitStr>,
+    intent_phrase: Option<syn::LitStr>,
+    /// `entity(lookup | search)` (TR-D14): `Lookup` or `Search`.
+    entity: Option<Ident>,
 }
 
 /// A parsed `rows(…)`.
@@ -1057,6 +1079,52 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
                     out.risk.push(Ident::new(variant, ident.span()));
                 }
                 Ok(())
+            } else if meta.path.is_ident("intent") {
+                meta.parse_nested_meta(|inner| {
+                    if inner.path.is_ident("title") {
+                        let lit: syn::LitStr = inner.value()?.parse()?;
+                        if lit.value().trim().is_empty() {
+                            return Err(syn::Error::new(
+                                lit.span(),
+                                "an intent's title is not empty",
+                            ));
+                        }
+                        out.intent_title = Some(lit);
+                        Ok(())
+                    } else if inner.path.is_ident("phrase") {
+                        let lit: syn::LitStr = inner.value()?.parse()?;
+                        if !lit.value().contains("${applicationName}") {
+                            return Err(syn::Error::new(
+                                lit.span(),
+                                "a Siri phrase must name the app: include `${applicationName}`",
+                            ));
+                        }
+                        out.intent_phrase = Some(lit);
+                        Ok(())
+                    } else {
+                        Err(inner.error("`intent(…)` takes `title = \"…\"` and `phrase = \"…\"`"))
+                    }
+                })?;
+                if out.intent_title.is_none() {
+                    return Err(meta.error("`intent(…)` needs `title = \"…\"`"));
+                }
+                Ok(())
+            } else if meta.path.is_ident("entity") {
+                let content;
+                syn::parenthesized!(content in meta.input);
+                let role: Ident = content.parse()?;
+                let variant = match role.to_string().as_str() {
+                    "lookup" => "Lookup",
+                    "search" => "Search",
+                    other => {
+                        return Err(syn::Error::new(
+                            role.span(),
+                            format!("entity is `lookup` or `search`, not `{other}`"),
+                        ))
+                    }
+                };
+                out.entity = Some(Ident::new(variant, role.span()));
+                Ok(())
             } else if meta.path.is_ident("replay") {
                 let mode: Ident = meta.value()?.parse()?;
                 if mode != "full" {
@@ -1070,7 +1138,8 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
                      `effects(…)`, `deprecated(…)`, `aliases = […]`, `budget_ms = …`, \
                      `replay = full`, `supports(…)`, `adjective(…)`, `returns_kind = \"…\"`, \
                      `rows(…)`, `secrets = […]`, `impact = \"…\"`, `review = f`, \
-                     `targets = \"…\"`, `alternatives = […]` or `risk(…)`",
+                     `targets = \"…\"`, `alternatives = […]`, `risk(…)`, `intent(…)` or \
+                     `entity(…)`",
                 ))
             }
         })?;
@@ -1081,6 +1150,15 @@ fn parse_method_overrides(markers: &[syn::Attribute]) -> syn::Result<MethodOverr
                 rows.id.span(),
                 "`rows(…)` describes the rows of a kind: add `returns_kind = \"…\"` to the same \
                  `#[impress_method]`",
+            ));
+        }
+    }
+    if let Some(role) = &out.entity {
+        if out.returns_kind.is_none() || out.rows.is_none() {
+            return Err(syn::Error::new(
+                role.span(),
+                "`entity(…)` answers rows of a kind: add `returns_kind = \"…\"` and `rows(…)` to \
+                 the same `#[impress_method]`",
             ));
         }
     }
@@ -1838,6 +1916,7 @@ fn expand_method(
                 rows: ::impress_service_core::resolve_rows(&#meta_table, #method_name_str),
                 secrets: ::impress_service_core::resolve_secrets(&#meta_table, #method_name_str),
                 consent: ::impress_service_core::resolve_consent(&#meta_table, #method_name_str),
+                intent: ::impress_service_core::resolve_intent(&#meta_table, #method_name_str),
                 since: #since,
                 deprecated: ::impress_service_core::resolve_deprecated(&#meta_table, #method_name_str),
                 aliases: ::impress_service_core::resolve_aliases(&#meta_table, #method_name_str),

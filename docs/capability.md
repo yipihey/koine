@@ -894,3 +894,32 @@ Tick every line; each is something you can look at or run.
 - [ ] The host `main` calls `ensure_linked()`, and `cargo run -p <app>-host --
       --check` counts every verb of the service (and the runtimes' own).
 - [ ] I opened `/ui/` and used one verb's generated form to completion.
+
+## App Intents (Siri, Shortcuts, Spotlight)
+
+An Apple app built on koine gets its App Intents from the same inventory
+(docs/plan-koine-trust.md TR-D14). A verb opts in:
+
+```rust
+#[impress_method(safety = mutating, intent(title = "Add Paper", phrase = "Add a paper to ${applicationName}"))]
+async fn add_paper(&self, title: String, year: Option<i64>) -> PaperResult;
+```
+
+A kind becomes an app entity when one verb answers its records by id and
+another by text — both with `returns_kind` and `rows(…)`:
+
+```rust
+#[impress_method(returns_kind = "paper", rows(id = "bibcode", title = "title"), entity(lookup))]
+async fn get_papers(&self, ids: Vec<String>) -> Papers;
+#[impress_method(returns_kind = "paper", rows(id = "bibcode", title = "title"), entity(search))]
+async fn search_papers(&self, query: String) -> Papers;
+```
+
+`<host> app-intents write <dir> [--prefix App]` writes the Swift
+(`koine-app-intents`): an `AppIntent` per opted-in verb that dispatches it
+through the app's verb FFI as the person, asking first when the verb is
+destructive, external or of high impact and saying so when the call waits
+for review; an `AppEntity` with its queries per kind; an
+`AppShortcutsProvider` from the phrases; and an `AppIntentsPackage`. Commit
+the files and regenerate when the verbs change; a verb whose arguments the
+generator cannot express is listed as skipped, with why.

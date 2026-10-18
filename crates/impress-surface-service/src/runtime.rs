@@ -2334,6 +2334,7 @@ mod call_verb_tests {
             source: impress_service_core::Source::Linked,
             handler: always_fails,
             consent: ::impress_service_core::Consent::DEFAULT,
+            intent: ::impress_service_core::IntentDecl::NONE,
         };
     impress_service_core::inventory::submit! { McpToolDescriptor::of(&FAILING_VERB) }
 

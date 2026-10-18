@@ -42,6 +42,8 @@ koine-mcp-host = { workspace = true }
 # call log and notebook, the agent desk and skill, packages and shipped surfaces.
 koine-notebook = { workspace = true }
 koine-agent = { workspace = true }
+# `<host> app-intents` (plan-koine-trust TR-D14).
+koine-app-intents = { workspace = true }
 koine-packages = { workspace = true }
 # Tasks and AI (docs/plan-koine-ai-tasks.md Q-D5, AI-D5): the `tasks` and `ai`
 # features (docs/plan-koine-host.md H-D10).

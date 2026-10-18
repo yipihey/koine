@@ -488,6 +488,7 @@ mod tests {
             source: Source::Linked,
             handler,
             consent: crate::Consent::DEFAULT,
+            intent: crate::IntentDecl::NONE,
         }
     }
 

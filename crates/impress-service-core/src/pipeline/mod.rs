@@ -1354,6 +1354,7 @@ pub(crate) mod tests {
         source: Source::Linked,
         handler: echo,
         consent: crate::Consent::DEFAULT,
+        intent: crate::IntentDecl::NONE,
     };
     static FAILING: VerbDescriptor = VerbDescriptor {
         name: "t-service_fail",

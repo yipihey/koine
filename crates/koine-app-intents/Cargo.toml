@@ -1,0 +1,21 @@
+[package]
+name = "koine-app-intents"
+description = "Apple App Intents from a koine verb inventory: an AppIntent per opted-in verb, an AppEntity per kind with lookup and search verbs, Siri phrases (docs/plan-koine-trust.md TR-D14)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-service-core = { workspace = true }
+serde_json = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+schemars = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+impress-service-macros = { workspace = true }
+async-trait = { workspace = true }
+
+[lints]
+workspace = true

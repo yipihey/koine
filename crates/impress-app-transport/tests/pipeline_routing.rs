@@ -45,6 +45,7 @@ static APP: VerbDescriptor = VerbDescriptor {
     source: Source::Linked,
     handler: local,
     consent: ::impress_service_core::Consent::DEFAULT,
+    intent: ::impress_service_core::IntentDecl::NONE,
 };
 static STORE: VerbDescriptor = VerbDescriptor {
     name: "imbib-library-service_routing-proof",

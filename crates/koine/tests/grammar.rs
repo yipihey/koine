@@ -33,6 +33,7 @@ fn fixture(class: SafetyClass) -> VerbDescriptor {
         source: Source::Linked,
         handler: |_| Box::pin(async { Ok(Value::Null) }),
         consent: ::impress_service_core::Consent::DEFAULT,
+        intent: ::impress_service_core::IntentDecl::NONE,
     }
 }
 

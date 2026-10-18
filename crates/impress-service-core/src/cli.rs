@@ -928,6 +928,7 @@ mod collision_tests {
             source: crate::Source::Linked,
             handler: apply,
             consent: crate::Consent::DEFAULT,
+            intent: crate::IntentDecl::NONE,
         }
     }
     static ALPHA_COLLIDE: crate::VerbDescriptor = probe(

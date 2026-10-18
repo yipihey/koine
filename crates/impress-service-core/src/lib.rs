@@ -42,10 +42,10 @@ pub use blob_ref::{BlobArg, BlobError, BlobReader, BlobRef};
 pub use descriptor::{
     is_kind_id, method_meta, resolve_adjective, resolve_aliases, resolve_budget_ms,
     resolve_consent, resolve_deprecated, resolve_effects, resolve_examples, resolve_idempotent,
-    resolve_replay_full, resolve_returns_kind, resolve_rows, resolve_safety_class, resolve_secrets,
-    resolve_supports, row_layout, AdjectiveDecl, Consent, Deprecation, Effects, Example,
-    ExampleTier, Impact, Kind, MethodMeta, Reach, ReviewHook, ReviewNeed, Risk, RowLayout,
-    RowSchema, Safety, SafetyClass, Source, VerbDescriptor,
+    resolve_intent, resolve_replay_full, resolve_returns_kind, resolve_rows, resolve_safety_class,
+    resolve_secrets, resolve_supports, row_layout, AdjectiveDecl, Consent, Deprecation, Effects,
+    EntityRole, Example, ExampleTier, Impact, IntentDecl, Kind, MethodMeta, Reach, ReviewHook,
+    ReviewNeed, Risk, RowLayout, RowSchema, Safety, SafetyClass, Source, VerbDescriptor,
 };
 pub use descriptor_handle::{ExampleView, HandleSource, VerbHandle};
 pub use provider::{
@@ -476,6 +476,7 @@ mod tests {
             source: Source::Linked,
             handler: fixture_handler,
             consent: crate::Consent::DEFAULT,
+            intent: crate::IntentDecl::NONE,
         };
         let tool = McpToolDescriptor::of(&VERB);
         let adv = &tool.mcp_input_schema()["properties"]["adverbs"];

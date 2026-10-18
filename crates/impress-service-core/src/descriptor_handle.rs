@@ -212,6 +212,14 @@ impl VerbHandle {
 
     /// The secrets the verb declares (`#[impress_method(secrets = […])]`,
     /// plan-koine-followups F-D1); a provider's verbs declare none.
+    /// How it takes part in App Intents (TR-D14); a provider verb never does.
+    pub fn intent(&self) -> crate::IntentDecl {
+        match self {
+            Self::Linked(verb) => verb.intent,
+            Self::Provider(_) => crate::IntentDecl::NONE,
+        }
+    }
+
     /// How a person is asked about this verb (TR-D6); a provider verb
     /// declares nothing beyond its safety class.
     pub fn consent(&self) -> crate::Consent {
