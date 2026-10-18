@@ -279,6 +279,8 @@ pub enum Tile {
 /// of an unknown kind; its `view_state` is that tile's JSON.
 pub const UNKNOWN_TILE: &str = "koine_unknown_tile";
 
+// Lives only for one (de)serialization, so boxing the pane buys nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum TileWire {
