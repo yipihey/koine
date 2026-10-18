@@ -251,6 +251,9 @@ struct Prepared {
     /// Record the call even when the verb is read-only (a tentative or
     /// background call is on the record whatever its class).
     audit_always: bool,
+    /// The store the call record is written to: the call's own store
+    /// override, never a rehearsal's overlay.
+    record_store: Option<Arc<dyn std::any::Any + Send + Sync>>,
 }
 
 /// What the invoke step does for a prepared call.
@@ -260,6 +263,10 @@ enum Disposition {
     /// Run the handler of a verb that declares `supports(tentatively)`; it
     /// must write nothing, and the result is tagged `"tentative":"simulated"`.
     Simulated,
+    /// Run the real handler against an overlay store and answer what it
+    /// would have changed, `"tentative":"rehearsed"` (plan-koine-trust
+    /// TR-D3).
+    Rehearse(Arc<dyn adverbs::RehearsalStore>, Arc<context::Rehearsal>),
     /// The pipeline already has the answer (tentative-static, a `once`
     /// replay, a started background job): the handler does not run.
     Answer(Value),
@@ -455,8 +462,26 @@ fn prepare_inner(
     // A read made inside a dry run runs: it changes nothing, and the outer
     // call needs its answer to say what it would do. The flag stays on its
     // context, so whatever it calls is still inside the dry run.
+    // Inside a rehearsal (TR-D3) a call runs for real against the overlay,
+    // unless it leaves the process: then it answers statically and the
+    // rehearsal is no longer the whole truth.
+    let leaves_process = verb.safety().class == SafetyClass::External
+        || verb.effects().reach.iter().any(|r| r.is_external());
+    let outer_rehearsal = if inherited_tentative {
+        context::current_rehearsal()
+    } else {
+        None
+    };
     let tentative_answer = adverbs.tentatively
-        && !(inherited_tentative && verb.safety().class == SafetyClass::ReadOnly);
+        && match &outer_rehearsal {
+            Some(rehearsal) => {
+                if leaves_process {
+                    rehearsal.note_degraded(verb.name());
+                }
+                leaves_process
+            }
+            None => !(inherited_tentative && verb.safety().class == SafetyClass::ReadOnly),
+        };
 
     // 2. strict args.
     if !preflight_refusal && verb.strict() {
@@ -477,6 +502,8 @@ fn prepare_inner(
     let mut disposition = Disposition::Run;
     let mut holds_lease = false;
     let mut once = None;
+    let mut store = store;
+    let mut record_store: Option<Arc<dyn std::any::Any + Send + Sync>> = None;
 
     // 3. reachability.
     if !preflight_refusal {
@@ -528,12 +555,27 @@ fn prepare_inner(
         }
         if tentative_answer {
             // Answered after policy has decided, before it acts.
-            disposition =
-                if decision == policy::Decision::Run && declares(verb, Adverb::Tentatively) {
-                    Disposition::Simulated
-                } else {
-                    Disposition::Answer(tentative_static(verb, &caller, &decision))
-                };
+            disposition = if decision != policy::Decision::Run {
+                Disposition::Answer(tentative_static(verb, &caller, &decision))
+            } else if declares(verb, Adverb::Tentatively) {
+                Disposition::Simulated
+            } else {
+                // TR-D3: rehearse a verb that stays in the process, on an
+                // async entry, when the host can make an overlay.
+                let overlay = (!leaves_process && !sync_entry && verb.linked().is_some())
+                    .then(adverbs::rehearsal_provider)
+                    .flatten()
+                    .and_then(|provider| provider.begin(store.clone()));
+                match overlay {
+                    Some(overlay) => {
+                        record_store = store.take();
+                        store = Some(overlay.erased());
+                        let rehearsal = context::Rehearsal::new(record_store.clone());
+                        Disposition::Rehearse(overlay, Arc::new(rehearsal))
+                    }
+                    None => Disposition::Answer(tentative_static(verb, &caller, &decision)),
+                }
+            };
         } else {
             match decision {
                 policy::Decision::Run => holds_lease = !leaseless,
@@ -644,6 +686,15 @@ fn prepare_inner(
     if let Some(budget_ms) = verb.budget_ms() {
         span.record("budget_ms", budget_ms);
     }
+    let record_store = if matches!(disposition, Disposition::Rehearse(..)) {
+        record_store
+    } else if let Some(rehearsal) = &outer_rehearsal {
+        // A call inside a rehearsal runs on the overlay; its record goes
+        // where the rehearsed call's would.
+        rehearsal.record_store()
+    } else {
+        store.clone()
+    };
     let context = Arc::new(CallContext {
         call_id,
         trace_id,
@@ -665,6 +716,7 @@ fn prepare_inner(
         span,
         requested_name,
         audit_always: adverbs.tentatively || adverbs.in_background || adverbs.every.is_some(),
+        record_store,
         adverbs,
         disposition,
         holds_lease,
@@ -732,8 +784,14 @@ fn adverb_envelope(
     prepared: &mut Prepared,
     result: Result<Value, BoxError>,
 ) -> Result<Value, BoxError> {
-    let simulated = matches!(prepared.disposition, Disposition::Simulated);
+    let simulated = matches!(
+        prepared.disposition,
+        Disposition::Simulated | Disposition::Rehearse(..)
+    );
     let mut result = result;
+    if let Disposition::Rehearse(overlay, rehearsal) = &prepared.disposition {
+        result = rehearsed_answer(verb, &prepared.context.caller, overlay, rehearsal, result);
+    }
     if prepared.adverbs.reversibly && !simulated {
         result = match result {
             Ok(mut value) => {
@@ -770,7 +828,7 @@ fn adverb_envelope(
             err => err,
         };
     }
-    if simulated {
+    if matches!(prepared.disposition, Disposition::Simulated) {
         if let Ok(Value::Object(object)) = &mut result {
             object.insert("tentative".into(), Value::String("simulated".into()));
         }
@@ -779,6 +837,54 @@ fn adverb_envelope(
         adverbs::once_finish(&claim, result.as_ref().ok());
     }
     result
+}
+
+/// A rehearsal's answer (TR-D3): the handler's real result tagged
+/// `"tentative": "rehearsed"`, with `"changes"` saying what it would have
+/// changed — or, when the rehearsal could not hold everything the verb did (a
+/// write reached a store the overlay does not cover; a verb inside it leaves
+/// the process), the static answer with the reason.
+fn rehearsed_answer(
+    verb: &VerbHandle,
+    caller: &CallerIdentity,
+    overlay: &Arc<dyn adverbs::RehearsalStore>,
+    rehearsal: &context::Rehearsal,
+    result: Result<Value, BoxError>,
+) -> Result<Value, BoxError> {
+    let degraded = rehearsal.degraded();
+    let reason = if rehearsal.refused_write() {
+        Some(format!(
+            "{} writes to a store a rehearsal cannot cover, so it was not rehearsed",
+            verb.name()
+        ))
+    } else if !degraded.is_empty() {
+        Some(format!(
+            "{} calls {}, which leaves the process, so it was not rehearsed",
+            verb.name(),
+            degraded.join(", ")
+        ))
+    } else {
+        None
+    };
+    if let Some(reason) = reason {
+        let mut answer = tentative_static(verb, caller, &policy::Decision::Run);
+        answer["reason"] = Value::String(reason);
+        return Ok(answer);
+    }
+    let changes = overlay.diff();
+    Ok(match result? {
+        Value::Object(mut object) => {
+            object.insert("tentative".into(), Value::String("rehearsed".into()));
+            object.insert("changes".into(), changes);
+            Value::Object(object)
+        }
+        other => serde_json::json!({
+            "ok": true,
+            "tentative": "rehearsed",
+            "result": other,
+            "changes": changes,
+        }),
+    })
 }
 
 /// `within`'s answer when the deadline passed.
@@ -818,6 +924,7 @@ fn finish_inner(
         requested_name,
         audit_always,
         undo,
+        record_store,
         ..
     } = prepared;
     let duration = started.elapsed();
@@ -915,7 +1022,7 @@ fn finish_inner(
             duration_ms: duration.as_millis() as u64,
             arg_bytes,
             result_bytes,
-            store_override: context.store_override.clone(),
+            store_override: record_store,
             requested_name,
             adverbs: adverbs_record,
             undo,
@@ -1017,10 +1124,18 @@ where
                 native_backend_result(result)
             };
             drop(_guard);
-            let run = tracing::Instrument::instrument(
-                context::scope(prepared.context.clone(), future),
-                entered,
-            );
+            let rehearsal = match &prepared.disposition {
+                Disposition::Rehearse(_, rehearsal) => Some(rehearsal.clone()),
+                _ => None,
+            };
+            let scoped = async {
+                let scoped = context::scope(prepared.context.clone(), future);
+                match rehearsal {
+                    Some(rehearsal) => context::rehearsal_scope(rehearsal, scoped).await,
+                    None => scoped.await,
+                }
+            };
+            let run = tracing::Instrument::instrument(scoped, entered);
             match within {
                 // Rule 5: the handler future is dropped at the deadline.
                 Some(within) => {
@@ -1649,6 +1764,32 @@ pub(crate) mod tests {
             Ok(json!({"ok": true, "write": write, "read": read}))
         })
     }
+    /// Writes around the overlay: asks the store gate directly, as a verb
+    /// holding its own store would when it writes.
+    fn writes_around(_: Value) -> ServiceFuture {
+        Box::pin(async move {
+            bump();
+            match impress_item::ambient::check_dry_run_write() {
+                Ok(()) => Ok(json!({"ok": true, "wrote": true})),
+                Err(e) => Ok(json!({"ok": false, "code": "store-error", "message": e.to_string()})),
+            }
+        })
+    }
+    /// A rehearsable verb that calls a write verb and an external verb inside.
+    fn rehearsal_nesting(args: Value) -> ServiceFuture {
+        Box::pin(async move {
+            bump();
+            let write = invoke(&NEST_WRITE, Call::person(json!({}))).await.unwrap();
+            let external = if args["external"] == true {
+                invoke(&REH_EXTERNAL, Call::person(json!({})))
+                    .await
+                    .unwrap()
+            } else {
+                Value::Null
+            };
+            Ok(json!({"ok": true, "write": write, "external": external}))
+        })
+    }
     fn slowish(_: Value) -> ServiceFuture {
         Box::pin(async move {
             bump();
@@ -1713,6 +1854,85 @@ pub(crate) mod tests {
     adv_verb!(ONCE_PER_VERB_B, "t-service_adv-once-b", counting);
     adv_verb!(ONCE_REFUSING, "t-service_adv-once-refusing", refusing);
     adv_verb!(ONCE_SLOW, "t-service_adv-once-slow", slowish);
+    const EXTERNAL: Safety = Safety {
+        class: SafetyClass::External,
+        idempotent: false,
+    };
+    adv_verb!(REH_WRITE, "t-service_reh-write", counting);
+    adv_verb!(REH_AROUND, "t-service_reh-around", writes_around);
+    adv_verb!(REH_EXTERNAL, "t-service_reh-external", counting, safety: EXTERNAL);
+    adv_verb!(REH_NESTING, "t-service_reh-nesting", rehearsal_nesting);
+
+    /// The store a rehearsal test runs on; the fake provider overlays only it.
+    struct RehearseMe;
+    struct FakeOverlay;
+    impl adverbs::RehearsalStore for FakeOverlay {
+        fn erased(&self) -> Arc<dyn std::any::Any + Send + Sync> {
+            Arc::new(FakeOverlay)
+        }
+        fn diff(&self) -> Value {
+            json!({"inserted": [], "updated": [], "deleted": [], "operations": 0, "truncated": false})
+        }
+    }
+    struct FakeProvider;
+    impl adverbs::RehearsalProvider for FakeProvider {
+        fn begin(
+            &self,
+            call_store: Option<Arc<dyn std::any::Any + Send + Sync>>,
+        ) -> Option<Arc<dyn adverbs::RehearsalStore>> {
+            call_store?.downcast::<RehearseMe>().ok()?;
+            Some(Arc::new(FakeOverlay))
+        }
+    }
+    fn rehearse(verb: &'static VerbDescriptor, args: Value) -> Value {
+        adverbs::install_rehearsal_provider(Arc::new(FakeProvider));
+        let call = Call::person(args).with_adverbs(Adverbs {
+            tentatively: true,
+            ..Default::default()
+        });
+        crate::runtime::block_on(invoke_on(Arc::new(RehearseMe), verb, call)).unwrap()
+    }
+
+    #[test]
+    fn a_rehearsal_runs_the_handler_on_the_overlay_and_reports_the_changes() {
+        let answer = rehearse(&REH_WRITE, json!({}));
+        assert_eq!(answer["tentative"], "rehearsed", "{answer}");
+        assert_eq!(answer["changes"]["operations"], 0);
+        assert_eq!(hits("t-service_reh-write"), 1, "the real handler ran");
+    }
+
+    #[test]
+    fn a_write_around_the_overlay_turns_the_rehearsal_static() {
+        let answer = rehearse(&REH_AROUND, json!({}));
+        assert_eq!(answer["tentative"], "static", "{answer}");
+        assert!(
+            answer["reason"].as_str().unwrap().contains("cannot cover"),
+            "{answer}"
+        );
+    }
+
+    #[test]
+    fn an_external_verb_is_never_rehearsed_and_one_inside_degrades_it() {
+        let answer = rehearse(&REH_EXTERNAL, json!({}));
+        assert_eq!(answer["tentative"], "static", "{answer}");
+        assert_eq!(hits("t-service_reh-external"), 0);
+        let nested = rehearse(&REH_NESTING, json!({}));
+        assert_eq!(nested["tentative"], "rehearsed", "{nested}");
+        assert_eq!(
+            nested["write"]["ok"], true,
+            "the inner write ran on the overlay"
+        );
+        let degraded = rehearse(&REH_NESTING, json!({"external": true}));
+        assert_eq!(degraded["tentative"], "static", "{degraded}");
+        assert!(
+            degraded["reason"]
+                .as_str()
+                .unwrap()
+                .contains("t-service_reh-external"),
+            "{degraded}"
+        );
+        assert_eq!(hits("t-service_reh-external"), 0, "never ran");
+    }
     adv_verb!(WITHIN_SLOW, "t-service_adv-within-slow", slow, safety: READ_ONLY);
     adv_verb!(WITHIN_MUT, "t-service_adv-within-mut", counting);
     adv_verb!(WITHIN_OK, "t-service_adv-within-ok", slow, supports: &[Adverb::Within]);

@@ -4431,6 +4431,7 @@ dependencies = [
  "impress-service-core",
  "koine-store-dir",
  "koine-store-memory",
+ "koine-store-overlay",
  "koine-workspace-hack",
  "serde_json",
  "sha2",
@@ -4474,6 +4475,19 @@ dependencies = [
  "chrono",
  "impress-item",
  "koine-store-conformance",
+ "koine-workspace-hack",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "koine-store-overlay"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "impress-item",
+ "koine-store-conformance",
+ "koine-store-memory",
  "koine-workspace-hack",
  "serde_json",
  "uuid",

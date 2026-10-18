@@ -1,0 +1,21 @@
+[package]
+name = "koine-store-overlay"
+description = "A copy-on-write overlay over any store-port backend: reads see the overlay over the base, writes land in memory and are dropped; what a rehearsed dry run would have changed (docs/plan-koine-trust.md TR-D3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+impress-item = { workspace = true }
+koine-store-memory = { workspace = true }
+serde_json = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+koine-store-conformance = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

@@ -269,12 +269,14 @@ impl ItemStore for MemoryStore {
     }
 
     fn insert(&self, item: Item) -> Result<ItemId, StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         let id = item.id;
         self.insert_batch(vec![item])?;
         Ok(id)
     }
 
     fn insert_batch(&self, items: Vec<Item>) -> Result<Vec<ItemId>, StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         let mut guard = self.write()?;
         let inner = &mut *guard;
         // Validated as a whole first: after this nothing can fail, so a
@@ -302,6 +304,7 @@ impl ItemStore for MemoryStore {
     }
 
     fn update(&self, id: ItemId, mutations: Vec<FieldMutation>) -> Result<(), StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         let mut guard = self.write()?;
         let inner = &mut *guard;
         let env = self.env();
@@ -355,6 +358,7 @@ impl ItemStore for MemoryStore {
     }
 
     fn delete(&self, id: ItemId) -> Result<(), StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         let mut guard = self.write()?;
         let inner = &mut *guard;
         let schema = inner.state.delete(id)?;
@@ -482,6 +486,7 @@ impl ItemStore for MemoryStore {
 
 impl AttributedStore for MemoryStore {
     fn apply_operation(&self, spec: OperationSpec) -> Result<ItemId, StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         let mut guard = self.write()?;
         let inner = &mut *guard;
         let applied = inner.state.apply_operation(&spec, &self.env())?;
@@ -500,6 +505,7 @@ impl AttributedStore for MemoryStore {
         spec: OperationSpec,
         expected_clock: u64,
     ) -> Result<GuardedWrite, StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         let mut guard = self.write()?;
         let inner = &mut *guard;
         // The compare and the write are one step under the write lock.
@@ -527,6 +533,7 @@ impl AttributedStore for MemoryStore {
         guard: ItemId,
         expected_clock: u64,
     ) -> Result<GuardedBatch, StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         if specs.is_empty() {
             return Err(StoreError::Validation(
                 "a guarded batch needs at least one operation".into(),
@@ -575,6 +582,7 @@ impl AttributedStore for MemoryStore {
 
 impl BlobStore for MemoryStore {
     fn put_blob(&self, item: ItemId, name: &str, bytes: &[u8]) -> Result<(), StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         check_blob_name(name)?;
         let mut guard = self.write()?;
         if !guard.state.rows.contains_key(&item) {
@@ -589,6 +597,7 @@ impl BlobStore for MemoryStore {
     }
 
     fn delete_blob(&self, item: ItemId, name: &str) -> Result<(), StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         self.write()?.blobs.remove(&(item, name.to_owned()));
         Ok(())
     }

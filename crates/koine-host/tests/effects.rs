@@ -134,3 +134,73 @@ async fn every_linked_verb_touches_only_what_it_declares() {
         problems.join("\n- ")
     );
 }
+
+/// plan-koine-trust TR-D3: a dry run changes nothing. Every Tier A example of
+/// every linked verb runs again with `tentatively` — rehearsed on an overlay
+/// where the verb stays in the process, answered statically otherwise — and
+/// the base store sees no write but the pipeline's own call record.
+#[tokio::test(flavor = "multi_thread")]
+async fn every_linked_verb_rehearsed_leaves_the_store_unchanged() {
+    koine_host::ensure_linked();
+    koine_store::process::accept_override_of::<SpyStore<MemoryStore>>();
+    koine_store::rehearse::install();
+    let workspace = tempfile::tempdir().unwrap();
+    koine_store::process::set_workspace(workspace.path());
+    let mut problems = Vec::new();
+    let (mut rehearsed, mut other) = (0usize, 0usize);
+    let mut verbs: Vec<&'static VerbDescriptor> = VerbDescriptor::iter().collect();
+    verbs.sort_by_key(|v| v.name);
+    for verb in verbs {
+        for example in verb.examples.iter().filter(|e| e.tier == ExampleTier::A) {
+            let store = Arc::new(SpyStore::new(Arc::new(MemoryStore::new())));
+            let args = example.args_value();
+            // Warm up for real, as above, so defaults exist.
+            let _ = tokio::time::timeout(
+                EXAMPLE_TIMEOUT,
+                pipeline::invoke_on(store.clone(), verb, Call::agent("effects", args.clone())),
+            )
+            .await;
+            let call =
+                Call::agent("effects", args.clone()).with_adverbs(impress_service_core::Adverbs {
+                    tentatively: true,
+                    ..Default::default()
+                });
+            store.start();
+            let outcome = tokio::time::timeout(
+                EXAMPLE_TIMEOUT,
+                pipeline::invoke_on(store.clone(), verb, call),
+            )
+            .await;
+            let mut seen = store.stop();
+            let Ok(Ok(answer)) = outcome else {
+                problems.push(format!(
+                    "`{}` example `{}` did not answer tentatively",
+                    verb.name, example.name
+                ));
+                continue;
+            };
+            match answer.get("tentative").and_then(Value::as_str) {
+                Some("rehearsed") => rehearsed += 1,
+                Some(_) => other += 1,
+                None => problems.push(format!(
+                    "`{}` example `{}` answered without a tentative tag: {answer}",
+                    verb.name, example.name
+                )),
+            }
+            seen.writes.remove(PIPELINE_AUDIT_KIND);
+            if !seen.writes.is_empty() || !seen.inserted.is_empty() || !seen.deleted.is_empty() {
+                problems.push(format!(
+                    "`{}` example `{}` wrote during a dry run: {:?}",
+                    verb.name, example.name, seen.writes
+                ));
+            }
+        }
+    }
+    println!("dry runs: {rehearsed} rehearsed, {other} static or simulated");
+    assert!(rehearsed > 0, "nothing was rehearsed");
+    assert!(
+        problems.is_empty(),
+        "a dry run was not dry:\n- {}",
+        problems.join("\n- ")
+    );
+}

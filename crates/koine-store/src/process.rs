@@ -66,6 +66,8 @@ fn write() -> std::sync::RwLockWriteGuard<'static, Slot> {
 
 /// Install the process's store. A later install replaces the earlier one.
 pub fn install(store: Arc<dyn AttributedStore>) {
+    // A process with a real store rehearses its dry runs over it (TR-D3).
+    crate::rehearse::install();
     let mut slot = write();
     slot.store = Some(store);
     slot.fallback = false;
@@ -191,6 +193,7 @@ fn widen_erased(erased: Arc<dyn Any + Send + Sync>) -> Option<Arc<dyn Attributed
     let mut builtin = Vec::new();
     register_widener::<koine_store_memory::MemoryStore>(&mut builtin);
     register_widener::<koine_store_dir::DirStore>(&mut builtin);
+    register_widener::<koine_store_overlay::OverlayStore>(&mut builtin);
     wideners.extend(builtin.into_iter().map(|(_, w)| w));
     wideners.into_iter().find_map(|w| w(erased.clone()))
 }

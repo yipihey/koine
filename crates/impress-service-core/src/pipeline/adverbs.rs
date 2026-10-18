@@ -167,6 +167,39 @@ pub trait BackgroundRunner: Send + Sync {
     }
 }
 
+/// The overlay a rehearsed dry run runs its handler against
+/// (plan-koine-trust TR-D3): the value the call's store override becomes, and
+/// what the verb would have changed.
+pub trait RehearsalStore: Send + Sync {
+    /// The overlay as the call's store override (`Call::store`).
+    fn erased(&self) -> Arc<dyn std::any::Any + Send + Sync>;
+    /// What the verb would have changed.
+    fn diff(&self) -> Value;
+}
+
+/// Makes the overlay for a rehearsal, over the call's own store override
+/// when it has one, else the process store. `None` when it cannot (no store,
+/// a backend it cannot read through), and the dry run answers statically.
+pub trait RehearsalProvider: Send + Sync {
+    fn begin(
+        &self,
+        call_store: Option<Arc<dyn std::any::Any + Send + Sync>>,
+    ) -> Option<Arc<dyn RehearsalStore>>;
+}
+
+static REHEARSAL: RwLock<Option<Arc<dyn RehearsalProvider>>> = RwLock::new(None);
+
+/// Install (or replace) how this process rehearses dry runs.
+pub fn install_rehearsal_provider(provider: Arc<dyn RehearsalProvider>) {
+    if let Ok(mut slot) = REHEARSAL.write() {
+        *slot = Some(provider);
+    }
+}
+
+pub(super) fn rehearsal_provider() -> Option<Arc<dyn RehearsalProvider>> {
+    REHEARSAL.read().ok().and_then(|r| r.clone())
+}
+
 static STORE: RwLock<Option<Arc<dyn IdempotencyStore>>> = RwLock::new(None);
 static RUNNER: RwLock<Option<Arc<dyn BackgroundRunner>>> = RwLock::new(None);
 

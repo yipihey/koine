@@ -41,6 +41,7 @@
 pub mod once;
 pub mod process;
 pub mod recording;
+pub mod rehearse;
 
 pub use recording::RecordingStore;
 

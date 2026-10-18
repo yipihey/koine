@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/impress-service-core",
+    "crates/koine-store-overlay",
     "crates/impress-service-macros",
     "crates/impress-pane-query",
     "crates/impress-pane-query-compile",
@@ -196,6 +197,7 @@ impress-helix = { path = "crates/impress-helix" }
 koine-package-format = { path = "crates/koine-package-format" }
 koine-store-query = { path = "crates/koine-store-query" }
 koine-store-spy = { path = "crates/koine-store-spy" }
+koine-store-overlay = { path = "crates/koine-store-overlay" }
 koine-providers = { path = "crates/koine-providers" }
 koine-plot-typst = { path = "crates/koine-plot-typst" }
 koine-plot-matplotlib = { path = "crates/koine-plot-matplotlib" }

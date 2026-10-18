@@ -187,6 +187,21 @@ HTTP).
    answers statically instead of running, while a read-only verb it calls
    runs (it changes nothing and its answer is needed), still inside the
    dry run for whatever it calls in turn. Only `tentatively` is inherited.
+   **Rehearsal** (TR-D3): when the policy would run the call, the verb
+   stays in the process (no external reach, not `External`) and the host
+   can make an overlay (`koine_store::rehearse`, installed with the process
+   store), the real handler runs against a copy-on-write overlay of the
+   store: reads see the overlay over the store, writes land in memory and
+   are dropped. The answer is the verb's real result with
+   `"tentative": "rehearsed"` and `"changes"` (`inserted`, `updated` field
+   by field, `deleted`, `operations`). Calls inside a rehearsal run on the
+   overlay too; one that leaves the process answers statically and the
+   rehearsal falls back to the static answer, with a `reason`. Every store
+   backend refuses a write made during a dry run anywhere but the overlay
+   (`impress_item::ambient::check_dry_run_write`), so a verb that holds its
+   own store cannot write either; that refusal also falls back to the
+   static answer. `koine-host`'s effects test rehearses every Tier A example
+   and checks the store saw no write.
 3. **`reversibly` produces an inverse call, not a promise.** A supporting
    verb records its inverse during the call
    (`context::note_inverse(verb, args)`); the pipeline puts it on the

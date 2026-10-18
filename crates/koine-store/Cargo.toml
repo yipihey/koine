@@ -10,6 +10,7 @@ repository.workspace = true
 impress-item = { workspace = true }
 koine-store-memory = { workspace = true }
 koine-store-dir = { workspace = true }
+koine-store-overlay = { workspace = true }
 thiserror = { workspace = true }
 # `process`: the pipeline's call-scoped store, and the subtree resolver trait.
 impress-service-core = { workspace = true }

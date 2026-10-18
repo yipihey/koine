@@ -1590,6 +1590,7 @@ impl ItemStore for DirStore {
     }
 
     fn insert(&self, item: Item) -> Result<ItemId, StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         let mut tx = self.begin()?;
         let id = tx.insert(item)?;
         tx.commit()?;
@@ -1597,6 +1598,7 @@ impl ItemStore for DirStore {
     }
 
     fn insert_batch(&self, items: Vec<Item>) -> Result<Vec<ItemId>, StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         if items.is_empty() {
             return Ok(Vec::new());
         }
@@ -1615,6 +1617,7 @@ impl ItemStore for DirStore {
     }
 
     fn update(&self, id: ItemId, mutations: Vec<FieldMutation>) -> Result<(), StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         // The oracle returns before looking the row up when there is nothing
         // to apply, so an update with no mutations succeeds on a missing id.
         if mutations.is_empty() {
@@ -1650,6 +1653,7 @@ impl ItemStore for DirStore {
     }
 
     fn delete(&self, id: ItemId) -> Result<(), StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         let mut tx = self.begin()?;
         tx.delete(id)?;
         tx.commit()
@@ -1797,6 +1801,7 @@ impl eval::Graph for DiskGraph<'_> {
 
 impl AttributedStore for DirStore {
     fn apply_operation(&self, spec: OperationSpec) -> Result<ItemId, StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         let mut tx = self.begin()?;
         let applied = tx.apply_op(&spec)?;
         tx.commit()?;
@@ -1808,6 +1813,7 @@ impl AttributedStore for DirStore {
         spec: OperationSpec,
         expected_clock: u64,
     ) -> Result<GuardedWrite, StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         let mut tx = self.begin()?;
         match tx.clock_of(spec.target_id)? {
             Some(clock) if clock == expected_clock => {}
@@ -1827,6 +1833,7 @@ impl AttributedStore for DirStore {
         guard: ItemId,
         expected_clock: u64,
     ) -> Result<GuardedBatch, StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         if specs.is_empty() {
             return Err(StoreError::Validation(
                 "a guarded batch needs at least one operation".into(),
@@ -1879,6 +1886,7 @@ fn check_blob_name(name: &str) -> Result<(), StoreError> {
 
 impl BlobStore for DirStore {
     fn put_blob(&self, item: ItemId, name: &str, bytes: &[u8]) -> Result<(), StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         check_blob_name(name)?;
         let _lock = self.lock()?;
         // A blob belongs to an item; nothing is stored for one nobody wrote.
@@ -1900,6 +1908,7 @@ impl BlobStore for DirStore {
     }
 
     fn delete_blob(&self, item: ItemId, name: &str) -> Result<(), StoreError> {
+        impress_item::ambient::check_dry_run_write()?;
         check_blob_name(name)?;
         let _lock = self.lock()?;
         let path = self.blob_dir(item).join(name);

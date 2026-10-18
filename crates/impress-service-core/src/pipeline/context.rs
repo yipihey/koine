@@ -487,6 +487,104 @@ pub async fn scope<F: std::future::Future>(context: Arc<CallContext>, future: F)
 /// every backend of the port (docs/plan-koine-kit-moves.md KM10).
 fn register_ambient_batch() {
     impress_item::set_ambient_batch(current_call_id);
+    impress_item::ambient::set_ambient_dry_run(current_is_dry_run, note_dry_run_refusal);
+}
+
+// ---------------------------------------------------------------------------
+// Rehearsal (plan-koine-trust TR-D3)
+// ---------------------------------------------------------------------------
+
+/// A rehearsed dry run in progress: the handler of a `tentatively` call runs
+/// against an overlay store, and whatever would make the rehearsal untrue is
+/// noted here — a write that reached a store other than the overlay (the
+/// store's dry-run gate refused it), or a call to a verb that leaves the
+/// process. Either one turns the answer back into the static one. Shared by
+/// every call made inside the rehearsal (one task-local per rehearsal, so
+/// nested calls see it the way they see the call context).
+#[derive(Default)]
+pub struct Rehearsal {
+    refused_write: std::sync::atomic::AtomicBool,
+    degraded: std::sync::Mutex<Vec<String>>,
+    /// Where the call records of calls inside the rehearsal go: the store
+    /// the rehearsed call itself would have run on, never the overlay.
+    record_store: Option<Arc<dyn Any + Send + Sync>>,
+}
+
+impl std::fmt::Debug for Rehearsal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Rehearsal")
+            .field("refused_write", &self.refused_write())
+            .field("degraded", &self.degraded())
+            .finish()
+    }
+}
+
+impl Rehearsal {
+    /// A rehearsal whose calls are recorded to `record_store` (`None`: the
+    /// process store).
+    pub fn new(record_store: Option<Arc<dyn Any + Send + Sync>>) -> Self {
+        Self {
+            record_store,
+            ..Default::default()
+        }
+    }
+
+    pub fn record_store(&self) -> Option<Arc<dyn Any + Send + Sync>> {
+        self.record_store.clone()
+    }
+
+    pub fn note_refused_write(&self) {
+        self.refused_write
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// A verb inside the rehearsal that could not take part in it.
+    pub fn note_degraded(&self, verb: &str) {
+        self.degraded
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(verb.to_owned());
+    }
+
+    pub fn refused_write(&self) -> bool {
+        self.refused_write.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn degraded(&self) -> Vec<String> {
+        self.degraded
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+}
+
+tokio::task_local! {
+    static REHEARSAL: Arc<Rehearsal>;
+}
+
+/// The rehearsal the current call runs inside, when it does.
+pub fn current_rehearsal() -> Option<Arc<Rehearsal>> {
+    REHEARSAL.try_with(Arc::clone).ok()
+}
+
+/// Run `future` as part of `rehearsal`.
+pub async fn rehearsal_scope<F: std::future::Future>(
+    rehearsal: Arc<Rehearsal>,
+    future: F,
+) -> F::Output {
+    REHEARSAL.scope(rehearsal, future).await
+}
+
+/// Whether the current call is a dry run (the store's write gate asks).
+fn current_is_dry_run() -> bool {
+    current_adverbs().tentatively
+}
+
+/// A store refused a write because the current call is a dry run.
+fn note_dry_run_refusal() {
+    if let Some(rehearsal) = current_rehearsal() {
+        rehearsal.note_refused_write();
+    }
 }
 
 /// Run `work` with `context` current, synchronously — the FFI's layout
