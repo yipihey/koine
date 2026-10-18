@@ -47,6 +47,10 @@ pub struct AppInfo {
     pub dispatch_function: String,
     /// The field of its result holding the envelope's JSON text.
     pub body_field: String,
+    /// Write an `AppShortcutsProvider` from the phrases. An app has one; an
+    /// app that keeps a hand-written provider turns this off and lists the
+    /// generated intents in its own.
+    pub shortcuts: bool,
 }
 
 impl AppInfo {
@@ -57,6 +61,7 @@ impl AppInfo {
             prefix: prefix.into(),
             dispatch_function: "dispatchVerbAsync".into(),
             body_field: "bodyJson".into(),
+            shortcuts: true,
         }
     }
 }
@@ -650,7 +655,7 @@ pub fn generate(verbs: &[VerbHandle], app: &AppInfo) -> Generated {
     out.files
         .insert(format!("{p}Entities.swift"), entity_file(app, &entities));
     out.files.insert(format!("{p}Intents.swift"), intents);
-    if !shortcuts.is_empty() {
+    if app.shortcuts && !shortcuts.is_empty() {
         out.files.insert(format!("{p}Shortcuts.swift"), provider);
     }
     out
