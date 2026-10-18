@@ -35,9 +35,11 @@ It reaches a phone through TestFlight: tag `regex-lab-v<x.y.z>` (or run
 `release-regex-lab-ios` by hand) and `.github/workflows/release-ios.yml`
 builds, signs and uploads it from a macOS runner (docs/mobile.md, "Onto a
 phone"). It ships in the koine demo's App Store record
-(`com.yipihey.koine`), versions 0.2.0 and up, so it needs no App Store
-Connect setup of its own and takes the demo's place on the phone until the
-next demo release.
+(`com.yipihey.koine`), so it needs no App Store Connect setup of its own
+and takes the demo's place on the phone until the next demo release. The
+two share one version line: each release, of either app, takes a version
+above every build already there (the demo reached 0.4.2, regex-lab went
+on at 0.5.0).
 
 ## The verbs
 

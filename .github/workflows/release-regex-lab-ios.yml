@@ -3,10 +3,12 @@
 # uploads it to TestFlight and attaches the .ipa to the tag's GitHub Release.
 #
 # It ships in the koine demo's App Store record (com.yipihey.koine), so it
-# needs no App Store Connect setup of its own; its versions start at 0.2.0 so
-# its builds never reuse a demo build's version and number. A regex-lab
-# build replaces the demo on the phone until the next demo release does the
-# reverse.
+# needs no App Store Connect setup of its own. The two apps share one version
+# line there: TestFlight moves the phone to the highest version, so each
+# release, of either app, takes a version above every build in the record
+# (the demo reached 0.4.2; regex-lab's first current build is 0.5.0). A
+# regex-lab build replaces the demo on the phone until a later demo release
+# does the reverse.
 name: release-regex-lab-ios
 
 on:
@@ -15,9 +17,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "CFBundleShortVersionString, x.y.z (0.2.0 or later)"
+        description: "CFBundleShortVersionString, x.y.z, above every build in the record (0.4.2 was the demo's last)"
         type: string
-        default: "0.2.0"
+        default: "0.5.0"
 
 permissions:
   contents: write
