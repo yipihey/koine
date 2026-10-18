@@ -833,9 +833,11 @@
   overflow-wrap: anywhere;
 }
 
+/* A key takes what it needs up to 55% and then wraps, so a long key never
+   squeezes its value to a letter per line on a narrow screen. */
 .koine-kv {
   display: grid;
-  grid-template-columns: max-content 1fr;
+  grid-template-columns: fit-content(55%) minmax(0, 1fr);
   gap: 0;
   margin: 0;
 }
@@ -1016,6 +1018,19 @@
   .koine-table th,
   .koine-table td {
     white-space: nowrap;
+  }
+
+  /* Tabs keep their whole titles; the strip scrolls sideways when they do
+     not fit, instead of cutting every title to an ellipsis. */
+  .koine-tablist {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .koine-tab {
+    flex: 1 0 auto;
+    padding: 4px 8px;
   }
 
   .koine-plot svg,

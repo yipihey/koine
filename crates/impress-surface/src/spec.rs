@@ -662,7 +662,10 @@ pub struct Image {
 pub enum FieldKind {
     /// One line of text. `options` may carry `multiline: true` (and `rows`,
     /// the visible height, default 6) for text with lines: the web draws a
-    /// textarea, and the value is still one string.
+    /// textarea, and the value is still one string. `live: true` sends the
+    /// field's `change` as it is typed instead of when it is committed (Enter
+    /// or leaving the field), for a field whose sources the person watches
+    /// (a pattern and its matches); the page keeps one change in flight.
     Text(Value),
     Number(Value),
     Slider(Value),

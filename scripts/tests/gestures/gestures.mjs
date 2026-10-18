@@ -234,6 +234,63 @@ await step("a refused verb is shown, not swallowed", async () => {
   shown && /title/i.test(shown) ? pass(`a refused verb is shown, not swallowed (${shown.trim()})`) : fail("a refused verb is shown, not swallowed", `banner: ${shown}`);
 });
 
+// ---- typing: what a person types is theirs until it is sent
+if (!touch) {
+  // Tab moves the page's focus after the browser's: the render that follows
+  // once drew every field from the surface's value, putting back the old
+  // text over keys typed in that moment (it lost half of the tries).
+  await step("typing straight after Tab is kept", async () => {
+    await page.goto(`${origin}/ui/surface/${encodeURIComponent(notes)}`);
+    await row("Ideas").waitFor({ timeout: 20000 });
+    const lost = [];
+    for (let i = 0; i < 6; i++) {
+      const typed = `tabbed-${i}`;
+      await name.focus();
+      await page.keyboard.press("Shift+Tab");
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Control+A");
+      await page.keyboard.type(typed);
+      await page.waitForTimeout(300);
+      const shown = await name.inputValue();
+      if (shown !== typed) lost.push(`${typed} shown as ${shown}`);
+    }
+    await name.fill("");
+    lost.length === 0 ? pass("typing straight after Tab is kept") : fail("typing straight after Tab is kept", lost.join("; "));
+  });
+
+  // `{"text": {"live": true}}` sends as it is typed: the surface's state
+  // follows without Enter or leaving the field.
+  await step("a live field sends as it is typed", async () => {
+    const r = await fetch(`${origin}/api/surface`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        surface: "1.0",
+        name: `Live field (${label})`,
+        state: { q: "" },
+        root: { column: [
+          { id: "q", label: "Q", field: { text: { live: true } }, bind: "state.q" },
+          { id: "echo", text: "echo: {{state.q}}" },
+        ] },
+      }),
+    });
+    const created = await r.json();
+    const id = created.id ?? created.surface?.id;
+    await page.goto(`${origin}/ui/surface/${encodeURIComponent(id)}`);
+    const q = page.locator('[data-koine-id="q"]');
+    await q.waitFor({ timeout: 10000 });
+    await q.click();
+    await page.keyboard.type("abc", { delay: 60 });
+    // The echo is the host's render of the state: it shows the text only
+    // once the host has it. Nothing was committed (no Enter, no blur).
+    const echo = page.locator('[data-koine-id="echo"]');
+    const echoed = await until(async () => (await echo.innerText()).includes("echo: abc"), 5000);
+    echoed && (await q.inputValue()) === "abc"
+      ? pass("a live field sends as it is typed")
+      : fail("a live field sends as it is typed", JSON.stringify({ echo: await echo.innerText(), shown: await q.inputValue() }));
+  });
+}
+
 // ---- style: a colour slot is a pick-list and takes a token without a refusal
 await step("pick a colour token for a style slot", async () => {
   await page.goto(`${origin}/ui/style`);
