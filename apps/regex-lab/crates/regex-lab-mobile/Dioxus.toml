@@ -1,0 +1,20 @@
+# Read by `dx build --platform ios` / `dx serve --platform ios` run from this
+# directory (dioxus-cli 0.7.10).
+[application]
+name = "regex-lab-mobile"
+
+[bundle]
+# The koine demo's App Store record: regex-lab ships to TestFlight in that
+# slot (its own versions, 0.2 and up), so it needs no App Store Connect setup
+# of its own. A record of its own is a new id here and in the release caller.
+identifier = "com.yipihey.koine"
+publisher = "regex-lab"
+
+# Info.plist keys merged into the generated one: with both, the Files app
+# shows this app's Documents/regex-lab/ (the store, the settings, the token).
+[ios.plist]
+UIFileSharingEnabled = true
+LSSupportsOpeningDocumentsInPlace = true
+# No encryption of our own (TLS is the OS's): TestFlight then needs no
+# export-compliance answer before a build reaches the phone.
+ITSAppUsesNonExemptEncryption = false

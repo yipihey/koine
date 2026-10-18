@@ -23,6 +23,22 @@ cargo run -p regex-lab-host -- \
 # http://localhost:23130/ui/
 ```
 
+## On an iPhone
+
+`crates/regex-lab-mobile` is regex-lab as an iOS app: the host runs inside
+the app over a `dir:` store in its `Documents/regex-lab/`, with the same
+package the host binary installs (`regex_lab_host::package`), and the
+`koine-web` page draws in a WebView. `cargo test` builds it without a
+window; `dx build --platform ios` turns its `mobile` feature on.
+
+It reaches a phone through TestFlight: tag `regex-lab-v<x.y.z>` (or run
+`release-regex-lab-ios` by hand) and `.github/workflows/release-ios.yml`
+builds, signs and uploads it from a macOS runner (docs/mobile.md, "Onto a
+phone"). It ships in the koine demo's App Store record
+(`com.yipihey.koine`), versions 0.2.0 and up, so it needs no App Store
+Connect setup of its own and takes the demo's place on the phone until the
+next demo release.
+
 ## The verbs
 
 All are `regex-lab-service_<verb>`. The matching verbs take the pattern as

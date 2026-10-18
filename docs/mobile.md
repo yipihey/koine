@@ -265,8 +265,9 @@ loop is phone-only after a one-time setup (docs/plan-koine-mobile.md M-D8):
    automatic distribution on.
 3. A caller workflow like `.github/workflows/release-demo-ios.yml` naming
    the crate, the bundle id and a tag pattern (copy the demo's and edit the
-   three).
-4. `crates/<crate>/icon.png`, a 1024x1024 opaque PNG: App Store validation
+   three). An app in its own Cargo workspace also names that workspace
+   (`workspace: apps/regex-lab` in `release-regex-lab-ios.yml`).
+4. `<workspace>/crates/<crate>/icon.png`, a 1024x1024 opaque PNG: App Store validation
    refuses an iOS bundle without an icon catalog, and `sign-ipa.sh` compiles
    this one into it with `actool`.
 

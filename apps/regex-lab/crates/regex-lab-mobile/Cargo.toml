@@ -1,0 +1,22 @@
+[package]
+name = "regex-lab-mobile"
+description = "regex-lab on an iPhone: the host in-process, the koine-web page in a WebView"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+regex-lab-service = { path = "../regex-lab-service" }
+# The package (its pages and skill), the same one the host binary installs.
+regex-lab-host = { path = "../regex-lab-host" }
+koine-host = { workspace = true, features = [] }
+koine-web.workspace = true
+# Named so `dx` finds the crate to be a dioxus app (the direct dependency and
+# the `mobile` feature below).
+dioxus.workspace = true
+
+[features]
+# Off by default: `cargo test` and `cargo check` compile all of `main` without
+# opening a window (`koine_web::launch` prints a hint and returns when no
+# renderer is on). `dx build --platform ios` turns it on.
+mobile = ["koine-web/mobile", "dioxus/mobile"]

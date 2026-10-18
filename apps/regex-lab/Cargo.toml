@@ -2,7 +2,7 @@
 # host binary that links it. koine: this checkout (../..).
 [workspace]
 resolver = "2"
-members = ["crates/regex-lab-service", "crates/regex-lab-host"]
+members = ["crates/regex-lab-service", "crates/regex-lab-host", "crates/regex-lab-mobile"]
 
 [workspace.package]
 version = "0.1.0"
@@ -30,3 +30,8 @@ chrono = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = "0.8"
+# The phone app (crates/regex-lab-mobile): the page, with no renderer until
+# that crate's `mobile` feature turns one on, and the renderer's own crate.
+# By path with defaults off: `web` (the default) is the browser build.
+koine-web = { path = "../../crates/koine-web", default-features = false }
+dioxus = { version = "0.7", default-features = false }
