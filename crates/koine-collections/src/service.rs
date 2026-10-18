@@ -76,9 +76,16 @@ pub fn binding_for(name: &str) -> Result<CollectionSchemaBinding, String> {
     ) {
         return Ok(GENERIC_COLLECTION);
     }
-    let all = BINDINGS.read().unwrap_or_else(|e| e.into_inner());
-    if let Some(found) = all.iter().find(|r| r.names.contains(&key)) {
-        return Ok(found.binding);
+    // Released before the error path: `binding_names` reads the table again,
+    // and a second read while a writer waits deadlocks std's RwLock.
+    let found = BINDINGS
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|r| r.names.contains(&key))
+        .map(|r| r.binding);
+    if let Some(binding) = found {
+        return Ok(binding);
     }
     Err(format!(
         "unknown collection binding '{key}'. Use one of: {}.",

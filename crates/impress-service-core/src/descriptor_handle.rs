@@ -97,6 +97,46 @@ impl VerbHandle {
         self.safety().mcp_annotations()
     }
 
+    /// A sha256 of what a caller relies on: the name, the input and output
+    /// schemas, the safety class and idempotence, and the effects
+    /// (plan-koine-trust TR-D2). It changes exactly when a grant made for
+    /// the verb should be asked for again. A linked verb's is computed once
+    /// per process; a provider's each time, since a provider may re-register
+    /// with a changed descriptor.
+    pub fn fingerprint(&self) -> String {
+        match self {
+            Self::Linked(verb) => {
+                static CACHE: std::sync::LazyLock<
+                    std::sync::Mutex<std::collections::HashMap<usize, String>>,
+                > = std::sync::LazyLock::new(Default::default);
+                let key = *verb as *const VerbDescriptor as usize;
+                if let Some(hit) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+                    return hit.clone();
+                }
+                let fingerprint = self.compute_fingerprint();
+                CACHE
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(key, fingerprint.clone());
+                fingerprint
+            }
+            Self::Provider(_) => self.compute_fingerprint(),
+        }
+    }
+
+    fn compute_fingerprint(&self) -> String {
+        let safety = self.safety();
+        let facts = serde_json::json!({
+            "name": self.name(),
+            "input": self.input_schema().as_ref(),
+            "output": self.output_schema().as_ref(),
+            "safety": safety.class.as_str(),
+            "idempotent": safety.idempotent,
+            "effects": format!("{:?}", self.effects()),
+        });
+        crate::pipeline::adverbs::fingerprint(&facts)
+    }
+
     pub fn effects(&self) -> Effects {
         match self {
             Self::Linked(verb) => verb.effects,

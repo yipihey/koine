@@ -441,7 +441,22 @@ fn prepare_inner(
         Err(_) if preflight_refusal => Adverbs::default(),
         Err(refusal) => return Ok(Err(crate::strict::refusal_value(&refusal))),
     };
-    let adverbs = call_adverbs.merge(wire);
+    let mut adverbs = call_adverbs.merge(wire);
+    // plan-koine-trust TR-D2: a call made inside a dry run is part of the
+    // dry run. Only `tentatively` travels: `once`, `in_background` and
+    // `every` belong to the call that named them; an outer `within` already
+    // bounds the inner call (dropping the outer future drops it); and an outer
+    // `with_review` never ran its handler, so it made no inner calls.
+    let inherited_tentative =
+        !adverbs.tentatively && outer.as_ref().is_some_and(|o| o.adverbs.tentatively);
+    if inherited_tentative {
+        adverbs.tentatively = true;
+    }
+    // A read made inside a dry run runs: it changes nothing, and the outer
+    // call needs its answer to say what it would do. The flag stays on its
+    // context, so whatever it calls is still inside the dry run.
+    let tentative_answer = adverbs.tentatively
+        && !(inherited_tentative && verb.safety().class == SafetyClass::ReadOnly);
 
     // 2. strict args.
     if !preflight_refusal && verb.strict() {
@@ -502,7 +517,7 @@ fn prepare_inner(
 
         // 4. policy. A call that will not run for the policy's sake
         // (`tentatively`, `with_review`) takes no write lease.
-        let leaseless = adverbs.tentatively || adverbs.with_review;
+        let leaseless = tentative_answer || adverbs.with_review;
         let mut decision = if leaseless {
             policy::decide_without_lease(&caller, verb)
         } else {
@@ -511,7 +526,7 @@ fn prepare_inner(
         if adverbs.with_review && decision == policy::Decision::Run {
             decision = policy::Decision::Review;
         }
-        if adverbs.tentatively {
+        if tentative_answer {
             // Answered after policy has decided, before it acts.
             disposition =
                 if decision == policy::Decision::Run && declares(verb, Adverb::Tentatively) {
@@ -883,6 +898,7 @@ fn finish_inner(
             call_id: context.call_id.clone(),
             verb: handle_name(verb),
             since: handle_since(verb),
+            fingerprint: verb.fingerprint(),
             caller: context.caller.clone(),
             trace_id: context.trace_id.clone(),
             parent_call: context.parent_call.clone(),
@@ -1624,6 +1640,15 @@ pub(crate) mod tests {
             Ok(json!({"ok": true}))
         })
     }
+    /// A simulating verb that calls a write verb and a read verb inside.
+    fn nesting(_: Value) -> ServiceFuture {
+        Box::pin(async move {
+            bump();
+            let write = invoke(&NEST_WRITE, Call::person(json!({}))).await.unwrap();
+            let read = invoke(&NEST_READ, Call::person(json!({}))).await.unwrap();
+            Ok(json!({"ok": true, "write": write, "read": read}))
+        })
+    }
     fn slowish(_: Value) -> ServiceFuture {
         Box::pin(async move {
             bump();
@@ -1675,6 +1700,9 @@ pub(crate) mod tests {
     });
     adv_verb!(REVIEW, "t-service_adv-review", counting);
     adv_verb!(TENT_SIM, "t-service_adv-sim", simulating, supports: &[Adverb::Tentatively]);
+    adv_verb!(TENT_NESTING, "t-service_adv-nesting", nesting, supports: &[Adverb::Tentatively]);
+    adv_verb!(NEST_WRITE, "t-service_adv-nest-write", counting);
+    adv_verb!(NEST_READ, "t-service_adv-nest-read", counting, safety: READ_ONLY);
     adv_verb!(REV, "t-service_adv-rev", inverse_noting, supports: &[Adverb::Reversibly]);
     adv_verb!(REV_NONE, "t-service_adv-rev-none", counting, supports: &[Adverb::Reversibly]);
     adv_verb!(REV_READ, "t-service_adv-rev-read", counting, safety: READ_ONLY);
@@ -1863,6 +1891,48 @@ pub(crate) mod tests {
         assert_eq!(
             used(&record_of("t-service_adv-sim")),
             json!(["tentatively"])
+        );
+    }
+
+    #[test]
+    fn a_call_inside_a_dry_run_is_part_of_it_and_a_read_inside_runs() {
+        captured();
+        let answer = invoke_blocking(
+            &TENT_NESTING,
+            with(Adverbs {
+                tentatively: true,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        assert_eq!(answer["tentative"], "simulated");
+        assert_eq!(answer["write"]["tentative"], "static", "{answer}");
+        assert_eq!(
+            hits("t-service_adv-nest-write"),
+            0,
+            "the inner write did not run"
+        );
+        assert_eq!(answer["read"]["ok"], true);
+        assert!(answer["read"].get("tentative").is_none(), "{answer}");
+        assert_eq!(hits("t-service_adv-nest-read"), 1, "the inner read ran");
+        // Outside a dry run the same inner write runs.
+        invoke_blocking(&NEST_WRITE, Call::person(json!({}))).unwrap();
+        assert_eq!(hits("t-service_adv-nest-write"), 1);
+    }
+
+    #[test]
+    fn the_call_record_carries_the_verbs_fingerprint() {
+        captured();
+        invoke_blocking(&ONCE_PER_VERB_B, Call::person(json!({"fp": 1}))).unwrap();
+        let record = record_of("t-service_adv-once-b");
+        let fingerprint = VerbHandle::Linked(&ONCE_PER_VERB_B).fingerprint();
+        assert_eq!(fingerprint.len(), 64);
+        assert_eq!(record.fingerprint, fingerprint);
+        assert_eq!(record.payload()["verb_fingerprint"], fingerprint);
+        assert_ne!(
+            fingerprint,
+            VerbHandle::Linked(&NEST_READ).fingerprint(),
+            "another verb, another fingerprint"
         );
     }
 

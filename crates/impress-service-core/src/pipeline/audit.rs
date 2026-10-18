@@ -44,6 +44,9 @@ pub struct VerbCallRecord {
     pub call_id: String,
     pub verb: std::borrow::Cow<'static, str>,
     pub since: std::borrow::Cow<'static, str>,
+    /// The verb's descriptor fingerprint when it ran
+    /// ([`crate::VerbHandle::fingerprint`]); empty when unknown.
+    pub fingerprint: String,
     pub caller: CallerIdentity,
     pub trace_id: String,
     pub parent_call: Option<String>,
@@ -103,6 +106,9 @@ impl VerbCallRecord {
         let mut payload = Map::new();
         payload.insert("verb".into(), json!(self.verb));
         payload.insert("since".into(), json!(self.since));
+        if !self.fingerprint.is_empty() {
+            payload.insert("verb_fingerprint".into(), json!(self.fingerprint));
+        }
         payload.insert("caller".into(), self.caller.to_json());
         payload.insert("trace_id".into(), json!(self.trace_id));
         payload.insert("parent_call".into(), json!(self.parent_call));
@@ -1072,6 +1078,7 @@ mod tests {
             call_id: "c".into(),
             verb: "t-service_x".into(),
             since: "0.1.0".into(),
+            fingerprint: String::new(),
             caller: CallerIdentity::Person,
             trace_id: "t".into(),
             parent_call: None,

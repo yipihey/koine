@@ -370,6 +370,13 @@ pub fn tool_definitions(config: &HostConfig) -> Vec<Value> {
                     meta[key] = value;
                 }
             }
+            // plan-koine-trust TR-D2: what a grant for this tool was made
+            // against; a changed fingerprint is a changed tool.
+            definition
+                .as_object_mut()
+                .expect("tool definition is an object")
+                .entry("_meta")
+                .or_insert_with(|| json!({}))["fingerprint"] = json!(descriptor.fingerprint());
             if let Some(file_params) = config
                 .tool_file_params
                 .iter()
@@ -678,7 +685,13 @@ mod tests {
         assert_eq!(kinded["_meta"]["returns_kind"], "paper");
         assert_eq!(kinded["_meta"]["ui"]["resourceUri"], "ui://papers");
         let plain = find("allowed-fixture_echo-arguments");
-        assert!(plain.get("_meta").is_none(), "{plain}");
+        let plain_meta = plain["_meta"].as_object().unwrap();
+        assert_eq!(
+            plain_meta.keys().collect::<Vec<_>>(),
+            ["fingerprint"],
+            "only the fingerprint, which every tool carries: {plain}"
+        );
+        assert_eq!(plain_meta["fingerprint"].as_str().unwrap().len(), 64);
     }
 
     /// `_meta.secrets` and `_meta.rows` ride beside `returns_kind` on the
@@ -689,8 +702,10 @@ mod tests {
         let tools = tool_definitions(&config());
         let find = |name: &str| tools.iter().find(|t| t["name"] == name).unwrap().clone();
         let searching = find("allowed-fixture_search-papers");
+        let mut meta = searching["_meta"].clone();
+        meta.as_object_mut().unwrap().remove("fingerprint");
         assert_eq!(
-            searching["_meta"],
+            meta,
             json!({
                 "returns_kind": "paper",
                 "secrets": ["scix-api-token"],

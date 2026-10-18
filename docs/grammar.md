@@ -182,6 +182,11 @@ HTTP).
    must then write nothing; the store spy in the suite pins that. The
    envelope says which depth answered: `"tentative": "static"` or
    `"tentative": "simulated"`.
+   A call made inside a dry run is part of it (plan-koine-trust TR-D2):
+   it inherits `tentatively`, so a write verb a simulating verb calls
+   answers statically instead of running, while a read-only verb it calls
+   runs (it changes nothing and its answer is needed), still inside the
+   dry run for whatever it calls in turn. Only `tentatively` is inherited.
 3. **`reversibly` produces an inverse call, not a promise.** A supporting
    verb records its inverse during the call
    (`context::note_inverse(verb, args)`); the pipeline puts it on the
