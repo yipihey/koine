@@ -590,7 +590,7 @@ fn intent_source(
     let targets = target_args(verb);
     // The kind its target arguments are: the kind it returns, else the one
     // entity whose lookup verb is in the same service (a `set-read` beside
-    // the `get-publication` it acts on).
+    // the `get-publication` it acts on), else the app's only entity.
     let service_prefix = format!("{}_", verb.service());
     let mut same_service = entities
         .values()
@@ -599,6 +599,7 @@ fn intent_source(
         Some(entity) => Some(entity),
         None => match (same_service.next(), same_service.next()) {
             (Some(only), None) => Some(only),
+            _ if entities.len() == 1 => entities.values().next(),
             _ => None,
         },
     };
