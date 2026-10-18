@@ -2442,11 +2442,7 @@ pub(crate) mod tests {
         assert!(other.get("replayed").is_none());
         assert_eq!(hits("t-service_adv-once"), 2);
         // The key's value is never on the record.
-        let rows = sink
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let rows = sink.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
         for row in rows.iter().filter(|r| r.verb == "t-service_adv-once") {
             assert!(!row
                 .payload()
