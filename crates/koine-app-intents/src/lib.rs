@@ -363,10 +363,11 @@ fn entities(verbs: &[VerbHandle]) -> BTreeMap<String, Entity> {
                 }
             }
             EntityRole::Search => {
+                // Only a required string is the text; an optional one (a
+                // listing's filter) is left out.
                 let text = props
                     .iter()
                     .find(|(_, p, required)| *required && is_string(p))
-                    .or_else(|| props.iter().find(|(_, p, _)| is_string(p)))
                     .map(|(name, _, _)| name.clone());
                 let fill: Vec<(String, String)> = props
                     .iter()
@@ -500,13 +501,12 @@ fn search_body(p: &str, t: &str, e: &Entity) -> String {
     } else {
         format!("[{}]", args.join(", "))
     };
-    let call = format!(
-        "        let answer = try await {p}Verbs.call(\"{verb}\", {args})\n        let found = {p}Verbs.rows(answer).compactMap({t}.init(row:))\n"
-    );
+    let call = format!("        let answer = try await {p}Verbs.call(\"{verb}\", {args})\n");
+    let rows = format!("{p}Verbs.rows(answer).compactMap({t}.init(row:))");
     match text {
-        Some(_) => format!("{call}        return found\n"),
+        Some(_) => format!("{call}        return {rows}\n"),
         None => format!(
-            "{call}        return string.isEmpty ? found : found.filter {{ $0.title.localizedCaseInsensitiveContains(string) }}\n"
+            "{call}        let found = {rows}\n        return string.isEmpty ? found : found.filter {{ $0.title.localizedCaseInsensitiveContains(string) }}\n"
         ),
     }
 }
@@ -738,8 +738,13 @@ public struct {ty}: AppIntent {{
     } else if confirm {
         let _ = writeln!(
             s,
-            "        try await requestConfirmation(result: .result(dialog: \"{} is a {} action. Go ahead?\"))",
+            "        try await requestConfirmation(result: .result(dialog: \"{} is {} {} action. Go ahead?\"))",
             swift_str(title),
+            if safety.to_string().starts_with(['a', 'e', 'i', 'o', 'u']) {
+                "an"
+            } else {
+                "a"
+            },
             safety
         );
     }
