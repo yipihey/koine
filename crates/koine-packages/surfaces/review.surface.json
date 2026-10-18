@@ -1,0 +1,198 @@
+{
+  "surface": "1.0",
+  "name": "Review",
+  "state": {
+    "picked": null,
+    "detail": null,
+    "done": null,
+    "rule": null
+  },
+  "sources": {
+    "pending": {
+      "verb": "review-service_list",
+      "args": { "state": "pending" }
+    },
+    "decided": {
+      "verb": "review-service_list",
+      "args": { "state": "all", "limit": 20 }
+    },
+    "rules": {
+      "verb": "review-service_rules",
+      "args": {}
+    }
+  },
+  "root": {
+    "column": [
+      {
+        "id": "intro",
+        "text": "Calls an agent asked to make that wait for you. Each says who asked, what it would do, on which records, and why it was held. Approve runs it once, as the agent that asked; reject means it never runs. Remember makes the answer standing for that verb from that agent, until the verb changes or you revoke it."
+      },
+      {
+        "id": "pending-table",
+        "label": "Waiting for you",
+        "table": {
+          "rows": "{{source.pending.rows}}",
+          "columns": ["verb", "caller", "impact", "reason", "created"],
+          "id_field": "id",
+          "on_select": [
+            { "set": { "path": "state.picked", "value": "{{event.value.0}}" } },
+            { "set": { "path": "state.done", "value": null } },
+            {
+              "call": {
+                "verb": "review-service_show",
+                "args": { "id": "{{event.value.0}}" },
+                "into": "state.detail"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "id": "picked",
+        "when": { "path": "state.picked" },
+        "column": [
+          { "id": "question", "text": "{{state.detail.pending.question}}" },
+          {
+            "id": "targets-table",
+            "label": "The records it acts on",
+            "table": {
+              "rows": "{{state.detail.pending.targets}}",
+              "columns": ["title", "kind", "id"]
+            }
+          },
+          {
+            "id": "args",
+            "code": { "text": "{{state.detail.pending.args}}", "language": "json" }
+          },
+          {
+            "id": "decide",
+            "row": [
+              {
+                "id": "approve-btn",
+                "button": {
+                  "label": "Approve",
+                  "on_click": [
+                    {
+                      "call": {
+                        "verb": "review-service_approve",
+                        "args": { "id": "{{state.picked}}" },
+                        "into": "state.done"
+                      }
+                    },
+                    { "set": { "path": "state.picked", "value": null } },
+                    { "refresh": { "source": "pending" } },
+                    { "refresh": { "source": "decided" } }
+                  ]
+                }
+              },
+              {
+                "id": "approve-remember-btn",
+                "button": {
+                  "label": "Always allow this from this agent",
+                  "on_click": [
+                    {
+                      "call": {
+                        "verb": "review-service_approve",
+                        "args": { "id": "{{state.picked}}", "remember": true },
+                        "into": "state.done"
+                      }
+                    },
+                    { "set": { "path": "state.picked", "value": null } },
+                    { "refresh": { "source": "pending" } },
+                    { "refresh": { "source": "decided" } },
+                    { "refresh": { "source": "rules" } }
+                  ]
+                }
+              },
+              {
+                "id": "reject-btn",
+                "button": {
+                  "label": "Reject",
+                  "on_click": [
+                    {
+                      "call": {
+                        "verb": "review-service_reject",
+                        "args": { "id": "{{state.picked}}" },
+                        "into": "state.done"
+                      }
+                    },
+                    { "set": { "path": "state.picked", "value": null } },
+                    { "refresh": { "source": "pending" } },
+                    { "refresh": { "source": "decided" } }
+                  ]
+                }
+              },
+              {
+                "id": "reject-remember-btn",
+                "button": {
+                  "label": "Never from this agent",
+                  "on_click": [
+                    {
+                      "call": {
+                        "verb": "review-service_reject",
+                        "args": { "id": "{{state.picked}}", "remember": true },
+                        "into": "state.done"
+                      }
+                    },
+                    { "set": { "path": "state.picked", "value": null } },
+                    { "refresh": { "source": "pending" } },
+                    { "refresh": { "source": "decided" } },
+                    { "refresh": { "source": "rules" } }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "done",
+        "when": { "path": "state.done" },
+        "code": { "text": "{{state.done}}", "language": "json" }
+      },
+      {
+        "id": "decided-table",
+        "label": "Recently decided",
+        "table": {
+          "rows": "{{source.decided.rows}}",
+          "columns": ["verb", "caller", "state", "resolution", "resolved_by", "created"]
+        }
+      },
+      {
+        "id": "rules-table",
+        "label": "Standing rules (select one to revoke it)",
+        "table": {
+          "rows": "{{source.rules.rows}}",
+          "columns": ["verb", "caller", "decision", "stale", "revoked", "made_by"],
+          "id_field": "id",
+          "on_select": [
+            { "set": { "path": "state.rule", "value": "{{event.value.0}}" } }
+          ]
+        }
+      },
+      {
+        "id": "rule-actions",
+        "when": { "path": "state.rule" },
+        "row": [
+          {
+            "id": "revoke-btn",
+            "button": {
+              "label": "Revoke this rule",
+              "on_click": [
+                {
+                  "call": {
+                    "verb": "review-service_revoke-rule",
+                    "args": { "id": "{{state.rule}}" },
+                    "into": "state.done"
+                  }
+                },
+                { "set": { "path": "state.rule", "value": null } },
+                { "refresh": { "source": "rules" } }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

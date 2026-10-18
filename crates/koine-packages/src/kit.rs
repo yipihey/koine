@@ -18,6 +18,13 @@ pub const KIT: &str = "koine-kit";
 pub const PACKAGES_SURFACE: &str = include_str!("../surfaces/packages.surface.json");
 pub const PACKAGES_SURFACE_NAME: &str = "Packages";
 
+/// The Review surface (plan-koine-trust TR-D8): the calls waiting for the
+/// person, their targets and reasons, approve or reject (once or for good),
+/// what was decided, and the standing rules. Shipped only where the review
+/// verbs are linked.
+pub const REVIEW_SURFACE: &str = include_str!("../surfaces/review.surface.json");
+pub const REVIEW_SURFACE_NAME: &str = "Review";
+
 /// The kit as a package: `(name, file, spec)` of each surface.
 pub fn surfaces() -> Vec<(&'static str, &'static str, &'static str)> {
     vec![
@@ -35,6 +42,11 @@ pub fn surfaces() -> Vec<(&'static str, &'static str, &'static str)> {
             PACKAGES_SURFACE_NAME,
             "surfaces/packages.surface.json",
             PACKAGES_SURFACE,
+        ),
+        (
+            REVIEW_SURFACE_NAME,
+            "surfaces/review.surface.json",
+            REVIEW_SURFACE,
         ),
     ]
 }

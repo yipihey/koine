@@ -40,6 +40,8 @@ http = ["dep:reqwest"]
 [dev-dependencies]
 # The categories a package declares, read the way the AI kernel reads them.
 koine-ai = { workspace = true }
+# The Review surface's verbs, so the kit test validates it (TR-D8).
+koine-tasks = { workspace = true, features = ["runtime"] }
 impress-pane-query = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 koine-store-memory = { workspace = true }

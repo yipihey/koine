@@ -16,6 +16,8 @@ fn fresh() -> MutexGuard<'static, ()> {
     let turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
     std::hint::black_box(impress_surface_service::DefaultImpressSurfaceService::new as *const ());
     koine_packages::ensure_linked();
+    // The Review surface calls the review verbs (plan-koine-trust TR-D8).
+    koine_tasks::ensure_linked();
     let store: Arc<dyn AttributedStore> = Arc::new(MemoryStore::new());
     koine_store::process::install(store);
     impress_pane_query::process_manifest::install(Arc::new(impress_pane_query::KindManifest {
@@ -132,7 +134,7 @@ fn the_kit_installs_its_surfaces_once_and_they_validate() {
         assert_eq!(checked["ok"], true, "{name}: {checked}");
     }
     let first = koine_packages::kit::install_blocking().unwrap();
-    assert_eq!(first.surfaces.len(), 3);
+    assert_eq!(first.surfaces.len(), 4);
     assert!(first
         .surfaces
         .iter()

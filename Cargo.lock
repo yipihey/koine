@@ -4311,6 +4311,7 @@ dependencies = [
  "koine-package-format",
  "koine-store",
  "koine-store-memory",
+ "koine-tasks",
  "koine-workspace-hack",
  "reqwest",
  "schemars",

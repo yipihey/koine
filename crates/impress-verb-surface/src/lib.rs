@@ -35,12 +35,14 @@
 //!
 //! # Safety (ADR-0035 D2, "review step inside the surface, state not a modal")
 //!
-//! A `destructive` or `external` verb's Run button is hidden
-//! (`when: {path: "state.confirmed", equals: true}`) behind a `status`
-//! warning and a `toggle` field the caller must set first — three vocabulary
-//! primitives already in `docs/agent-surfaces.md`, no new widget or action
-//! kind (the plan is explicit that D-G3's list-input/record-picker/confirm
-//! widgets are separate, ask-first work).
+//! A `destructive` or `external` verb is previewed before it runs
+//! (koine plan-koine-trust TR-D7): a `status` warning, a Preview button that
+//! calls the verb `tentatively` — rehearsed where it stays in the process, so
+//! the answer says what it would change — and the Run button, shown only
+//! once a preview is on the form (`when: {path: "state.preview"}`). No
+//! "I understand" toggle to click through: the person sees what the call
+//! would do before doing it. All vocabulary primitives already in
+//! `docs/agent-surfaces.md`.
 //!
 //! # The catalogue
 //!
@@ -195,7 +197,7 @@ fn render_surface(
             Node::leaf(NodeKind::Status(impress_surface::spec::Status {
                 level: "warning".to_string(),
                 message: json!(format!(
-                    "This is a {} action ({}). Confirm before running.",
+                    "This is a {} action ({}). Preview what it would do, then run it.",
                     safety.as_str(),
                     if safety == SafetyClass::External {
                         "it leaves this process"
@@ -205,12 +207,6 @@ fn render_surface(
                 )),
             }))
             .with_id("safety-warning"),
-        );
-        column.push(
-            Node::leaf(NodeKind::Field(FieldKind::Toggle(json!({}))))
-                .with_id("confirmed")
-                .with_label("I understand, run it anyway")
-                .with_bind("state.confirmed"),
         );
     }
 
@@ -250,27 +246,64 @@ fn render_surface(
         (!templates.is_empty()).then_some(Value::Object(templates))
     };
 
+    let preview_args = run_args.clone();
     let run_button = {
+        let mut on_click = vec![Action::Call {
+            verb: name.to_string(),
+            args: Value::Object(run_args),
+            into: Some("state.result".to_string()),
+            each: None,
+            adverbs: run_adverbs,
+        }];
+        if review {
+            // A preview answers for the arguments it was asked with; after a
+            // run the next one is previewed again.
+            on_click.push(Action::Set {
+                path: "state.preview".to_string(),
+                value: Value::Null,
+            });
+        }
         let button = Node::leaf(NodeKind::Button(Button {
             label: "Run".to_string(),
-            on_click: vec![Action::Call {
-                verb: name.to_string(),
-                args: Value::Object(run_args),
-                into: Some("state.result".to_string()),
-                each: None,
-                adverbs: run_adverbs,
-            }],
+            on_click,
         }))
         .with_id("run");
         if review {
             button.with_when(When {
-                path: "state.confirmed".to_string(),
-                equals: Some(json!(true)),
+                path: "state.preview".to_string(),
+                equals: None,
             })
         } else {
             button
         }
     };
+    if available && review {
+        column.push(
+            Node::leaf(NodeKind::Button(Button {
+                label: "Preview".to_string(),
+                on_click: vec![Action::Call {
+                    verb: name.to_string(),
+                    args: Value::Object(preview_args),
+                    into: Some("state.preview".to_string()),
+                    each: None,
+                    adverbs: Some(json!({"tentatively": true})),
+                }],
+            }))
+            .with_id("preview"),
+        );
+        column.push(
+            Node::leaf(NodeKind::Code(impress_surface::spec::Code {
+                language: Some("json".to_string()),
+                text: json!("{{state.preview}}"),
+            }))
+            .with_id("preview-answer")
+            .with_label("What it would do")
+            .with_when(When {
+                path: "state.preview".to_string(),
+                equals: None,
+            }),
+        );
+    }
     if available {
         column.push(run_button);
     }
@@ -302,7 +335,7 @@ fn render_surface(
         }
     }
     if review {
-        state.insert("confirmed".to_string(), Value::Bool(false));
+        state.insert("preview".to_string(), Value::Null);
     }
     let adverb_state: Map<String, Value> = adverbs
         .iter()
@@ -1384,14 +1417,34 @@ mod tests {
     }
 
     #[test]
-    fn a_destructive_verb_gates_run_behind_confirmation() {
+    fn a_destructive_verb_is_previewed_before_it_runs() {
         let d = desc("t-service_x", SafetyClass::Destructive, schema_output_flat);
         let spec = verb_surface(&d);
         let problems = validate::validate(&spec);
         assert!(problems.iter().all(|p| !p.is_error()), "{problems:?}");
-        assert_eq!(spec.state.get("confirmed"), Some(&json!(false)));
-        let text = serde_json::to_string(&spec).unwrap();
-        assert!(text.contains("\"confirmed\""));
+        assert_eq!(spec.state.get("preview"), Some(&Value::Null));
+        assert!(
+            spec.state.get("confirmed").is_none(),
+            "no toggle to click through"
+        );
+        let mut preview_adverbs = None;
+        let mut run_when = None;
+        for (_, node) in impress_surface::spec::walk_with_pointers(&spec.root) {
+            match node.id.as_deref() {
+                Some("preview") => {
+                    if let NodeKind::Button(b) = &node.kind {
+                        if let Some(Action::Call { adverbs, into, .. }) = b.on_click.first() {
+                            assert_eq!(into.as_deref(), Some("state.preview"));
+                            preview_adverbs = adverbs.clone();
+                        }
+                    }
+                }
+                Some("run") => run_when = node.when.clone(),
+                _ => {}
+            }
+        }
+        assert_eq!(preview_adverbs, Some(json!({"tentatively": true})));
+        assert_eq!(run_when.map(|w| w.path), Some("state.preview".to_string()));
     }
 
     #[test]
@@ -1472,6 +1525,9 @@ mod tests {
     fn run_adverb_keys(spec: &SurfaceSpec) -> Vec<String> {
         let mut keys = Vec::new();
         for (_, node) in impress_surface::spec::walk_with_pointers(&spec.root) {
+            if node.id.as_deref() != Some("run") {
+                continue;
+            }
             if let NodeKind::Button(b) = &node.kind {
                 for a in &b.on_click {
                     if let Action::Call {

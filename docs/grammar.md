@@ -327,6 +327,16 @@ fingerprint; when the verb changes, the rule no longer applies and the
 person is asked again. `review-service_rules` lists rules (and which are
 stale); `_revoke-rule` revokes one.
 
+Where the person decides (TR-D8): the kit ships a **Review** surface
+(`koine-packages/surfaces/review.surface.json`, installed where the review
+verbs are linked) — the calls waiting, the question, the records each acts
+on and its arguments, approve or reject once or for good, what was decided
+recently, and the standing rules to revoke. imbib's and imprint's review
+lists show the same `review-request` rows. A person running a destructive or
+external verb from a generated form previews it first (`tentatively`, so
+rehearsed where it stays in the process) and the Run button appears once the
+preview is there; there is no "I understand" toggle to click through.
+
 ### Sessions and risk
 
 Every call can carry a session (plan-koine-trust TR-D10): `Call::session`,
