@@ -181,6 +181,17 @@ impl Reach {
     pub const fn is_external(&self) -> bool {
         !matches!(self, Reach::Fs)
     }
+
+    /// Whether the reach can send the person's data out of their hands
+    /// (plan-koine-trust TR-D11): the network, a model provider, a device, a
+    /// subprocess. Another of the person's own apps on this machine
+    /// (`app(…)`) and the file system are not egress.
+    pub const fn is_egress(&self) -> bool {
+        matches!(
+            self,
+            Reach::Network | Reach::Provider | Reach::Device | Reach::Subprocess
+        )
+    }
 }
 
 impl std::fmt::Display for Reach {
@@ -940,7 +951,7 @@ impl VerbDescriptor {
     pub fn risk_words(&self) -> Vec<&'static str> {
         let mut words: Vec<&'static str> = self.consent.risk.iter().map(|r| r.as_str()).collect();
         if self.safety.class == SafetyClass::External
-            || self.effects.reach.iter().any(|r| r.is_external())
+            || self.effects.reach.iter().any(|r| r.is_egress())
         {
             words.push("egress");
         }

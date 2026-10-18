@@ -119,8 +119,9 @@ impl SelfTestReport {
 }
 
 /// Linked verbs whose reach and class disagree (plan-koine-trust TR-D11): a
-/// verb that reaches out of the process (the network, a provider, another
-/// app, a device, a subprocess) is `external`, whatever else it does — that
+/// verb whose reach can send data out ([`crate::Reach::is_egress`]: the
+/// network, a provider, a device, a subprocess) is `external`, whatever else
+/// it does — that
 /// is what makes its egress visible to the consent policy and to MCP's
 /// `openWorldHint`. One line per verb, empty when they all agree.
 pub fn reach_class_disagreements<'a>(
@@ -130,7 +131,7 @@ pub fn reach_class_disagreements<'a>(
         .into_iter()
         .filter(|verb| {
             verb.safety.class != crate::SafetyClass::External
-                && verb.effects.reach.iter().any(|r| r.is_external())
+                && verb.effects.reach.iter().any(|r| r.is_egress())
         })
         .map(|verb| {
             format!(

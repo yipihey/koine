@@ -350,8 +350,10 @@ that asked for it.
 A verb declares its risk (TR-D11): `risk(private)` when it reads the
 person's data, `risk(untrusted)` when it takes in content they did not write
 (the web, a fetched package, an imported document, a model's output).
-Sending data out (`egress`) is never declared: every verb that reaches out
-of the process carries it, and such a verb is `external`
+Sending data out (`egress`) is never declared: every verb that reaches the
+network, a model provider, a device or a subprocess carries it (another of
+the person's own apps, or the file system, is not egress), and such a verb is
+`external`
 (`report::reach_class_disagreements`, checked by koine-host's effects
 test). `tools/list` shows it as `_meta.risk`; the skill lists it.
 

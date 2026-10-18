@@ -391,4 +391,29 @@ them in their own sessions.
 
 ## Status
 
-Planned 2026-10-17. Nothing started.
+Implemented 2026-10-18 in koine (TR1–TR10); TR11, the impress-apps adoption,
+is under way on impress-apps branch `claude/trust-adopt` (PR #198).
+
+| WP | State | Where |
+|---|---|---|
+| TR1 | done | `once` keyed by caller, verb and key, argument fingerprint, in-flight refusal, failures kept, 24 h TTL; `koine_store::once` (`koine/once@1.0.0`, the key's sha256 only) installed by koine-host; verb tasks key by task id |
+| TR2 | done | nested calls inherit `tentatively` (a read inside runs); `VerbHandle::fingerprint` on call records and `tools/list` |
+| TR3 | done | every backend refuses a dry-run write (`ambient::check_dry_run_write`); `koine-store-overlay` (conformance-tested); rehearsal answers `"tentative":"rehearsed"` with `changes`; 137 of 142 Tier A examples rehearse and change nothing |
+| TR4 | done | `koine/pending-call@1.0.0` + `review-request`; `review-service_list/_show/_approve/_reject`; approval runs once as the asking caller on its own task; sweep and 7-day expiry; statuses `input_required` / `auth_required` / `rejected` |
+| TR5 | done | `Consent` on descriptors (impact, review hook, targets, alternatives, risk); `ConsentPolicy` (`IMPRESS_VERB_POLICY=consent`); approve `only`/`instead`/`remember`; `koine/consent-rule@1.0.0` bound to fingerprints; `review-service_rules/_revoke-rule` |
+| TR6 | done | the kit's Review surface; generated forms preview destructive and external verbs instead of an "I understand" toggle. imbib's and imprint's review lists show the same review requests; their extra fields (targets, reason) are TR11's |
+| TR7 | done | `Call::session` on every transport (MCP, `/api/verb`, model conversations, tasks, approvals); `risk(private, untrusted)`; egress from network, provider, device or subprocess reach (`Reach::is_egress`), which must be `external`; the Rule of Two in `ConsentPolicy` |
+| TR8 | done | `impress_item::kind`: `KindSchema`, Lexicon-rule `compatible`, registry, version stamps on items and operations, warn-mode validation (`notebook-service_health`), `core/kind-schema@1.0.0` loaded at host start |
+| TR9 | done | `Item::extra`, `SurfaceSpec::extra`, `Layout::extra`; six conformance cases on every backend |
+| TR10 | done | `intent(…)`, `entity(lookup|search)`, `koine-app-intents`, `<host> app-intents`; output type-checks against the macOS 26 SDK |
+| TR11 | under way | impress-apps: TR1–TR4 adopted (PR #198); TR5–TR10 adoption — SQLite `extra` column, kind stamps, sync envelope extras, impress schemas in the kind registry, reach/class, App Intents for imbib — in progress |
+
+### Left open
+
+- Nested surface nodes and layout tiles do not yet keep unknown keys (an
+  unknown node or tile kind still fails to parse); only the top level does.
+- The kind registry validates in warn mode; enforcement per kind is open.
+- App Intents: alternatives are not offered as `requestChoice` yet; enums
+  are plain strings, not `AppEnum`s.
+- MCP tasks (`taskSupport`, `tasks/get`) and URL-mode elicitation remain
+  open, as planned.

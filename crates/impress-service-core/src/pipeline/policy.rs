@@ -470,7 +470,7 @@ pub fn risk_of(verb: &dyn VerbFacts) -> u8 {
         };
     }
     if verb.safety().class == SafetyClass::External
-        || verb.effects().reach.iter().any(|r| r.is_external())
+        || verb.effects().reach.iter().any(|r| r.is_egress())
     {
         risk |= RISK_EGRESS;
     }
