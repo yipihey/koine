@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use impress_service_core::loopback_token;
+use serde_json::Value;
 
 use crate::{serve, Config};
 
@@ -80,6 +81,18 @@ SUBCOMMANDS (no server is started):
                              into every agent skill directory that exists
                              (~/.claude/skills, ~/.codex/skills, ~/.agents/skills); a
                              SKILL.md koine did not write is kept unless --force
+    {program} verbs [<filter>]
+                             list the linked verbs (name and first line), those
+                             holding <filter> when it is given
+    {program} call [--store <url>] [--workspace <dir>] <verb> [<json> | - | --<arg> <value>...]
+                             call one verb in this process, over the store the host
+                             would open, and print its JSON answer. Arguments are one
+                             JSON object, `-` to read it from stdin, or --name value
+                             pairs (a value that parses as JSON is taken as JSON:
+                             quote it, '\"42\"', to pass a string). <verb> is the full
+                             name or a suffix one verb alone ends with (find-all).
+                             Exits 0 when answered, 3 when the verb refused, 1 when it
+                             could not run, 2 for a bad invocation
     {program} package bundle <dir> [--out <dir>] [--index <index.json>]
                              [--base-url <url>] [--registry-name <name>]
                              write the package directory <dir> as one bundle file
@@ -320,6 +333,227 @@ pub fn app_intents_command(
     }
 }
 
+/// A `call` subcommand, parsed: the host flags that say which store, the
+/// verb as given, and its arguments.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallRequest {
+    /// `--store`, `--workspace`, `--app-id`, `--device`, `--secrets-dir`,
+    /// `--keychain`, as [`parse`] reads them.
+    pub host_flags: Vec<String>,
+    pub verb: String,
+    pub args: CallArgs,
+}
+
+/// Where a `call`'s arguments come from.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CallArgs {
+    Json(Value),
+    /// `-`: one JSON object on stdin.
+    Stdin,
+}
+
+/// Parse `<host> call …` (everything after `call`).
+pub fn parse_call(args: impl IntoIterator<Item = String>) -> Result<CallRequest, String> {
+    const HOST_VALUED: &[&str] = &[
+        "--store",
+        "--workspace",
+        "--app-id",
+        "--device",
+        "--secrets-dir",
+    ];
+    let mut args = args.into_iter().peekable();
+    let mut host_flags = Vec::new();
+    let verb = loop {
+        let Some(arg) = args.next() else {
+            return Err("call needs a verb (see `verbs`)".into());
+        };
+        let name = arg.split_once('=').map_or(arg.as_str(), |(f, _)| f);
+        if arg == "--keychain" {
+            host_flags.push(arg);
+        } else if HOST_VALUED.contains(&name) {
+            let inline = arg.contains('=');
+            host_flags.push(arg.clone());
+            if !inline {
+                host_flags.push(args.next().ok_or_else(|| format!("{name} needs a value"))?);
+            }
+        } else if arg.starts_with('-') {
+            return Err(format!(
+                "call: {arg} before the verb is not a host flag (--store, --workspace, \
+                 --app-id, --device, --secrets-dir, --keychain)"
+            ));
+        } else {
+            break arg;
+        }
+    };
+    let rest: Vec<String> = args.collect();
+    let args = match rest.as_slice() {
+        [] => CallArgs::Json(Value::Object(Default::default())),
+        [one] if one == "-" => CallArgs::Stdin,
+        [one] if !one.starts_with("--") => {
+            let value: Value = serde_json::from_str(one)
+                .map_err(|e| format!("call: the arguments are not JSON: {e}"))?;
+            if !value.is_object() {
+                return Err("call: the arguments must be one JSON object".into());
+            }
+            CallArgs::Json(value)
+        }
+        pairs => {
+            let mut object = serde_json::Map::new();
+            let mut pairs = pairs.iter().peekable();
+            while let Some(flag) = pairs.next() {
+                let Some(name) = flag.strip_prefix("--") else {
+                    return Err(format!("call: expected --<argument>, found {flag}"));
+                };
+                let (name, text) = match name.split_once('=') {
+                    Some((name, text)) => (name.to_string(), Some(text.to_string())),
+                    None => match pairs.peek() {
+                        Some(next) if !next.starts_with("--") => {
+                            (name.to_string(), pairs.next().cloned())
+                        }
+                        _ => (name.to_string(), None),
+                    },
+                };
+                // `--name` alone is `true`; a value is JSON when it parses.
+                let value = match text {
+                    None => Value::Bool(true),
+                    Some(text) => serde_json::from_str(&text).unwrap_or(Value::String(text)),
+                };
+                // An argument is snake_case in the schema; a flag may be kebab.
+                object.insert(name.replace('-', "_"), value);
+            }
+            CallArgs::Json(Value::Object(object))
+        }
+    };
+    Ok(CallRequest {
+        host_flags,
+        verb,
+        args,
+    })
+}
+
+/// The verb `name` means: itself when linked, else the one linked verb whose
+/// name ends with `_<name>` (or `-<name>`). Several matches are refused by
+/// name.
+pub fn resolve_verb(name: &str, linked: &[String]) -> Result<String, String> {
+    if linked.iter().any(|v| v == name) {
+        return Ok(name.to_string());
+    }
+    let matches: Vec<&String> = linked
+        .iter()
+        .filter(|v| v.ends_with(&format!("_{name}")) || v.ends_with(&format!("-{name}")))
+        .collect();
+    match matches.as_slice() {
+        [one] => Ok((*one).clone()),
+        [] => Err(format!("no linked verb is named {name} (see `verbs`)")),
+        many => Err(format!(
+            "{name} could be {}; give the full name",
+            many.iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
+/// `<host> verbs [filter]`: one line per linked verb.
+pub fn verbs_command(filter: Option<&str>) -> String {
+    let mut lines: Vec<String> = impress_service_core::call::descriptors()
+        .filter(|v| filter.is_none_or(|f| v.name().contains(f)))
+        .map(|v| {
+            let first = v
+                .description()
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            format!("{:<44} {first}", v.name())
+        })
+        .collect();
+    lines.sort();
+    lines.join("\n") + "\n"
+}
+
+/// Run a parsed `call`: open the store the host would open, install the
+/// process seams a verb reads (the store, the manifest, the secrets, the
+/// workspace), call the verb as the `cli` agent and print its answer.
+pub fn run_call(request: CallRequest, app_id: &str, program: &str) -> ExitCode {
+    let cli = match parse(request.host_flags.clone(), app_id) {
+        Ok(Some(cli)) => cli,
+        Ok(None) => return ExitCode::from(2),
+        Err(message) => {
+            eprintln!("{program}: {message}");
+            return ExitCode::from(2);
+        }
+    };
+    let args = match request.args {
+        CallArgs::Json(value) => value,
+        CallArgs::Stdin => {
+            let mut text = String::new();
+            if let Err(error) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text) {
+                eprintln!("{program}: call: reading stdin: {error}");
+                return ExitCode::from(2);
+            }
+            match serde_json::from_str::<Value>(&text) {
+                Ok(value) if value.is_object() => value,
+                _ => {
+                    eprintln!("{program}: call: stdin is not one JSON object");
+                    return ExitCode::from(2);
+                }
+            }
+        }
+    };
+    let linked: Vec<String> = impress_service_core::call::descriptors()
+        .map(|v| v.name().to_string())
+        .collect();
+    let verb = match resolve_verb(&request.verb, &linked) {
+        Ok(verb) => verb,
+        Err(message) => {
+            eprintln!("{program}: call: {message}");
+            return ExitCode::from(2);
+        }
+    };
+    let config = cli.config;
+    let opened = match koine_store::open_with_blobs(&config.store_url) {
+        Ok(opened) => opened,
+        Err(error) => {
+            eprintln!("{program}: call: the store {}: {error}", config.store_url);
+            return ExitCode::from(2);
+        }
+    };
+    let store: std::sync::Arc<dyn impress_item::AttributedStore> =
+        std::sync::Arc::new(koine_store::RecordingStore::new(opened.store.clone()));
+    koine_store::process::install(store.clone());
+    koine_store::once::install(opened.store.clone());
+    koine_store::process::set_workspace(&config.workspace);
+    if let Some(blobs) = opened.blobs.clone() {
+        koine_store::process::install_blobs(blobs);
+    }
+    impress_pane_query::process_manifest::install(config.manifest.clone());
+    crate::materialize::install(store, config.manifest.clone());
+    impress_service_core::secrets::install(crate::secrets::host_source(
+        config.secrets_path(),
+        config.keychain,
+    ));
+    let caller = impress_service_core::pipeline::CallerIdentity::agent("cli");
+    match impress_service_core::call::call_as(&verb, caller, args) {
+        Ok(answer) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&answer).unwrap_or_else(|_| answer.to_string())
+            );
+            match impress_service_core::refusal::exit_status(&answer) {
+                0 => ExitCode::SUCCESS,
+                code => ExitCode::from(code as u8),
+            }
+        }
+        Err(error) => {
+            eprintln!("{program}: call: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 /// `<host> skill print|install …` (plan-koine-research-os S-D3): what to
 /// print on success, or the message to fail with. `home` is where the agent
 /// skill directories are looked for; `app_id` the binary's default.
@@ -547,6 +781,19 @@ pub fn main_configured(
                 print!("{text}");
                 ExitCode::SUCCESS
             }
+            Err(message) => {
+                eprintln!("{program}: {message}");
+                ExitCode::from(2)
+            }
+        };
+    }
+    if std::env::args().nth(1).as_deref() == Some("verbs") {
+        print!("{}", verbs_command(std::env::args().nth(2).as_deref()));
+        return ExitCode::SUCCESS;
+    }
+    if std::env::args().nth(1).as_deref() == Some("call") {
+        return match parse_call(std::env::args().skip(2)) {
+            Ok(request) => run_call(request, app_id, &program),
             Err(message) => {
                 eprintln!("{program}: {message}");
                 ExitCode::from(2)
@@ -876,5 +1123,88 @@ mod tests {
             .unwrap_err()
             .contains("port"));
         assert!(parse_args(args(&["--help"])).unwrap().is_none());
+    }
+
+    fn call_of(words: &[&str]) -> Result<CallRequest, String> {
+        parse_call(words.iter().map(|w| w.to_string()))
+    }
+
+    #[test]
+    fn call_takes_json_pairs_or_stdin_after_its_host_flags() {
+        let json =
+            call_of(&["--store", "memory:", "x-service_find", r#"{"pattern":"a"}"#]).unwrap();
+        assert_eq!(json.host_flags, vec!["--store", "memory:"]);
+        assert_eq!(json.verb, "x-service_find");
+        assert_eq!(
+            json.args,
+            CallArgs::Json(serde_json::json!({"pattern": "a"}))
+        );
+
+        let pairs = call_of(&[
+            "find",
+            "--pattern",
+            r"\d+",
+            "--limit=3",
+            "--literal",
+            "--hay-stack",
+            "\"42\"",
+        ])
+        .unwrap();
+        assert_eq!(
+            pairs.args,
+            CallArgs::Json(serde_json::json!({
+                "pattern": r"\d+", "limit": 3, "literal": true, "hay_stack": "42"
+            }))
+        );
+        assert_eq!(call_of(&["find", "-"]).unwrap().args, CallArgs::Stdin);
+        assert_eq!(
+            call_of(&["find"]).unwrap().args,
+            CallArgs::Json(serde_json::json!({}))
+        );
+    }
+
+    #[test]
+    fn call_refuses_what_it_cannot_read() {
+        assert!(call_of(&[]).unwrap_err().contains("needs a verb"));
+        assert!(call_of(&["--port", "1", "find"])
+            .unwrap_err()
+            .contains("not a host flag"));
+        assert!(call_of(&["--store"]).unwrap_err().contains("needs a value"));
+        assert!(call_of(&["find", "[1]"])
+            .unwrap_err()
+            .contains("one JSON object"));
+        assert!(call_of(&["find", "{"]).unwrap_err().contains("not JSON"));
+        assert!(call_of(&["find", "pattern"])
+            .unwrap_err()
+            .contains("not JSON"));
+    }
+
+    #[test]
+    fn a_verb_is_its_full_name_or_a_suffix_only_it_ends_with() {
+        let linked: Vec<String> = [
+            "a-service_find",
+            "a-service_find-all",
+            "b-service_list",
+            "c-service_list",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(
+            resolve_verb("a-service_find", &linked).unwrap(),
+            "a-service_find"
+        );
+        assert_eq!(resolve_verb("find", &linked).unwrap(), "a-service_find");
+        assert_eq!(
+            resolve_verb("find-all", &linked).unwrap(),
+            "a-service_find-all"
+        );
+        assert_eq!(resolve_verb("all", &linked).unwrap(), "a-service_find-all");
+        assert!(resolve_verb("list", &linked)
+            .unwrap_err()
+            .contains("b-service_list, c-service_list"));
+        assert!(resolve_verb("nope", &linked)
+            .unwrap_err()
+            .contains("no linked verb"));
     }
 }

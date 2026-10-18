@@ -65,6 +65,7 @@ mod guard;
 pub mod manifest;
 pub mod materialize;
 mod routes;
+pub use routes::REQUEST_LIMIT;
 pub mod runner;
 pub mod secrets;
 #[cfg(feature = "tasks")]

@@ -50,6 +50,12 @@ type Shared = Arc<HostState>;
 /// Large enough for a PDF; the default 2 MiB stays on every other route.
 const BLOB_LIMIT: usize = 256 * 1024 * 1024;
 
+/// The largest request body any other route reads: a verb's arguments, an
+/// MCP message, a surface event. A verb that works on text (a haystack, a
+/// document) takes it inline, so this is generous; a larger body is refused
+/// `too-large` before anything runs.
+pub const REQUEST_LIMIT: usize = 16 * 1024 * 1024;
+
 pub(crate) fn router(state: Shared) -> Router {
     Router::new()
         .route("/api/status", get(status))
@@ -87,7 +93,30 @@ pub(crate) fn router(state: Shared) -> Router {
         .route("/ui/", get(ui::serve))
         .route("/ui/{*path}", get(ui::serve))
         .fallback(not_found)
+        .layer(DefaultBodyLimit::max(REQUEST_LIMIT))
+        .layer(axum::middleware::map_response(json_too_large))
         .with_state(state)
+}
+
+/// axum refuses a body over the limit with a plain-text 413 before any
+/// handler runs; every other refusal here is the JSON envelope, so this one
+/// is too.
+async fn json_too_large(response: Response) -> Response {
+    let is_json = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|v| v.as_bytes().starts_with(b"application/json"));
+    if response.status() != StatusCode::PAYLOAD_TOO_LARGE || is_json {
+        return response;
+    }
+    refusal(
+        codes::TOO_LARGE,
+        format!(
+            "the request body is larger than this host accepts ({} MiB; a blob upload takes {} MiB)",
+            REQUEST_LIMIT / (1024 * 1024),
+            BLOB_LIMIT / (1024 * 1024)
+        ),
+    )
 }
 
 // ---------------------------------------------------------------- helpers
