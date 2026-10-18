@@ -936,6 +936,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "koine-app-intents"
+version = "0.1.0"
+dependencies = [
+ "impress-service-core",
+ "koine-workspace-hack",
+ "serde_json",
+]
+
+[[package]]
 name = "koine-host"
 version = "0.1.0"
 dependencies = [
@@ -950,6 +959,7 @@ dependencies = [
  "impress-surface-service",
  "impress-verb-surface",
  "koine-agent",
+ "koine-app-intents",
  "koine-mcp-host",
  "koine-memory",
  "koine-notebook",
