@@ -99,6 +99,18 @@ pub trait PaperService: Send + Sync + 'static {
         entity(search)
     )]
     async fn search_notes(&self, query: String, limit: u32) -> Vec<Paper>;
+
+    /// One tag by id.
+    #[impress_method(returns_kind = "tag", entity(lookup))]
+    async fn get_tag(&self, id: String) -> Option<Paper>;
+
+    /// Every tag: a listing that serves as the search.
+    #[impress_method(
+        returns_kind = "tag",
+        rows(id = "bibcode", title = "title"),
+        entity(search)
+    )]
+    async fn list_tags(&self) -> Vec<Paper>;
 }
 
 pub struct Library;
@@ -133,6 +145,12 @@ impl PaperService for Library {
         None
     }
     async fn search_notes(&self, _query: String, _limit: u32) -> Vec<Paper> {
+        Vec::new()
+    }
+    async fn get_tag(&self, _id: String) -> Option<Paper> {
+        None
+    }
+    async fn list_tags(&self) -> Vec<Paper> {
         Vec::new()
     }
 }
@@ -203,6 +221,13 @@ impress_service_impl! {
             /// At most this many.
             limit: u32
         ) -> Vec<Paper>,
+        /// One tag.
+        get_tag(
+            /// Its id.
+            id: String
+        ) -> Option<Paper>,
+        /// Every tag.
+        list_tags() -> Vec<Paper>,
     ],
 }
 
@@ -241,6 +266,13 @@ fn intents_entities_and_shortcuts_are_generated_and_deterministic() {
         entities.contains(r#"["query": string, "limit": 50]"#),
         "{entities}"
     );
+
+    // A listing serves as the search, its rows matched by title.
+    assert!(
+        entities.contains(r#"call("paper-service_list-tags", [:])"#),
+        "{entities}"
+    );
+    assert!(entities.contains("localizedCaseInsensitiveContains(string)"));
 
     let intents = &generated.files["LibIntents.swift"];
     assert!(

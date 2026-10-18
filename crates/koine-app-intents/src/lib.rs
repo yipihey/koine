@@ -12,7 +12,8 @@
 //!   verb is destructive, external or of high impact, and a dialog naming the
 //!   review when the call is held for one;
 //! - a kind with a verb declaring `entity(lookup)` (ids in, rows out) and one
-//!   declaring `entity(search)` (a string in, rows out) becomes an
+//!   declaring `entity(search)` (a string in, rows out; or a listing, its
+//!   rows matched by title in Swift) becomes an
 //!   `AppEntity` with an `EntityQuery` and an `EntityStringQuery`, its id and
 //!   title the kind's row schema's; an intent argument the verb names as its
 //!   target, of that kind, is a parameter of that entity;
@@ -87,9 +88,10 @@ struct Entity {
     /// The lookup verb, its id argument, and whether that takes a list (one
     /// call) or one id (a call per id).
     lookup: (String, String, bool),
-    /// The search verb, its text argument, and the other required arguments
-    /// with plain defaults (a `limit` of 50, false, empty).
-    search: (String, String, Vec<(String, String)>),
+    /// The search verb, its text argument (none: a listing whose rows are
+    /// matched by title), and the other required arguments with plain
+    /// defaults (a `limit` of 50, false, empty).
+    search: (String, Option<String>, Vec<(String, String)>),
 }
 
 /// A Swift literal for a required argument the generator fills itself.
@@ -337,7 +339,7 @@ fn target_args(verb: &VerbHandle) -> Vec<String> {
 
 fn entities(verbs: &[VerbHandle]) -> BTreeMap<String, Entity> {
     type Lookup<'a> = (&'a VerbHandle, String, bool);
-    type Search<'a> = (&'a VerbHandle, String, Vec<(String, String)>);
+    type Search<'a> = (&'a VerbHandle, Option<String>, Vec<(String, String)>);
     let mut lookups: BTreeMap<String, Lookup<'_>> = BTreeMap::new();
     let mut searches: BTreeMap<String, Search<'_>> = BTreeMap::new();
     for verb in verbs {
@@ -361,14 +363,17 @@ fn entities(verbs: &[VerbHandle]) -> BTreeMap<String, Entity> {
                 }
             }
             EntityRole::Search => {
-                if let Some((name, _, _)) = props.iter().find(|(_, p, _)| is_string(p)) {
-                    let fill: Vec<(String, String)> = props
-                        .iter()
-                        .filter(|(other, _, required)| *required && other != name)
-                        .map(|(other, prop, _)| (other.clone(), default_literal(other, prop)))
-                        .collect();
-                    searches.insert(kind.to_owned(), (verb, name.clone(), fill));
-                }
+                let text = props
+                    .iter()
+                    .find(|(_, p, required)| *required && is_string(p))
+                    .or_else(|| props.iter().find(|(_, p, _)| is_string(p)))
+                    .map(|(name, _, _)| name.clone());
+                let fill: Vec<(String, String)> = props
+                    .iter()
+                    .filter(|(other, _, required)| *required && Some(other) != text.as_ref())
+                    .map(|(other, prop, _)| (other.clone(), default_literal(other, prop)))
+                    .collect();
+                searches.insert(kind.to_owned(), (verb, text, fill));
             }
         }
     }
@@ -479,6 +484,33 @@ enum {p}Verbs {{
     s
 }
 
+/// The body of an entity query's `entities(matching:)`.
+fn search_body(p: &str, t: &str, e: &Entity) -> String {
+    let (verb, text, fill) = &e.search;
+    let mut args: Vec<String> = text
+        .iter()
+        .map(|name| format!("\"{name}\": string"))
+        .collect();
+    args.extend(
+        fill.iter()
+            .map(|(name, value)| format!("\"{name}\": {value}")),
+    );
+    let args = if args.is_empty() {
+        "[:]".to_owned()
+    } else {
+        format!("[{}]", args.join(", "))
+    };
+    let call = format!(
+        "        let answer = try await {p}Verbs.call(\"{verb}\", {args})\n        let found = {p}Verbs.rows(answer).compactMap({t}.init(row:))\n"
+    );
+    match text {
+        Some(_) => format!("{call}        return found\n"),
+        None => format!(
+            "{call}        return string.isEmpty ? found : found.filter {{ $0.title.localizedCaseInsensitiveContains(string) }}\n"
+        ),
+    }
+}
+
 fn entity_file(app: &AppInfo, entities: &BTreeMap<String, Entity>) -> String {
     let p = &app.prefix;
     let mut s = String::new();
@@ -517,9 +549,7 @@ public struct {t}Query: EntityQuery, EntityStringQuery {{
 {lookup_body}    }}
 
     public func entities(matching string: String) async throws -> [{t}] {{
-        let answer = try await {p}Verbs.call("{search}", ["{text_arg}": string{fill}])
-        return {p}Verbs.rows(answer).compactMap({t}.init(row:))
-    }}
+{search_body}    }}
 
     public func suggestedEntities() async throws -> [{t}] {{
         try await entities(matching: "")
@@ -543,13 +573,7 @@ public struct {t}Query: EntityQuery, EntityStringQuery {{
             },
             lookup = e.lookup.0,
             search = e.search.0,
-            text_arg = e.search.1,
-            fill = e
-                .search
-                .2
-                .iter()
-                .map(|(name, value)| format!(", \"{name}\": {value}"))
-                .collect::<String>(),
+            search_body = search_body(p, t, e),
         );
     }
     s
