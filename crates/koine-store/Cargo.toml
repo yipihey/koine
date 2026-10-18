@@ -14,10 +14,14 @@ thiserror = { workspace = true }
 # `process`: the pipeline's call-scoped store, and the subtree resolver trait.
 impress-service-core = { workspace = true }
 impress-pane-query-compile = { workspace = true }
+# `once`: the durable idempotency store (plan-koine-trust TR-D1).
+uuid = { workspace = true, features = ["v5"] }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
-uuid = { workspace = true }
-serde_json = { workspace = true }
 koine-workspace-hack.workspace = true
 
 [lints]

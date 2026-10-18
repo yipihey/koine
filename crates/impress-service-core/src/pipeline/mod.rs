@@ -244,8 +244,8 @@ struct Prepared {
     disposition: Disposition,
     /// `policy::decide` took a write lease this call must give back.
     holds_lease: bool,
-    /// `(caller, key)` to record a successful result under (`once`).
-    once: Option<(String, String)>,
+    /// The `once` key this call holds; its answer is recorded under it.
+    once: Option<adverbs::OnceClaim>,
     /// The inverse the envelope layer attached (`reversibly`).
     undo: Option<Value>,
     /// Record the call even when the verb is read-only (a tentative or
@@ -529,18 +529,19 @@ fn prepare_inner(
                 policy::Decision::Conflict(kinds) => return Ok(Err(policy::conflict(verb, kinds))),
             }
 
-            // `once`: a hit answers the stored envelope without running.
-            let author = caller.author();
+            // `once` (plan-koine-trust TR-D1): keyed by caller, verb and key,
+            // compared by the arguments' fingerprint. A finished answer is
+            // replayed, a running first call or other arguments are refused,
+            // and otherwise this call claims the key.
             if let Some(key) = &adverbs.once {
-                if let Some(mut stored) = adverbs::once_lookup(&author, key) {
-                    if let Some(object) = stored.as_object_mut() {
-                        object.insert("replayed".into(), Value::Bool(true));
+                let key = adverbs::OnceKey::new(caller.author(), verb.name(), key.clone());
+                match adverbs::once_begin(key, adverbs::fingerprint(&args)) {
+                    adverbs::OnceCheck::Claimed(claim) => once = Some(claim),
+                    adverbs::OnceCheck::Replay(answer) | adverbs::OnceCheck::Refuse(answer) => {
+                        policy::give_back_lease(verb);
+                        holds_lease = false;
+                        disposition = Disposition::Answer(answer);
                     }
-                    policy::give_back_lease(verb);
-                    holds_lease = false;
-                    disposition = Disposition::Answer(stored);
-                } else {
-                    once = Some((author.clone(), key.clone()));
                 }
             }
 
@@ -594,8 +595,8 @@ fn prepare_inner(
                         ),
                     )),
                 };
-                if let (Some((author, key)), true) = (once.take(), is_ok(&answer)) {
-                    adverbs::once_record(&author, &key, &answer);
+                if let Some(claim) = once.take() {
+                    adverbs::once_finish(&claim, Some(&answer));
                 }
                 disposition = Disposition::Answer(answer);
             }
@@ -759,10 +760,8 @@ fn adverb_envelope(
             object.insert("tentative".into(), Value::String("simulated".into()));
         }
     }
-    if let (Some((author, key)), Ok(value)) = (&prepared.once, &result) {
-        if is_ok(value) {
-            adverbs::once_record(author, key, value);
-        }
+    if let Some(claim) = prepared.once.take() {
+        adverbs::once_finish(&claim, result.as_ref().ok());
     }
     result
 }
@@ -1625,11 +1624,24 @@ pub(crate) mod tests {
             Ok(json!({"ok": true}))
         })
     }
+    fn slowish(_: Value) -> ServiceFuture {
+        Box::pin(async move {
+            bump();
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            Ok(json!({"ok": true}))
+        })
+    }
+    fn refusing(_: Value) -> ServiceFuture {
+        Box::pin(async move {
+            bump();
+            Ok(json!({"ok": false, "code": "not-found", "message": "no such thing"}))
+        })
+    }
     /// Refuses the first time it runs, answers the second.
     fn flaky(_: Value) -> ServiceFuture {
         Box::pin(async move {
             if bump() == 1 {
-                Ok(json!({"ok": false, "code": "not-found", "message": "first try"}))
+                Ok(json!({"ok": false, "code": "store-unavailable", "message": "first try"}))
             } else {
                 Ok(json!({"ok": true, "n": 2}))
             }
@@ -1669,6 +1681,10 @@ pub(crate) mod tests {
     adv_verb!(ONCE, "t-service_adv-once", counting);
     adv_verb!(ONCE_FLAKY, "t-service_adv-once-flaky", flaky);
     adv_verb!(ONCE_SEEDED, "t-service_adv-once-seeded", counting);
+    adv_verb!(ONCE_PER_VERB_A, "t-service_adv-once-a", counting);
+    adv_verb!(ONCE_PER_VERB_B, "t-service_adv-once-b", counting);
+    adv_verb!(ONCE_REFUSING, "t-service_adv-once-refusing", refusing);
+    adv_verb!(ONCE_SLOW, "t-service_adv-once-slow", slowish);
     adv_verb!(WITHIN_SLOW, "t-service_adv-within-slow", slow, safety: READ_ONLY);
     adv_verb!(WITHIN_MUT, "t-service_adv-within-mut", counting);
     adv_verb!(WITHIN_OK, "t-service_adv-within-ok", slow, supports: &[Adverb::Within]);
@@ -1955,7 +1971,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_failed_first_call_is_not_cached_by_once() {
+    fn a_retryable_first_failure_is_not_cached_by_once() {
         let once = Adverbs {
             once: Some("flaky-key".into()),
             ..Default::default()
@@ -1972,24 +1988,26 @@ pub(crate) mod tests {
 
     #[test]
     fn an_installed_idempotency_store_is_consulted_first_and_written_too() {
-        struct Seeded(Mutex<HashMap<(String, String), Value>>);
+        use adverbs::{OnceEntry, OnceKey};
+        struct Seeded(Mutex<HashMap<OnceKey, OnceEntry>>);
         impl adverbs::IdempotencyStore for Seeded {
-            fn get(&self, caller: &str, key: &str) -> Option<Value> {
-                self.0
-                    .lock()
-                    .unwrap()
-                    .get(&(caller.into(), key.into()))
-                    .cloned()
+            fn get(&self, key: &OnceKey) -> Option<OnceEntry> {
+                self.0.lock().unwrap().get(key).cloned()
             }
-            fn put(&self, caller: &str, key: &str, value: &Value) {
-                self.0
-                    .lock()
-                    .unwrap()
-                    .insert((caller.into(), key.into()), value.clone());
+            fn put(&self, key: &OnceKey, entry: &OnceEntry) {
+                self.0.lock().unwrap().insert(key.clone(), entry.clone());
             }
         }
         let store = Arc::new(Seeded(Mutex::new(HashMap::new())));
-        store.put("human", "seeded", &json!({"ok": true, "from": "store"}));
+        let verb = "t-service_adv-once-seeded";
+        store.put(
+            &OnceKey::new("human", verb, "seeded"),
+            &OnceEntry {
+                fingerprint: adverbs::fingerprint(&json!({})),
+                at_ms: chrono::Utc::now().timestamp_millis(),
+                answer: Some(json!({"ok": true, "from": "store"})),
+            },
+        );
         adverbs::install_idempotency_store(store.clone());
         let once = |key: &str| Adverbs {
             once: Some(key.into()),
@@ -1998,9 +2016,71 @@ pub(crate) mod tests {
         let answer = invoke_blocking(&ONCE_SEEDED, with(once("seeded"))).unwrap();
         assert_eq!(answer["from"], "store");
         assert_eq!(answer["replayed"], true);
-        assert_eq!(hits("t-service_adv-once-seeded"), 0);
+        assert_eq!(hits(verb), 0);
         invoke_blocking(&ONCE_SEEDED, with(once("fresh"))).unwrap();
-        assert!(store.get("human", "fresh").is_some(), "written through");
+        assert!(
+            store.get(&OnceKey::new("human", verb, "fresh")).is_some(),
+            "written through"
+        );
+    }
+
+    #[test]
+    fn a_once_key_is_per_verb_and_compares_the_arguments() {
+        let once = |key: &str| Adverbs {
+            once: Some(key.into()),
+            ..Default::default()
+        };
+        let first = invoke_blocking(&ONCE_PER_VERB_A, with(once("shared"))).unwrap();
+        assert_eq!(first["ok"], true);
+        let other_verb = invoke_blocking(&ONCE_PER_VERB_B, with(once("shared"))).unwrap();
+        assert!(
+            other_verb.get("replayed").is_none(),
+            "another verb's answer is never replayed: {other_verb}"
+        );
+        assert_eq!(hits("t-service_adv-once-b"), 1);
+        let changed = invoke_blocking(
+            &ONCE_PER_VERB_A,
+            Call::person(json!({"n": 2})).with_adverbs(once("shared")),
+        )
+        .unwrap();
+        assert_eq!(changed["code"], "idempotency-mismatch", "{changed}");
+        assert_eq!(hits("t-service_adv-once-a"), 1, "the mismatch did not run");
+    }
+
+    #[test]
+    fn a_kept_failure_is_replayed() {
+        let once = Adverbs {
+            once: Some("kept-failure".into()),
+            ..Default::default()
+        };
+        let first = invoke_blocking(&ONCE_REFUSING, with(once.clone())).unwrap();
+        assert_eq!(first["code"], "not-found");
+        let second = invoke_blocking(&ONCE_REFUSING, with(once)).unwrap();
+        assert_eq!(second["code"], "not-found");
+        assert_eq!(second["replayed"], true);
+        assert_eq!(hits("t-service_adv-once-refusing"), 1);
+    }
+
+    #[test]
+    fn a_second_call_while_the_first_runs_is_refused_in_flight() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let once = Adverbs {
+                once: Some("racing".into()),
+                ..Default::default()
+            };
+            let first = tokio::spawn(invoke(&ONCE_SLOW, with(once.clone())));
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let second = invoke(&ONCE_SLOW, with(once)).await.unwrap();
+            assert_eq!(second["code"], "idempotency-in-flight", "{second}");
+            let first = first.await.unwrap().unwrap();
+            assert_eq!(first["ok"], true);
+        });
+        assert_eq!(hits("t-service_adv-once-slow"), 1);
     }
 
     #[test]

@@ -4425,6 +4425,7 @@ dependencies = [
 name = "koine-store"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "impress-item",
  "impress-pane-query-compile",
  "impress-service-core",
@@ -4432,7 +4433,9 @@ dependencies = [
  "koine-store-memory",
  "koine-workspace-hack",
  "serde_json",
+ "sha2",
  "thiserror 2.0.21",
+ "tracing",
  "uuid",
 ]
 

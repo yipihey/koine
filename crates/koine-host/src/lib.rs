@@ -356,6 +356,10 @@ pub async fn serve(config: Config) -> Result<Served, HostError> {
     })?;
 
     koine_store::process::install(store.clone());
+    // plan-koine-trust TR-D1: `once` answers outlive the process. Over the
+    // opened store, not the recording wrapper: they are not the call's reads
+    // or writes.
+    koine_store::once::install(opened.store.clone());
     // AI-D3: the workspace beside the store (the AI preferences, blobs).
     koine_store::process::set_workspace(&config.workspace);
     if let Some(blobs) = opened.blobs.clone() {

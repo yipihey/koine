@@ -159,7 +159,7 @@ HTTP).
 |---|---|---|---|---|
 | `tentatively` | `true` | Do not run; answer what would happen | any caller, any verb | nothing |
 | `with_review` | `true` | Queue for a person's confirmation, whatever the policy says | any caller, any verb | a review queue, else `review-pending` with no queue (as today) |
-| `once` | key string | Idempotent under retry: a repeat with the same key answers the first result | any caller, any verb | nothing in-process; a host may install a durable `IdempotencyStore` |
+| `once` | key string | Idempotent under retry: a repeat with the same key and arguments answers the first result | any caller, any verb | nothing in-process; koine-host installs a durable `IdempotencyStore` (`koine/once@1.0.0` rows) |
 | `reversibly` | `true` | Record an undo step; the result names the inverse call | any caller | the verb declares `supports(reversibly)` |
 | `within` | `{ "ms": N }` | Give up after N ms with `timed-out` | any caller | read-only verbs, or `supports(within)` |
 | `in_background` | `true` | Start as a job and answer the handle | any caller | a `BackgroundRunner` the host installed |
@@ -189,11 +189,22 @@ HTTP).
    read-only verb is reversible by construction and answers `"undo":
    null`. A verb that supports the adverb but recorded no inverse answers
    `effect-failed`: the undo would have been a lie.
-4. **`once` is keyed by caller and key.** The pipeline keeps a bounded
-   table (key → envelope) per process; a repeat answers the stored
-   envelope with `"replayed": true`. A host that wants it to survive a
-   restart installs an `IdempotencyStore`. The key is never stored by
-   value in the audit row.
+4. **`once` is keyed by caller, verb and key, and compares the arguments**
+   (plan-koine-trust TR-D1, after the IETF Idempotency-Key draft). The
+   first call claims the key and the answer is stored with a sha256
+   fingerprint of the arguments (canonical JSON, the `adverbs` key
+   removed). A repeat with the same arguments answers the stored envelope
+   with `"replayed": true`; with other arguments it answers
+   `idempotency-mismatch` (422); while the first call still runs it answers
+   `idempotency-in-flight` (409). Failures are stored like successes,
+   except the retryable codes (`conflict`, `store-unavailable`,
+   `host-unavailable`, `timed-out`), which release the key so a retry runs.
+   An answer is kept 24 hours (`IMPRESS_ONCE_TTL`, seconds). The pipeline
+   keeps a bounded table per process; koine-host installs a durable
+   `IdempotencyStore` (`koine_store::once`), whose rows hold the key's
+   sha256, never the key. A verb task's attempts share the key
+   `task:<id>` unless the filer named one, so a retry never runs the verb
+   twice. The key is never stored by value in the audit row.
 5. **`within` cancels only what can be cancelled.** On a read-only verb
    the handler future is dropped at the deadline and the call answers
    `timed-out`. On any other verb the adverb is refused unless the verb
@@ -247,8 +258,9 @@ reads the inverse the handler recorded, in the envelope layer.
   form sends every template it offers and the pipeline refuses an empty key,
   a zero deadline or an empty interval. A routine is started from a button
   whose `call` action carries `"adverbs": {"every": "2s"}`.
-- Two concurrent first calls with the same `once` key can both run; the
-  table does not lock across the call. A durable `IdempotencyStore` may.
+- The in-flight claim is per process: two processes sharing a store can
+  both run a first call with the same `once` key. A durable answer is seen
+  by both once it is stored.
 - A tentative call on an app that is not running is answered unavailable,
   not tentatively: reachability is checked before policy.
 - A method cannot declare `supports()` to clear a non-empty service

@@ -83,6 +83,24 @@ pub fn args_of(task: &Item) -> Result<serde_json::Value, String> {
     }
 }
 
+/// `args` with a `once` key derived from the task (plan-koine-trust TR-D1):
+/// a retried attempt answers from the first attempt's stored answer instead
+/// of running the verb again. A key the filer chose is kept.
+pub fn with_task_once(mut args: serde_json::Value, task: &Item) -> serde_json::Value {
+    let Some(object) = args.as_object_mut() else {
+        return args;
+    };
+    let adverbs = object
+        .entry("adverbs")
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(adverbs) = adverbs.as_object_mut() {
+        adverbs
+            .entry("once")
+            .or_insert_with(|| serde_json::Value::String(format!("task:{}", task.id)));
+    }
+    args
+}
+
 fn write_result(
     store: &dyn TaskStoreApi,
     task: &Item,
@@ -115,7 +133,7 @@ impl TaskExecutor for VerbTaskExecutor {
     ) -> Result<ExecutionOutcome, TaskError> {
         let verb = text(task, field::VERB)
             .ok_or_else(|| TaskError::Permanent("the verb task names no verb".into()))?;
-        let args = args_of(task).map_err(TaskError::Permanent)?;
+        let args = with_task_once(args_of(task).map_err(TaskError::Permanent)?, task);
         let author = self.caller().author();
         match call::call_async_as(&verb, self.caller(), args).await {
             Err(CallError::UnknownTool(name)) => Err(TaskError::Permanent(format!(
@@ -138,5 +156,49 @@ impl TaskExecutor for VerbTaskExecutor {
                 Ok(ExecutionOutcome::Complete)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn task() -> Item {
+        serde_json::from_value(json!({
+            "id": "6f1c1f5e-5d4b-4b1a-9a3e-1d2c3b4a5f60",
+            "schema": "task@1.0.0",
+            "payload": {},
+            "created": "2026-10-17T00:00:00Z",
+            "author": "agent:x",
+            "author_kind": "Agent",
+            "logical_clock": 0,
+            "origin": null,
+            "canonical_id": null,
+            "tags": [],
+            "flag": null,
+            "is_read": false,
+            "is_starred": false,
+            "priority": "normal",
+            "visibility": "private",
+            "message_type": null,
+            "produced_by": null,
+            "version": null,
+            "batch_id": null,
+            "references": [],
+            "parent": null
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_verb_task_derives_its_once_key_from_the_task_and_keeps_the_filers() {
+        let t = task();
+        let derived = with_task_once(json!({"n": 1}), &t);
+        assert_eq!(derived["adverbs"]["once"], format!("task:{}", t.id));
+        assert_eq!(derived["n"], 1);
+        let kept = with_task_once(json!({"adverbs": {"once": "mine", "within": 5}}), &t);
+        assert_eq!(kept["adverbs"]["once"], "mine");
+        assert_eq!(kept["adverbs"]["within"], 5);
     }
 }

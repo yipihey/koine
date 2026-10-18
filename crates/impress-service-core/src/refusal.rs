@@ -64,6 +64,13 @@ pub mod codes {
     /// holds (plan-koine-followups F-D1); the message names it and says how
     /// to set it. Nothing ran.
     pub const MISSING_SECRET: &str = "missing-secret";
+    /// A `once` key was used again with different arguments
+    /// (plan-koine-trust TR-D1): the stored answer is not this call's.
+    /// Nothing ran.
+    pub const IDEMPOTENCY_MISMATCH: &str = "idempotency-mismatch";
+    /// The first call with this `once` key is still running; retry after it
+    /// answers. Nothing ran.
+    pub const IDEMPOTENCY_IN_FLIGHT: &str = "idempotency-in-flight";
 }
 
 /// A refusal: a stable `code` and the prose `message` a person reads.
@@ -166,10 +173,10 @@ pub fn http_status(code: &str) -> u16 {
     match code {
         codes::INVALID_ARGUMENT => 400,
         codes::NOT_FOUND => 404,
-        codes::CONFLICT | "undo-conflict" => 409,
+        codes::CONFLICT | "undo-conflict" | codes::IDEMPOTENCY_IN_FLIGHT => 409,
         codes::STORE_UNAVAILABLE | codes::HOST_UNAVAILABLE => 503,
         codes::VERB_FAILED => 502,
-        codes::UNSUPPORTED_ADVERB => 422,
+        codes::UNSUPPORTED_ADVERB | codes::IDEMPOTENCY_MISMATCH => 422,
         codes::TIMED_OUT => 504,
         codes::MISSING_SECRET => 412,
         codes::STORE_ERROR | codes::INTERNAL => 500,

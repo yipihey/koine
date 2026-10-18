@@ -38,6 +38,7 @@
 //! impress-core's to register — and [`schemes`] lists what this process can
 //! open.
 
+pub mod once;
 pub mod process;
 pub mod recording;
 
