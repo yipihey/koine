@@ -22,13 +22,10 @@
 //!   5 seconds, declared to the limiter; a 429 backs the source off and
 //!   answers `rate_limited`, nothing retries.
 //!
-//! **What the convention lacks here.** INSPIRE's own record number (the
-//! recid) is an identifier, but `koine_sources::kind::IDENTIFIER_KINDS` has no
-//! `inspire`: `Work::validate` refuses an `ids` key outside it, and an explain
-//! record's `identifiers` is validated against it too. So the recid is
-//! *not* in `ids`; it is `provenance.source_id`, `Location.source_id` and the
-//! `url` (`https://inspirehep.net/literature/<recid>`), and `explain.identifiers`
-//! lists only `doi` and `arxiv`. A recid still routes in: `ids::parse` knows
+//! **The recid is an id kind.** INSPIRE's own record number is `ids.inspire`
+//! (added to `koine_sources::kind::IDENTIFIER_KINDS` when S7 found it had
+//! nowhere to go), and also `provenance.source_id`, `Location.source_id` and
+//! the `url` (`https://inspirehep.net/literature/<recid>`). `ids::parse` knows
 //! `inspire:`/`recid:` and `detect` claims them.
 
 use std::sync::Arc;
@@ -79,7 +76,7 @@ pub const EXPLAIN_JSON: &str = r#"{
     "cited_by":     {"relations": ["="], "exact": true}
   },
   "sortable": ["relevance", "year", "cited_by"],
-  "identifiers": ["doi", "arxiv"],
+  "identifiers": ["doi", "arxiv", "inspire"],
   "fills": ["title", "authors", "year", "container", "doi", "issued", "abstract", "cited_by", "volume", "issue", "page", "language"],
   "page": {"model": "offset", "max": 100},
   "etiquette": {"contact": "user-agent", "limit": "15/5s", "key": "none"},

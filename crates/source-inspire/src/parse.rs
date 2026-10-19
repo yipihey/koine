@@ -5,9 +5,8 @@
 //!
 //! - `ids.doi` is the first DOI, `ids.arxiv` the first eprint (old-style
 //!   ids as written), `ids.bibcode` the `ADS` entry of
-//!   `external_system_identifiers` (INSPIRE stores the ADS bibcode there).
-//!   The recid (`control_number`) is **not** in `ids`: `inspire` is not a
-//!   canonical id kind and `Work::validate` refuses it (see lib.rs). It is
+//!   `external_system_identifiers` (INSPIRE stores the ADS bibcode there),
+//!   `ids.inspire` the recid (`control_number`), which is also
 //!   `provenance.source_id`, each location's `source_id`, and the `url`.
 //! - `issued` is the publication year when the record has a journal entry,
 //!   else `earliest_date` (the preprint date). The `year` index searches
@@ -136,6 +135,7 @@ pub fn work(record: &Value, fetched_at: &str, query: Option<&Query>) -> Option<W
     if let Some(b) = identifier(m, "ADS").filter(|b| b.len() == 19) {
         ids.insert("bibcode".into(), b.to_string());
     }
+    ids.insert("inspire".into(), recid.clone());
 
     let pubinfo = m
         .get("publication_info")

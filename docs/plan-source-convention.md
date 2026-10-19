@@ -213,8 +213,10 @@ The kind `bibliographic-work@1`:
   agreed on it and every style processor reads it. CSL's `custom` object is
   where the rest goes, under this convention's keys.
 - **`ids`**: a map of every identifier any source supplied — `doi`, `arxiv`,
-  `pmid`, `pmcid`, `bibcode`, `isbn`, `openalex`, `s2`, `mag`, `wos`, `dblp`
-  — never one chosen id. OpenAlex and Semantic Scholar both converged on
+  `pmid`, `pmcid`, `bibcode`, `isbn`, `openalex`, `s2`, `mag`, `wos`, `dblp`,
+  `inspire` — never one chosen id. The rule for the list: a source's own
+  record id is a kind here, so a row can say which record it came from and
+  federation can merge on it (S7 found INSPIRE's recid had nowhere to go). OpenAlex and Semantic Scholar both converged on
   this; imbib's `Identifiers` struct already is one.
 - **`locations[]`**: each `{source, source_id, version, url, pdf?, license?,
   oa_status?}` with DRIVER's `version` (`submitted`, `accepted`, `published`),

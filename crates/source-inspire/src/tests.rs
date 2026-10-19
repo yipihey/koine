@@ -122,7 +122,7 @@ async fn a_search_sends_the_spires_query_page_size_sort_and_fields() {
     assert_eq!(out.next.as_deref(), Some("2"), "7 hits, 3 seen");
     let row = &out.rows[0];
     assert_eq!(row.provenance.as_ref().unwrap().source_id, "764484");
-    assert!(!row.ids.contains_key("inspire"), "not a canonical id kind");
+    assert_eq!(row.ids["inspire"], "764484", "the recid is an id kind");
     assert_eq!(
         row.title.as_deref(),
         Some("Resolving the Formation of Protogalaxies. 3. Feedback from the First Stars")
@@ -278,6 +278,11 @@ async fn fetch_by_recid_has_every_id_both_locations_and_inspires_conventions() {
     assert_eq!(work.ids["doi"], "10.1111/j.1365-2966.2007.11814.x");
     assert_eq!(work.ids["arxiv"], "astro-ph/0610174");
     assert_eq!(work.ids["bibcode"], "2007MNRAS.378..449G");
+    assert_eq!(
+        work.ids["inspire"],
+        work.provenance.as_ref().unwrap().source_id,
+        "the recid is an id kind"
+    );
     assert_eq!(work.author.len(), 6);
     assert_eq!(work.author[0].family.as_deref(), Some("Gao"));
     assert_eq!(work.author[0].given.as_deref(), Some("Liang"));

@@ -36,6 +36,7 @@ pub const VERSION: &str = "1.0.0";
 /// The identifier kinds a work's `ids` may hold.
 pub const IDENTIFIER_KINDS: &[&str] = &[
     "doi", "arxiv", "pmid", "pmcid", "bibcode", "isbn", "openalex", "s2", "mag", "wos", "dblp",
+    "inspire",
 ];
 
 /// One author, as CSL has it, plus an ORCID.
