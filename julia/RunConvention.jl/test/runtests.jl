@@ -96,6 +96,12 @@ touch_ck(dir, name, txt = "ck") = (p = joinpath(dir, name); write(p, txt); p)
         @test params(; argv = String[], env = Dict{String,String}())["a.tau"] == 0.0
         @test_throws ParameterValueError params(; argv = ["--a.tau=1"], env = Dict{String,String}())
         @test params(; argv = ["--a.tau=1", "--a.gasrow=1"], env = Dict{String,String}())["a.tau"] == 1.0
+        # A file (a resume's parent) carrying the default value is not "set".
+        f = joinpath(mktempdir(), "params.json")
+        write(f, """{"a.tau": 0.0, "a.gasrow": 0}""")
+        @test params(; argv = String[], env = Dict{String,String}(), file = f)["a.tau"] == 0.0
+        write(f, """{"a.tau": 1.0, "a.gasrow": 0}""")
+        @test_throws ParameterValueError params(; argv = String[], env = Dict{String,String}(), file = f)
     end
 
     @testset "run directory, events, finish" begin

@@ -294,7 +294,10 @@ end
 function check_requires(specs, order, vals, srcs)
     for n in order
         s = specs[n]
-        (s.requires === nothing || srcs[n] == "default") && continue
+        # A value sitting at its declared default requires nothing, whatever
+        # its source: a resume reads the parent's file, and a parent that never
+        # set `sink.tau` must not trip `requires` on the child (found by titan R3).
+        (s.requires === nothing || srcs[n] == "default" || isequal(vals[n], s.default)) && continue
         for clause in split(s.requires, ',')
             o, want = occursin('=', clause) ? split(strip(clause), '='; limit = 2) : (strip(clause), nothing)
             haskey(vals, o) || throw(ParameterValueError(n, "requires unknown parameter '$o'"))
