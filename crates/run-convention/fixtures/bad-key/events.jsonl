@@ -1,0 +1,8 @@
+{"seq": 1, "t": "2026-10-19T14:02:11.503Z", "kind": "started"}
+{"seq": 2, "t": "2026-10-19T14:02:20.000Z", "kind": "progress", "step": 100, "time": 3.1e5, "dt": 12.0, "fraction": 0.03}
+{"seq": 3, "t": "2026-10-19T14:02:20.100Z", "kind": "metric", "step": 100, "values": {"mach": 1.42, "L_over_L0": 0.98}}
+{"seq": 4, "t": "2026-10-19T14:02:21.000Z", "kind": "checkpoint", "path": "ckpt_000100.jls", "sha256": "d1272648889e8ae66ecebba9e2553a31ed9ac290896632fd6d5e156e00557edc", "step": 100}
+{"seq": 5, "t": "2026-10-19T14:02:21.500Z", "kind": "output", "path": "snap_000100.h5", "kind_of": "snapshot", "step": 100}
+{"seq": 6, "t": "2026-10-19T14:02:30.000Z", "kind": "changed", "param": "io.every", "from": 100, "to": 10, "by": "control:7f3a", "step": 100}
+{"seq": 7, "t": "2026-10-19T14:03:00.000Z", "kind": "warning", "message": "dt below floor", "step": 211}
+{"seq": 8, "t": "2026-10-19T14:09:40.120Z", "kind": "finished", "exit": {"code": 0, "label": "ok"}}

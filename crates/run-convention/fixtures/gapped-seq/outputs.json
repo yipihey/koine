@@ -1,0 +1,4 @@
+{"outputs": [
+  {"path": "snap_000100.h5", "kind": "snapshot", "format": "hdf5", "step": 100, "time": 3.1e5, "sha256": "a58d01d7707d4b991c38ae1a6a677b1bbd64aee6fac14ac394e47357bf254b53", "bytes": 20},
+  {"path": "ckpt_000100.jls", "kind": "checkpoint", "format": "jls", "step": 100, "sha256": "d1272648889e8ae66ecebba9e2553a31ed9ac290896632fd6d5e156e00557edc", "bytes": 23}
+]}

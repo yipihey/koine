@@ -35,6 +35,7 @@
     "ai-import-ledger@1.0.0": "impress-core AI schemas. One atomic, content-hashed receipt per imported legacy LocalModels conversation; written by impress-ai so migration is restart-safe and changed source rows are surfaced instead of silently duplicated.",
     "agent-run@1.0.0": "VERSIONED, and the ONLY spelling of this kind since WP C4. Written by impel-core task_store AGENT_RUN_SCHEMA, by impel SharedTaskBridge.agentRoundCompleted, and by impress-ai AiStore.record_run_start (whose rows also carry available_tools — the ACTUAL tool surface shown to the model, beside the policy-declared enabled_tools). Rows also carry `executor_kind` (deterministic | model): `model` is NOT always an LLM — keyword tables and API pipelines record their algorithm there, and without this field `heuristic-v1` reads exactly like an inference call in every surface; registered ONCE, in impress-core schemas/task.rs (impel-core's register_impel_schemas delegates there); claimed by the AgentRunRecordKind descriptor, which is what AgentStoreReader and the agentRunsAll sidebar count read. The retired `agent-run` (impress-core registration, unwritten) and `impel/agent-run` (SharedTaskBridge) rows are converged by impress_core::task_schema_migration.",
     "annotation": "impress-core. Written by imbib annotation sync.",
+    "bibliographic-work@1.0.0": "VERSIONED (docs/plan-source-convention.md S-D4). koine-sources kind.rs: the canonical record a source adapter returns — CSL-JSON body (type, title, author, issued, container-title, volume, issue, page, abstract, language, DOI, URL) BESIDE `ids` (map of every identifier any source supplied), `locations` (source, source_id, version submitted|accepted|published, url, pdf, license, oa_status, primary), `provenance` and `metrics`; `Work::to_csl_json` emits strict CSL with the extras under `custom`. The wire and merge shape only; `imbib/bibliography-entry` stays the library row and the import verb maps one to the other. Written by source adapters (via koine-sources); not stored until imported.",
     "bibliography-entry": "impress-core registry only — NOTHING writes the bare form; THE publication ref is `imbib/bibliography-entry` (reading this one is the iOS-citation-picker bug). Kept in `canonical` rather than moved to `registeredButUnwritten` because reclassifying it would reject existing call sites and belongs to the imbib pass, not C4's. This note used to say 'see registeredButUnwritten', which held only `impress/operation` and is now empty.",
     "chat-message": "impress-core + impart-core. Written by impart ImpartStoreAdapter.",
     "citation-usage": "impress-core. Written BARE by imprint ImprintStoreAdapter.recordCitationUsage. Read by imprint ImprintImpressStore + imbib CitationUsageReader.",
@@ -247,6 +248,9 @@
     "impart-core": [
       "chat-message",
       "email-message"
+    ],
+    "koine-sources": [
+      "bibliographic-work@1.0.0"
     ]
   },
   "registeredButUnwritten": {},

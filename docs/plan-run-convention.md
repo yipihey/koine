@@ -343,6 +343,14 @@ the parameter, both values, the step, and who asked (`control:<request
 id>`, `restart`, `agent:<name>`). Cactus re-dumps a snapshot every N
 iterations and loses the when; this keeps it.
 
+**R-D6.5a Two wire rules, settled when R1 and R2 were built from this text in
+parallel and disagreed (2026-10-19).** `outputs.json` is an object,
+`{"outputs": [ … ]}`, so top-level fields can be added later. An absent
+optional field is *omitted*, never written as `null`: a run with no git
+has no `code.commit` key (and `git_available: false`), a run in no sweep
+has no `lineage.sweep`. The schemas in `crates/run-convention/schemas/`
+are the contract; `run-check` is how a writer proves it conforms.
+
 **R-D6.6 Append-only is the concurrency model.** One writer (the run)
 appends; any number of readers tail. No locks (signac: "do not work
 reliably on the network file systems commonly employed in HPC"). A line is

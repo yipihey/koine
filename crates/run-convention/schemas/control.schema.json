@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://koine.dev/run@1/control.schema.json",
+  "title": "control/<request id>.json",
+  "description": "R-D8: one steering request per file in control/, also the shape of the files moved to control/done/ and control/refused/. The v1 vocabulary: set {param, value}, checkpoint, stop {after?}, pause, resume, step, until {step}. The plan names set, checkpoint, stop, pause, and (from Cactus HTTPD) single step and until-step-N; `resume` is added here because pause is useless without it. `stop.after` is `checkpoint` (checkpoint, then stop) or `now`. `id` is optional in the body; run-check verifies it equals the file name stem when present. A file in control/refused/ must carry a `reason` (checked by run-check).",
+  "type": "object",
+  "required": ["request"],
+  "properties": {
+    "request": { "type": "string", "enum": ["set", "checkpoint", "stop", "pause", "resume", "step", "until"] },
+    "id": { "type": "string", "minLength": 1 },
+    "reason": { "type": "string", "description": "Why the code refused the request (e.g. the parameter is not `always`)." }
+  },
+  "allOf": [
+    { "if": { "properties": { "request": { "const": "set" } }, "required": ["request"] },
+      "then": { "required": ["param", "value"], "properties": { "param": { "type": "string", "minLength": 1 } } } },
+    { "if": { "properties": { "request": { "const": "stop" } }, "required": ["request"] },
+      "then": { "properties": { "after": { "type": "string", "enum": ["checkpoint", "now"] } } } },
+    { "if": { "properties": { "request": { "const": "until" } }, "required": ["request"] },
+      "then": { "required": ["step"], "properties": { "step": { "type": "integer", "minimum": 0 } } } }
+  ]
+}

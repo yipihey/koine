@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://koine.dev/run@1/sweep.schema.json",
+  "title": "sweep.json",
+  "description": "R-D10: a sweep is a record of its own: the base parameters, the parameters varied (each with explicit values or a generator with its seed), and the runs it spawned by id. Each run's `lineage.sweep` points back to `id`. Choices where the plan is silent: `base` holds parameter values (not sources) keyed by namespaced name; `vary` is a list of {param, values | generator}; a `generator` is {kind, ...} with free extra fields and a required integer `seed` when kind is `sampler` (so the sweep regenerates); `combine` says how several varied parameters combine (product by default, or zip).",
+  "type": "object",
+  "required": ["id", "base", "vary", "runs"],
+  "properties": {
+    "convention": { "const": "run@1" },
+    "id": { "type": "string", "format": "uuid" },
+    "name": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "code": { "type": "string", "description": "Code name; omit when the sweep varies the `code` parameter itself (a cross-code comparison)." },
+    "base": { "type": "object" },
+    "combine": { "type": "string", "enum": ["product", "zip"], "default": "product" },
+    "vary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["param"],
+        "properties": {
+          "param": { "type": "string", "minLength": 1 },
+          "values": { "type": "array", "minItems": 1 },
+          "generator": {
+            "type": "object",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "type": "string", "minLength": 1, "description": "e.g. grid, linspace, logspace, sampler." },
+              "seed": { "type": "integer" }
+            },
+            "if": { "properties": { "kind": { "const": "sampler" } }, "required": ["kind"] },
+            "then": { "required": ["seed"] }
+          }
+        },
+        "oneOf": [{ "required": ["values"] }, { "required": ["generator"] }]
+      }
+    },
+    "runs": { "type": "array", "items": { "type": "string", "format": "uuid" }, "description": "Ids of the runs spawned, in spawn order." }
+  }
+}

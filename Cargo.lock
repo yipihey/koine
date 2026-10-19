@@ -4439,6 +4439,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "koine-sources"
+version = "0.1.0"
+dependencies = [
+ "impress-item",
+ "jsonschema",
+ "koine-workspace-hack",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "koine-store"
 version = "0.1.0"
 dependencies = [
@@ -6894,6 +6907,17 @@ dependencies = [
  "rustc_version",
  "syn 2.0.119",
  "unicode-ident",
+]
+
+[[package]]
+name = "run-convention"
+version = "0.1.0"
+dependencies = [
+ "jsonschema",
+ "koine-workspace-hack",
+ "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

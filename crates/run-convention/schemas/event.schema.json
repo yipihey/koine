@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://koine.dev/run@1/event.schema.json",
+  "title": "one line of events.jsonl",
+  "description": "R-D6: one event, one JSON object per line. `seq` is gap-free from 1 (checked by run-check across lines, not by this schema). `t` is an RFC 3339 timestamp. The kinds are fixed (R-D6.1); free fields of a `note` go under `data`. Extra fields are allowed on every kind. Choices where the plan is silent: `progress` requires `step`; `output` requires `path` and `kind_of` (the same vocabulary as outputs.json `kind`); `checkpoint` requires `path`, `sha256`, `step`; `changed` requires `param`, `from`, `to`, `by`; `finished` requires `exit`, with the same exit bands as run.json.",
+  "type": "object",
+  "required": ["seq", "t", "kind"],
+  "properties": {
+    "seq": { "type": "integer", "minimum": 1 },
+    "t": { "type": "string", "format": "date-time" },
+    "kind": { "type": "string", "enum": ["started", "progress", "metric", "checkpoint", "output", "changed", "warning", "finished", "note"] },
+    "step": { "type": "integer", "minimum": 0 }
+  },
+  "allOf": [
+    { "if": { "properties": { "kind": { "const": "progress" } }, "required": ["kind"] },
+      "then": { "required": ["step"], "properties": {
+        "time": { "type": "number" }, "dt": { "type": "number" },
+        "fraction": { "type": "number", "minimum": 0, "maximum": 1 } } } },
+    { "if": { "properties": { "kind": { "const": "metric" } }, "required": ["kind"] },
+      "then": { "required": ["step", "values"], "properties": {
+        "values": { "type": "object", "additionalProperties": { "type": "number" } } } } },
+    { "if": { "properties": { "kind": { "const": "checkpoint" } }, "required": ["kind"] },
+      "then": { "required": ["path", "sha256", "step"], "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } } } },
+    { "if": { "properties": { "kind": { "const": "output" } }, "required": ["kind"] },
+      "then": { "required": ["path", "kind_of"], "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "kind_of": { "type": "string", "enum": ["snapshot", "checkpoint", "series", "spectrum", "image", "log", "other"] } } } },
+    { "if": { "properties": { "kind": { "const": "changed" } }, "required": ["kind"] },
+      "then": { "required": ["param", "from", "to", "by"], "properties": {
+        "param": { "type": "string", "minLength": 1 },
+        "by": { "type": "string", "pattern": "^(restart|control:.+|agent:.+)$", "description": "Who asked (R-D6.5): control:<request id>, restart, or agent:<name>." } } } },
+    { "if": { "properties": { "kind": { "const": "warning" } }, "required": ["kind"] },
+      "then": { "required": ["message"], "properties": { "message": { "type": "string" } } } },
+    { "if": { "properties": { "kind": { "const": "finished" } }, "required": ["kind"] },
+      "then": { "required": ["exit"], "properties": { "exit": { "$ref": "#/$defs/exit" } } } },
+    { "if": { "properties": { "kind": { "const": "note" } }, "required": ["kind"] },
+      "then": { "properties": { "message": { "type": "string" }, "data": { "type": "object" } } } }
+  ],
+  "$defs": {
+    "exit": {
+      "type": "object",
+      "required": ["code", "label"],
+      "description": "R-D4.5 bands: 0 ok; 100-199 environment; 200-299 invalid input; 300-399 numerical; 400-499 code-specific.",
+      "properties": {
+        "code": { "type": "integer", "anyOf": [{ "const": 0 }, { "minimum": 100, "maximum": 499 }] },
+        "label": { "type": "string", "minLength": 1 },
+        "message": { "type": "string" },
+        "invalidates_reuse": { "type": "boolean" }
+      }
+    }
+  }
+}
