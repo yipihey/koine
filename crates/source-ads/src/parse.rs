@@ -253,6 +253,7 @@ pub fn work(doc: &Value, fetched_at: &str, query: Option<&Query>) -> Option<Work
             source: SOURCE.into(),
             source_id: bibcode,
             query: query.and_then(|q| serde_json::to_string(q).ok()),
+            sources: Vec::new(),
         }),
         metrics: doc
             .get("citation_count")
@@ -262,6 +263,7 @@ pub fn work(doc: &Value, fetched_at: &str, query: Option<&Query>) -> Option<Work
                     value: n,
                     source: SOURCE.into(),
                 }),
+                cited_by_all: Vec::new(),
             }),
     })
 }

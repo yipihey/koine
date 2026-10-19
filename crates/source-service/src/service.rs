@@ -5,14 +5,17 @@
 //! linked inventory and reaches nothing, so it alone is `read_only`.
 //! Importing is imbib's own verb (S-D5).
 //!
-//! Federation here is the sequential first cut: sources are asked one after
-//! another, rows merged by identifier only (S-D7), every source's outcome
-//! named in `diagnostics`. The concurrent job with per-source timeouts and
-//! the scored cascade (S-D6) are later packages; `match` today is
-//! "identifier hit = 1.0, else unscored".
+//! Federation is [`crate::federation`] (S-D7): every selected source asked
+//! concurrently under a per-source timeout (default
+//! [`federation::DEFAULT_TIMEOUT_MS`], `timeout_ms` per call), rows merged
+//! by identifier only, every source's outcome named in `diagnostics`.
+//! Etiquette is enforced once at the [`crate::etiquette::Gate`] before any
+//! adapter is asked (S-D8). The scored cascade (S-D6) is a later package;
+//! `match` today is "identifier hit = 1.0, else unscored".
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use impress_service_core::async_trait;
 #[allow(unused_imports)]
@@ -21,13 +24,15 @@ use impress_service_macros::{impress_service, impress_service_impl};
 
 use koine_sources::{Diagnostic, Query, Status, Work};
 
-use crate::adapter::{Adapter, ExportFormat, PageRequest, Relation};
+use crate::adapter::{Adapter, ExportFormat, Page, PageRequest, Relation};
 use crate::dto::{
-    Candidate, ExplainAnswer, ExplainResult, ExportAnswer, ExportResult, FetchAnswer, FetchResult,
-    MatchAnswer, MatchInput, MatchResult, RelatedResult, RowsAnswer, SearchResult,
+    Candidate, ExplainAnswer, ExplainResult, ExportAnswer, ExportResult, Federation, FetchAnswer,
+    FetchResult, MatchAnswer, MatchInput, MatchResult, RelatedResult, RowsAnswer, SearchResult,
 };
+use crate::etiquette::Gate;
+use crate::federation::{self, merge_rows, merge_works, Outcome};
 use crate::ids;
-use crate::query::{all_done, is_empty, merge, merge_into, native_text, supports};
+use crate::query::{is_empty, native_text, supports};
 use crate::registry::{self, Registry};
 
 /// `limit`'s default and ceiling, per source (S-D3).
@@ -71,7 +76,12 @@ pub trait SourceService: Send + Sync + 'static {
     /// and `provenance` (source, `source_id`); `next` to page; a diagnostic per source
     /// naming its outcome, and `unsupported` with the index for every clause
     /// a source could not map — never a silent fallback. `sources` defaults
-    /// to those whose explain record covers every clause.
+    /// to those whose explain record covers every clause. The sources are
+    /// asked concurrently, each under `timeout_ms` (default 8000; `explain`
+    /// reports it): a slow source is `timed_out` and the others' rows still
+    /// return. Rows from different sources that share a DOI, arXiv id, PMID
+    /// or bibcode are one row (S-D7); `sort` (`year`, `cited_by`,
+    /// `relevance`) orders the merged rows, else the first source's order.
     #[impress_method(returns_kind = "bibliographic-work")]
     #[impress_example(
         name = "an-index-no-source-covers",
@@ -85,6 +95,7 @@ pub trait SourceService: Send + Sync + 'static {
         limit: Option<u32>,
         cursor: Option<String>,
         sort: Option<String>,
+        timeout_ms: Option<u64>,
     ) -> SearchResult;
 
     /// One record by any canonical identifier (`10.1126/science.1063991`,
@@ -98,7 +109,12 @@ pub trait SourceService: Send + Sync + 'static {
         args = r#"{"id": "Abel 2002"}"#,
         expect = r#"{"ok": false, "code": "invalid-argument"}"#
     )]
-    async fn fetch(&self, id: String, sources: Option<Vec<String>>) -> FetchResult;
+    async fn fetch(
+        &self,
+        id: String,
+        sources: Option<Vec<String>>,
+        timeout_ms: Option<u64>,
+    ) -> FetchResult;
 
     /// Resolve a reference — a free string or its structured fields — to
     /// candidates, each with `score` and `evidence` (S-D6). An identifier in
@@ -136,6 +152,7 @@ pub trait SourceService: Send + Sync + 'static {
         relation: Relation,
         limit: Option<u32>,
         cursor: Option<String>,
+        timeout_ms: Option<u64>,
     ) -> RelatedResult;
 
     /// The records `ids` name as `bibtex`, `ris` or `csl-json` text, each
@@ -150,11 +167,13 @@ pub trait SourceService: Send + Sync + 'static {
     async fn export(&self, ids: Vec<String>, format: ExportFormat) -> ExportResult;
 }
 
-/// The service over a registry: the process-wide one by default, a test's
-/// own with [`DefaultSourceService::with_registry`].
+/// The service over a registry and an etiquette gate: the process-wide
+/// ones by default, a test's own with [`DefaultSourceService::with_registry`]
+/// and [`DefaultSourceService::with_gate`].
 #[derive(Clone, Default)]
 pub struct DefaultSourceService {
     registry: Option<Registry>,
+    gate: Option<Arc<Gate>>,
 }
 
 impl DefaultSourceService {
@@ -165,13 +184,24 @@ impl DefaultSourceService {
     pub fn with_registry(registry: Registry) -> Self {
         DefaultSourceService {
             registry: Some(registry),
+            gate: None,
         }
+    }
+
+    /// Dispatch through `gate` instead of the process-wide one.
+    pub fn with_gate(mut self, gate: Arc<Gate>) -> Self {
+        self.gate = Some(gate);
+        self
     }
 
     fn registry(&self) -> Registry {
         self.registry
             .clone()
             .unwrap_or_else(|| registry::global().clone())
+    }
+
+    fn gate(&self) -> Arc<Gate> {
+        self.gate.clone().unwrap_or_else(crate::etiquette::gate)
     }
 
     /// The adapters `sources` names, or `Err(message)` naming the unknown one.
@@ -209,8 +239,8 @@ impl DefaultSourceService {
             .collect()
     }
 
-    /// Run `query` over `adapters` (every adapter asked, sequentially),
-    /// merged by identifier.
+    /// Run `query` over `adapters` concurrently (S-D7), merged by identifier
+    /// and ordered by `sort` or the first source's order.
     async fn run_search(
         &self,
         query: &Query,
@@ -218,19 +248,20 @@ impl DefaultSourceService {
         limit: u32,
         cursors: &BTreeMap<String, String>,
         sort: Option<&str>,
+        timeout: Duration,
     ) -> RowsAnswer {
         let mut answer = RowsAnswer::default();
-        let mut next: BTreeMap<String, String> = BTreeMap::new();
+        // What each source is asked: the sort only when it declares it.
+        let mut requests: Vec<PageRequest> = Vec::with_capacity(adapters.len());
         for adapter in adapters {
             let record = adapter.explain();
-            let source = record.source.clone();
             let mut sort_for = None;
             if let Some(sort) = sort {
                 if sort == "relevance" || record.sortable.iter().any(|s| s == sort) {
                     sort_for = Some(sort.to_string());
                 } else {
                     answer.diagnostics.push(Diagnostic::unsupported(
-                        &source,
+                        &record.source,
                         format!(
                             "sort {sort}: the sortable fields are {}",
                             list(&record.sortable)
@@ -238,55 +269,116 @@ impl DefaultSourceService {
                     ));
                 }
             }
-            let page = PageRequest {
+            requests.push(PageRequest {
                 limit,
-                cursor: cursors.get(&source).cloned(),
+                cursor: cursors.get(&record.source).cloned(),
                 sort: sort_for,
-            };
-            match adapter.search(query, page).await {
-                Ok(page) => {
-                    let clean = all_done(&page.diagnostics);
-                    answer.diagnostics.extend(page.diagnostics);
-                    if clean {
-                        answer.diagnostics.push(Diagnostic::done(&source));
-                    }
-                    if let Some(cursor) = page.next {
-                        next.insert(source.clone(), cursor);
-                    }
-                    for row in page.rows {
-                        merge_into(&mut answer.rows, row);
-                    }
-                }
-                Err(diagnostic) => answer.diagnostics.push(diagnostic),
-            }
+            });
         }
-        answer.next = encode_cursors(&next);
+        let query = Arc::new(query.clone());
+        let gate = self.gate();
+        let outcomes = federation::run_all(adapters, &gate, timeout, |i, adapter| {
+            let page = requests[i].clone();
+            let query = query.clone();
+            Box::pin(async move { adapter.search(&query, page).await })
+        })
+        .await;
+        self.collect(&mut answer, outcomes, sort);
         answer
     }
 
-    /// Fetch `id` from every adapter in `adapters`, merged.
+    /// Fold the outcomes into the answer: rows merged and ordered, the
+    /// cursor map, every diagnostic in source order.
+    fn collect(&self, answer: &mut RowsAnswer, outcomes: Vec<Outcome>, sort: Option<&str>) {
+        answer.rows = merge_rows(&outcomes, sort);
+        let mut next: BTreeMap<String, String> = BTreeMap::new();
+        for outcome in outcomes {
+            if let Some(cursor) = outcome.next {
+                next.insert(outcome.source.clone(), cursor);
+            }
+            answer.diagnostics.extend(outcome.diagnostics);
+        }
+        answer.next = encode_cursors(&next);
+    }
+
+    /// Fetch `id` from every adapter in `adapters` concurrently, merged by
+    /// source priority.
     async fn run_fetch(
         &self,
         id: &str,
         adapters: &[Arc<dyn Adapter>],
+        timeout: Duration,
     ) -> (Option<Work>, Vec<Diagnostic>) {
-        let mut merged: Option<Work> = None;
-        let mut diagnostics = Vec::new();
-        for adapter in adapters {
-            let source = adapter.explain().source;
-            match adapter.fetch(id).await {
-                Ok(Some(work)) => {
-                    diagnostics.push(Diagnostic::done(&source));
-                    match merged.as_mut() {
-                        Some(m) => merge(m, work),
-                        None => merged = Some(work),
-                    }
+        let gate = self.gate();
+        let id = Arc::new(id.to_string());
+        let outcomes = federation::run_all(adapters, &gate, timeout, |_, adapter| {
+            let id = id.clone();
+            Box::pin(async move {
+                let source = adapter.explain().source;
+                match adapter.fetch(&id).await? {
+                    Some(work) => Ok(Page {
+                        rows: vec![work],
+                        ..Default::default()
+                    }),
+                    None => Ok(Page {
+                        diagnostics: vec![not_found(&source, &id)],
+                        ..Default::default()
+                    }),
                 }
-                Ok(None) => diagnostics.push(not_found(&source, id)),
-                Err(d) => diagnostics.push(d),
-            }
+            })
+        })
+        .await;
+        let mut found: Vec<Work> = Vec::new();
+        let mut diagnostics = Vec::new();
+        for outcome in outcomes {
+            // A miss is that source's `not_found` page, never `done`
+            // (`run_all` marks only a clean page `done`).
+            found.extend(outcome.rows);
+            diagnostics.extend(outcome.diagnostics);
         }
-        (merged, diagnostics)
+        let work = (!found.is_empty()).then(|| merge_works(found));
+        (work, diagnostics)
+    }
+
+    /// `relation` of `id` from every adapter concurrently.
+    async fn run_related(
+        &self,
+        id: &str,
+        relation: Relation,
+        adapters: &[Arc<dyn Adapter>],
+        limit: u32,
+        cursors: &BTreeMap<String, String>,
+        timeout: Duration,
+    ) -> RowsAnswer {
+        let mut answer = RowsAnswer::default();
+        let gate = self.gate();
+        let id = Arc::new(id.to_string());
+        let cursors = Arc::new(cursors.clone());
+        let outcomes = federation::run_all(adapters, &gate, timeout, |_, adapter| {
+            let id = id.clone();
+            let cursors = cursors.clone();
+            Box::pin(async move {
+                let source = adapter.explain().source;
+                let page = PageRequest {
+                    limit,
+                    cursor: cursors.get(&source).cloned(),
+                    sort: None,
+                };
+                adapter.related(&id, relation, page).await
+            })
+        })
+        .await;
+        self.collect(&mut answer, outcomes, None);
+        answer
+    }
+}
+
+/// The per-source timeout a call asked for, or the default; zero is refused.
+fn check_timeout(timeout_ms: Option<u64>) -> Result<Duration, String> {
+    match timeout_ms {
+        None => Ok(Duration::from_millis(federation::DEFAULT_TIMEOUT_MS)),
+        Some(0) => Err("`timeout_ms` must be at least 1".into()),
+        Some(ms) => Ok(Duration::from_millis(ms)),
     }
 }
 
@@ -392,15 +484,26 @@ impl SourceService for DefaultSourceService {
     async fn explain(&self, source: Option<String>) -> ExplainResult {
         let registry = self.registry();
         let contact = crate::etiquette::contact();
+        let gate = self.gate();
+        // The declaration, with today's budget count filled in (S-D8).
+        let with_budget = |adapter: &Arc<dyn Adapter>| {
+            let mut record = adapter.explain();
+            if let Some(budget) = gate.budget_of(&record) {
+                record.etiquette.budget = Some(budget);
+            }
+            record
+        };
         match source {
             None => ExplainResult::answer(ExplainAnswer {
                 contact,
-                sources: registry.adapters().iter().map(|a| a.explain()).collect(),
+                federation: Federation::default(),
+                sources: registry.adapters().iter().map(with_budget).collect(),
             }),
             Some(name) => match registry.get(&name) {
                 Some(adapter) => ExplainResult::answer(ExplainAnswer {
                     contact,
-                    sources: vec![adapter.explain()],
+                    federation: Federation::default(),
+                    sources: vec![with_budget(&adapter)],
                 }),
                 None => ExplainResult::refused(
                     "not-found",
@@ -420,10 +523,15 @@ impl SourceService for DefaultSourceService {
         limit: Option<u32>,
         cursor: Option<String>,
         sort: Option<String>,
+        timeout_ms: Option<u64>,
     ) -> SearchResult {
         if let Err(message) = query.validate() {
             return SearchResult::refused("invalid-argument", message);
         }
+        let timeout = match check_timeout(timeout_ms) {
+            Ok(t) => t,
+            Err(message) => return SearchResult::refused("invalid-argument", message),
+        };
         if is_empty(&query) {
             return SearchResult::refused("invalid-argument", "the query has no clause: give `{index, relation, term}`, `and`/`or` of those, or `native`");
         }
@@ -464,7 +572,7 @@ impl SourceService for DefaultSourceService {
             Err(message) => return SearchResult::refused("invalid-argument", message),
         };
         let ran = self
-            .run_search(&query, &adapters, limit, &cursors, sort.as_deref())
+            .run_search(&query, &adapters, limit, &cursors, sort.as_deref(), timeout)
             .await;
         answer.rows = ran.rows;
         answer.next = ran.next;
@@ -472,7 +580,16 @@ impl SourceService for DefaultSourceService {
         SearchResult::answer(answer)
     }
 
-    async fn fetch(&self, id: String, sources: Option<Vec<String>>) -> FetchResult {
+    async fn fetch(
+        &self,
+        id: String,
+        sources: Option<Vec<String>>,
+        timeout_ms: Option<u64>,
+    ) -> FetchResult {
+        let timeout = match check_timeout(timeout_ms) {
+            Ok(t) => t,
+            Err(message) => return FetchResult::refused("invalid-argument", message),
+        };
         let Some(identifier) = ids::parse(&id) else {
             return FetchResult::refused(
                 "invalid-argument",
@@ -496,7 +613,7 @@ impl SourceService for DefaultSourceService {
                 ),
             );
         }
-        let (work, diagnostics) = self.run_fetch(&canonical, &adapters).await;
+        let (work, diagnostics) = self.run_fetch(&canonical, &adapters, timeout).await;
         match work {
             Some(work) => FetchResult::answer(FetchAnswer { work, diagnostics }),
             None => FetchResult::refused(
@@ -538,6 +655,7 @@ impl SourceService for DefaultSourceService {
             },
             None => None,
         };
+        let timeout = Duration::from_millis(federation::DEFAULT_TIMEOUT_MS);
         // 1. Identifier first (S-D6): a hit is `via: identifier`, score 1.
         let mut found: Vec<ids::Identifier> = Vec::new();
         for (kind, value) in [("doi", &citation.doi), ("arxiv", &citation.arxiv)] {
@@ -562,7 +680,7 @@ impl SourceService for DefaultSourceService {
                 Some(a) => a.clone(),
                 None => self.claiming(&canonical, "fetch"),
             };
-            let (work, diagnostics) = self.run_fetch(&canonical, &adapters).await;
+            let (work, diagnostics) = self.run_fetch(&canonical, &adapters, timeout).await;
             answer.diagnostics.extend(diagnostics);
             if let Some(work) = work {
                 answer.candidates.push(Candidate {
@@ -595,7 +713,7 @@ impl SourceService for DefaultSourceService {
                 .collect(),
         };
         let ran = self
-            .run_search(&query, &adapters, 5, &BTreeMap::new(), None)
+            .run_search(&query, &adapters, 5, &BTreeMap::new(), None, timeout)
             .await;
         answer.diagnostics.extend(ran.diagnostics);
         answer
@@ -616,7 +734,12 @@ impl SourceService for DefaultSourceService {
         relation: Relation,
         limit: Option<u32>,
         cursor: Option<String>,
+        timeout_ms: Option<u64>,
     ) -> RelatedResult {
+        let timeout = match check_timeout(timeout_ms) {
+            Ok(t) => t,
+            Err(message) => return RelatedResult::refused("invalid-argument", message),
+        };
         let Some(identifier) = ids::parse(&id) else {
             return RelatedResult::refused(
                 "invalid-argument",
@@ -642,30 +765,9 @@ impl SourceService for DefaultSourceService {
             Ok(c) => c,
             Err(message) => return RelatedResult::refused("invalid-argument", message),
         };
-        let mut answer = RowsAnswer::default();
-        let mut next = BTreeMap::new();
-        for adapter in &adapters {
-            let source = adapter.explain().source;
-            let page = PageRequest {
-                limit,
-                cursor: cursors.get(&source).cloned(),
-                sort: None,
-            };
-            match adapter.related(&canonical, relation, page).await {
-                Ok(page) => {
-                    answer.diagnostics.extend(page.diagnostics);
-                    answer.diagnostics.push(Diagnostic::done(&source));
-                    if let Some(c) = page.next {
-                        next.insert(source.clone(), c);
-                    }
-                    for row in page.rows {
-                        merge_into(&mut answer.rows, row);
-                    }
-                }
-                Err(d) => answer.diagnostics.push(d),
-            }
-        }
-        answer.next = encode_cursors(&next);
+        let answer = self
+            .run_related(&canonical, relation, &adapters, limit, &cursors, timeout)
+            .await;
         RelatedResult::answer(answer)
     }
 
@@ -712,8 +814,17 @@ impl SourceService for DefaultSourceService {
         }
         let mut pieces: Vec<String> = Vec::new();
         let mut csl: Vec<serde_json::Value> = Vec::new();
+        let gate = self.gate();
         for (adapter, list) in &by_adapter {
-            let source = adapter.explain().source;
+            let record = adapter.explain();
+            let source = record.source.clone();
+            match gate.admit(&record) {
+                Ok(warnings) => answer.diagnostics.extend(warnings),
+                Err(refused) => {
+                    answer.diagnostics.push(refused);
+                    continue;
+                }
+            }
             match adapter.export(list, format).await {
                 Ok(text) => {
                     answer.diagnostics.push(Diagnostic::done(&source));
@@ -776,14 +887,18 @@ impress_service_impl! {
             /// The `next` of a previous call, to page.
             cursor: Option<String>,
             /// One of the source's `sortable` fields (`relevance`, `year`, `cited_by`).
-            sort: Option<String>
+            sort: Option<String>,
+            /// Per-source timeout in milliseconds; default 8000 (`explain` reports it).
+            timeout_ms: Option<u64>
         ) -> SearchResult,
         /// One record by a canonical identifier, merged across sources.
         fetch(
             /// A DOI, an arXiv id, `pmid:…`, `bibcode:…`, or a doi.org / arxiv.org URL.
             id: String,
             /// Source ids to ask; absent means every source that claims the id.
-            sources: Option<Vec<String>>
+            sources: Option<Vec<String>>,
+            /// Per-source timeout in milliseconds; default 8000.
+            timeout_ms: Option<u64>
         ) -> FetchResult,
         /// Resolve a reference to scored candidates.
         match_citation(
@@ -801,7 +916,9 @@ impress_service_impl! {
             /// Rows per source: default 10, at most 100.
             limit: Option<u32>,
             /// The `next` of a previous call, to page.
-            cursor: Option<String>
+            cursor: Option<String>,
+            /// Per-source timeout in milliseconds; default 8000.
+            timeout_ms: Option<u64>
         ) -> RelatedResult,
         /// The records as `bibtex`, `ris` or `csl-json` text.
         export(

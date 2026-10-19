@@ -72,7 +72,7 @@ pub const EXPLAIN_JSON: &str = r#"{
   "identifiers": ["bibcode", "doi", "arxiv"],
   "fills": ["title", "authors", "year", "container", "doi", "issued", "abstract", "cited_by", "volume", "issue", "page"],
   "page": {"model": "offset", "max": 100},
-  "etiquette": {"contact": "user-agent", "limit": "headers", "key": "required"},
+  "etiquette": {"contact": "user-agent", "limit": "headers", "key": "required", "budget": {"per_day": 5000}},
   "secrets": ["ads-token"],
   "native": "ads-lucene"
 }"#;

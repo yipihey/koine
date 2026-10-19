@@ -600,6 +600,7 @@ async fn the_service_runs_the_adapter_end_to_end() {
             Some(3),
             None,
             None,
+            None,
         )
         .await;
     let answer = r.answer.expect("ok");
@@ -609,7 +610,7 @@ async fn the_service_runs_the_adapter_end_to_end() {
         .iter()
         .any(|d| d.source == "pubmed" && d.status == Status::Done));
     assert!(answer.next.unwrap().contains("pubmed"));
-    let r = service.fetch("PMID: 11711636".into(), None).await;
+    let r = service.fetch("PMID: 11711636".into(), None, None).await;
     assert_eq!(
         r.answer.unwrap().work.title.as_deref(),
         Some("The formation of the first star in the Universe")

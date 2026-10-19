@@ -1,12 +1,24 @@
 //! Etiquette, enforced once (S-D8): the contact string set by the host and
-//! never per file, and a per-source token bucket seeded from the
-//! declaration and refilled from response headers. A 429 backs the source
-//! off; while it is backed off every call answers `rate-limited` at once
-//! and nothing is retried.
+//! never per file, a per-source token bucket seeded from the declaration
+//! and refilled from response headers, and a per-source **daily budget**
+//! counted in-process. A 429 backs the source off; while it is backed off
+//! every call answers `rate-limited` at once and nothing is retried.
+//!
+//! Two layers share one state. The adapters take the per-second tokens
+//! ([`Limiter::acquire`]) around their own HTTP calls and record the 429s
+//! and the quota headers they see. The service asks the [`Gate`] *before*
+//! dispatching to an adapter — [`Gate::admit`] — which refuses a backed-off
+//! source and a spent daily budget with `rate_limited` and "nothing was
+//! sent", counts the request against the budget, and warns once per source
+//! when a polite-pool source is asked with no contact set. A stub adapter in
+//! a test goes through the same gate as Crossref does.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
+
+use koine_sources::explain::Budget;
+use koine_sources::{Diagnostic, ExplainRecord, Status};
 
 /// The environment variable a host or a bare CLI sets the contact in.
 pub const CONTACT_ENV: &str = "KOINE_SOURCE_CONTACT";
@@ -228,6 +240,186 @@ pub fn limiter() -> Arc<Limiter> {
     LIMITER.get_or_init(|| Arc::new(Limiter::new())).clone()
 }
 
+/// One source's daily count.
+#[derive(Debug, Clone)]
+struct DayCount {
+    per_day: u64,
+    used: u64,
+    /// The UTC day (days since the epoch) the count is for; a new day
+    /// starts the count over.
+    day: i64,
+}
+
+fn utc_day(now: chrono::DateTime<chrono::Utc>) -> i64 {
+    now.timestamp().div_euclid(86_400)
+}
+
+/// The next UTC midnight after `now`, RFC 3339: when every daily count resets.
+pub fn resets_at(now: chrono::DateTime<chrono::Utc>) -> String {
+    let next = (utc_day(now) + 1) * 86_400;
+    chrono::DateTime::<chrono::Utc>::from_timestamp(next, 0)
+        .unwrap_or(now)
+        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+/// The detail of the once-per-source warning a polite-pool source gets when
+/// the host set no contact.
+pub const NO_CONTACT_DETAIL: &str = "no contact set: polite pool off";
+
+/// Whether a source's declaration asks for a contact beyond the User-Agent
+/// (`mailto`: Crossref's and OpenAlex's polite pools; `tool+email`: NCBI's
+/// request): the sources that run slower, or not at all, without one.
+pub fn wants_contact(record: &ExplainRecord) -> bool {
+    matches!(
+        record.etiquette.contact.as_deref(),
+        Some("mailto") | Some("tool+email")
+    )
+}
+
+/// The one etiquette layer the service dispatches through: the limiter the
+/// adapters share, the daily budgets, and which sources were already warned
+/// about the missing contact.
+#[derive(Default)]
+pub struct Gate {
+    limiter: Arc<Limiter>,
+    budgets: Mutex<BTreeMap<String, DayCount>>,
+    warned: Mutex<BTreeSet<String>>,
+    /// A fixed contact instead of [`contact`] (tests, so a sibling test's
+    /// `set_contact` cannot race the warning).
+    fixed_contact: Option<Option<String>>,
+}
+
+impl Gate {
+    /// A gate over a limiter of its own (tests).
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A gate over `limiter` — the process-wide one, so the adapters' 429s
+    /// and the service's admission agree.
+    pub fn over(limiter: Arc<Limiter>) -> Self {
+        Gate {
+            limiter,
+            ..Default::default()
+        }
+    }
+
+    /// Fix the contact this gate sees instead of reading [`contact`].
+    pub fn with_contact(mut self, contact: Option<String>) -> Self {
+        self.fixed_contact = Some(contact);
+        self
+    }
+
+    fn has_contact(&self) -> bool {
+        match &self.fixed_contact {
+            Some(fixed) => fixed.is_some(),
+            None => contact().is_some(),
+        }
+    }
+
+    /// The limiter this gate reads; an adapter under test takes the same one.
+    pub fn limiter(&self) -> Arc<Limiter> {
+        self.limiter.clone()
+    }
+
+    /// Declare or change `source`'s daily budget (the explain record's
+    /// `budget.per_day` does this on first use; a test sets a small one).
+    /// The count so far is kept.
+    pub fn set_budget(&self, source: &str, per_day: u64) {
+        let mut map = self.budgets.lock().unwrap_or_else(|e| e.into_inner());
+        let day = utc_day(chrono::Utc::now());
+        let entry = map.entry(source.to_string()).or_insert(DayCount {
+            per_day,
+            used: 0,
+            day,
+        });
+        entry.per_day = per_day;
+    }
+
+    /// `source`'s budget as `explain` shows it: `per_day` from the
+    /// declaration, `remaining` and `resets_at` from the count. `None` when
+    /// the record declares none.
+    pub fn budget_of(&self, record: &ExplainRecord) -> Option<Budget> {
+        let declared = record.etiquette.budget.as_ref()?;
+        let now = chrono::Utc::now();
+        let map = self.budgets.lock().unwrap_or_else(|e| e.into_inner());
+        let used = map
+            .get(&record.source)
+            .filter(|c| c.day == utc_day(now))
+            .map_or(0, |c| c.used);
+        let per_day = map
+            .get(&record.source)
+            .map_or(declared.per_day, |c| c.per_day);
+        Some(Budget {
+            per_day,
+            remaining: Some(per_day.saturating_sub(used)),
+            resets_at: Some(resets_at(now)),
+        })
+    }
+
+    /// Admit one request to the source `record` describes, or refuse it.
+    /// `Err` is the `rate_limited` diagnostic (the source is backed off, or
+    /// today's budget is spent) and nothing was sent; `Ok` carries the
+    /// warnings to append to the result — today only the once-per-source
+    /// "no contact set" line — and the request has been counted.
+    pub fn admit(&self, record: &ExplainRecord) -> Result<Vec<Diagnostic>, Diagnostic> {
+        let source = record.source.as_str();
+        let left = self.limiter.backoff_remaining(source);
+        if left > Duration::ZERO {
+            return Err(Diagnostic::new(
+                source,
+                Status::RateLimited,
+                format!(
+                    "backed off for another {}s; nothing was sent",
+                    left.as_secs().max(1)
+                ),
+            ));
+        }
+        if let Some(declared) = &record.etiquette.budget {
+            let now = chrono::Utc::now();
+            let today = utc_day(now);
+            let mut map = self.budgets.lock().unwrap_or_else(|e| e.into_inner());
+            let count = map.entry(source.to_string()).or_insert(DayCount {
+                per_day: declared.per_day,
+                used: 0,
+                day: today,
+            });
+            if count.day != today {
+                count.day = today;
+                count.used = 0;
+            }
+            if count.used >= count.per_day {
+                return Err(Diagnostic::new(
+                    source,
+                    Status::RateLimited,
+                    format!(
+                        "daily budget of {} spent; resets at {}; nothing was sent",
+                        count.per_day,
+                        resets_at(now)
+                    ),
+                ));
+            }
+            count.used += 1;
+        }
+        let mut warnings = Vec::new();
+        if wants_contact(record) && !self.has_contact() {
+            let mut warned = self.warned.lock().unwrap_or_else(|e| e.into_inner());
+            if warned.insert(source.to_string()) {
+                warnings.push(Diagnostic::new(source, Status::Done, NO_CONTACT_DETAIL));
+            }
+        }
+        Ok(warnings)
+    }
+}
+
+static GATE: OnceLock<Arc<Gate>> = OnceLock::new();
+
+/// The process-wide gate the linked service dispatches through, over the
+/// process-wide [`limiter`]; a test builds a `Gate::new()` of its own.
+pub fn gate() -> Arc<Gate> {
+    GATE.get_or_init(|| Arc::new(Gate::over(limiter()))).clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -269,6 +461,68 @@ mod tests {
         assert!(t.elapsed() >= Duration::from_millis(20));
         l.back_off("y", Some(Duration::from_secs(5)));
         assert!(l.acquire("y").await.is_err());
+    }
+
+    fn record(source: &str, contact: Option<&str>, per_day: Option<u64>) -> ExplainRecord {
+        ExplainRecord {
+            source: source.into(),
+            name: source.into(),
+            version: "0".into(),
+            kind: "bibliographic-work@1".into(),
+            operations: vec!["search".into()],
+            indexes: BTreeMap::new(),
+            sortable: vec![],
+            identifiers: vec![],
+            fills: vec![],
+            page: koine_sources::explain::Page {
+                model: koine_sources::explain::PageModel::Cursor,
+                max: None,
+            },
+            etiquette: koine_sources::explain::Etiquette {
+                contact: contact.map(String::from),
+                limit: None,
+                key: None,
+                budget: per_day.map(|per_day| Budget {
+                    per_day,
+                    remaining: None,
+                    resets_at: None,
+                }),
+            },
+            secrets: vec![],
+            native: None,
+        }
+    }
+
+    #[test]
+    fn the_gate_counts_a_budget_and_refuses_at_zero() {
+        let gate = Gate::new();
+        let r = record("z", None, Some(2));
+        assert_eq!(gate.budget_of(&r).unwrap().remaining, Some(2));
+        assert!(gate.admit(&r).unwrap().is_empty());
+        assert!(gate.admit(&r).unwrap().is_empty());
+        let refused = gate.admit(&r).unwrap_err();
+        assert_eq!(refused.status, Status::RateLimited);
+        assert!(
+            refused.detail.contains("daily budget of 2 spent"),
+            "{refused:?}"
+        );
+        let shown = gate.budget_of(&r).unwrap();
+        assert_eq!(shown.remaining, Some(0));
+        assert!(shown.resets_at.unwrap().ends_with("T00:00:00Z"));
+        // No declaration, no budget, never refused for one.
+        assert!(gate.budget_of(&record("free", None, None)).is_none());
+        for _ in 0..5 {
+            assert!(gate.admit(&record("free", None, None)).is_ok());
+        }
+    }
+
+    #[test]
+    fn the_gate_refuses_a_backed_off_source_without_sending() {
+        let gate = Gate::new();
+        gate.limiter().back_off("q", Some(Duration::from_secs(30)));
+        let refused = gate.admit(&record("q", None, None)).unwrap_err();
+        assert_eq!(refused.status, Status::RateLimited);
+        assert!(refused.detail.contains("nothing was sent"));
     }
 
     #[test]

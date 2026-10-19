@@ -62,7 +62,7 @@ pub const EXPLAIN_JSON: &str = r#"{
   "identifiers": ["openalex", "doi", "pmid"],
   "fills": ["title", "authors", "year", "container", "doi", "issued", "abstract", "cited_by", "license", "volume", "issue", "page", "language"],
   "page": {"model": "cursor", "max": 100},
-  "etiquette": {"contact": "mailto", "limit": "10/s; daily budget in x-ratelimit-* headers"},
+  "etiquette": {"contact": "mailto", "limit": "10/s; daily budget in x-ratelimit-* headers", "budget": {"per_day": 1000}},
   "secrets": []
 }"#;
 

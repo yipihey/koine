@@ -10,7 +10,10 @@
 //!
 //! - [`adapter`] — the [`Adapter`] trait a source package implements (S-D9).
 //! - [`registry`] — the process-wide inventory of adapters; `explain` reads it.
-//! - [`etiquette`] — the contact string and the per-source token bucket (S-D8).
+//! - [`etiquette`] — the contact string, the per-source token bucket and
+//!   the daily budgets, enforced once at the [`etiquette::Gate`] (S-D8).
+//! - [`federation`] — the concurrent fan-out with per-source timeouts and
+//!   the identifier-only merge (S-D7).
 //! - [`service`] — the six verbs (S-D3): `source-service_{explain, search,
 //!   fetch, match-citation (alias match), related, export}`.
 //!
@@ -22,6 +25,7 @@
 pub mod adapter;
 pub mod dto;
 pub mod etiquette;
+pub mod federation;
 pub mod ids;
 pub mod query;
 pub mod registry;

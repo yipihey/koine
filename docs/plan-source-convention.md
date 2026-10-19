@@ -181,10 +181,10 @@ One `source-service` over every adapter, not a service per source:
 | Verb | Arguments | Answer | Safety |
 |---|---|---|---|
 | `source-service_explain` | `source?` | the explain records (all, or one) | read-only |
-| `source-service_search` | `query` (S-D2), `sources?` (default: those whose explain covers the query), `limit` (default 10, max 100 per source), `cursor?`, `sort?` | `{rows, next, diagnostics}` — the L-D5 envelope; each row a canonical record (S-D4) with its `source` and `source_id` | read-only, external |
-| `source-service_fetch` | `id` (any canonical identifier, S-D4), `sources?` | the merged record, or `not-found` | read-only, external |
+| `source-service_search` | `query` (S-D2), `sources?` (default: those whose explain covers the query), `limit` (default 10, max 100 per source), `cursor?`, `sort?`, `timeout_ms?` (per source, default 8000; S-D7) | `{rows, next, diagnostics}` — the L-D5 envelope; each row a canonical record (S-D4) with its `source` and `source_id` | read-only, external |
+| `source-service_fetch` | `id` (any canonical identifier, S-D4), `sources?`, `timeout_ms?` | the merged record, or `not-found` | read-only, external |
 | `source-service_match` | `citation` (a free string, or the structured fields of a reference), `sources?` | candidates each with a `score` and `evidence`, the best marked when it clears the threshold | read-only, external |
-| `source-service_related` | `id`, `relation` (`cites`, `cited_by`, `similar`, `coreads`), `limit`, `cursor?` | `{rows, next}` | read-only, external |
+| `source-service_related` | `id`, `relation` (`cites`, `cited_by`, `similar`, `coreads`), `limit`, `cursor?`, `timeout_ms?` | `{rows, next}` | read-only, external |
 | `source-service_export` | `ids`, `format` (`bibtex`, `ris`, `csl-json`) | the text | read-only, external |
 
 Every verb is `external` (it leaves the process, ADR-0036's class) and

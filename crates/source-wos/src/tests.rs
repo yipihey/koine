@@ -509,6 +509,7 @@ async fn the_service_runs_the_adapter_end_to_end_and_reports_refused_without_a_k
             Some(3),
             None,
             None,
+            None,
         )
         .await;
     let answer = r.answer.expect("ok");
@@ -517,7 +518,7 @@ async fn the_service_runs_the_adapter_end_to_end_and_reports_refused_without_a_k
         .diagnostics
         .iter()
         .any(|d| d.source == "wos" && d.status == Status::Done));
-    let r = service.fetch(format!("WOS:{}", &UT[4..]), None).await;
+    let r = service.fetch(format!("WOS:{}", &UT[4..]), None, None).await;
     assert_eq!(
         r.answer.unwrap().work.ids["wos"],
         UT,
@@ -530,6 +531,7 @@ async fn the_service_runs_the_adapter_end_to_end_and_reports_refused_without_a_k
             Query::clause("title", "any", "first star"),
             None,
             Some(3),
+            None,
             None,
             None,
         )

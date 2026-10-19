@@ -5,6 +5,8 @@
 use koine_sources::kind::{Location, Work};
 use koine_sources::{Diagnostic, ExplainRecord, Query, Status};
 
+use crate::federation;
+
 /// One leaf clause, borrowed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Clause<'a> {
@@ -63,18 +65,57 @@ pub fn all_done(diagnostics: &[Diagnostic]) -> bool {
 /// The id kinds that merge two rows into one work (S-D7: by identifier only).
 pub const MERGE_IDS: &[&str] = &["doi", "arxiv", "pmid", "bibcode"];
 
-/// Whether two works share one of the [`MERGE_IDS`] (case-insensitive).
+/// One identifier as it is compared for a merge: a DOI lowercased, an
+/// arXiv id lowercased and without its version (`2101.00001v2` is
+/// `2101.00001`), a PMID or bibcode trimmed.
+pub fn normalise_id(kind: &str, value: &str) -> String {
+    let value = value.trim();
+    match kind {
+        "doi" => value.to_ascii_lowercase(),
+        "arxiv" => {
+            let lower = value.to_ascii_lowercase();
+            let lower = lower.strip_prefix("arxiv:").unwrap_or(&lower);
+            match lower.rfind('v') {
+                Some(i)
+                    if i > 0
+                        && lower[i + 1..].chars().all(|c| c.is_ascii_digit())
+                        && !lower[i + 1..].is_empty() =>
+                {
+                    lower[..i].to_string()
+                }
+                _ => lower.to_string(),
+            }
+        }
+        _ => value.to_string(),
+    }
+}
+
+/// Whether two works share one of the [`MERGE_IDS`] (normalised: a DOI is
+/// case-insensitive, an arXiv id versionless).
 pub fn shares_id(a: &Work, b: &Work) -> bool {
     MERGE_IDS
         .iter()
         .any(|k| match (a.ids.get(*k), b.ids.get(*k)) {
-            (Some(x), Some(y)) => x.eq_ignore_ascii_case(y),
+            (Some(x), Some(y)) => normalise_id(k, x) == normalise_id(k, y),
             _ => false,
         })
 }
 
+/// Whether two locations are one: the same `url` when both have one, else
+/// the same `source` and `source_id`.
+pub fn same_location(a: &Location, b: &Location) -> bool {
+    match (&a.url, &b.url) {
+        (Some(x), Some(y)) => x == y,
+        _ => a.source == b.source && a.source_id == b.source_id,
+    }
+}
+
 /// Fold `other` into `into`: ids and locations unioned (a second primary
-/// location is demoted), empty fields filled, the first row's body kept.
+/// location is demoted, a location is deduplicated by url), empty fields
+/// filled, the first row's body kept, every source's count kept in
+/// `metrics.cited_by_all`, and `provenance.sources` naming every
+/// contributor. The body a merge keeps is the higher-priority source's;
+/// [`federation::merge_works`] orders the fold.
 pub fn merge(into: &mut Work, other: Work) {
     for (k, v) in other.ids {
         into.ids.entry(k).or_insert(v);
@@ -84,7 +125,7 @@ pub fn merge(into: &mut Work, other: Work) {
         if into
             .locations
             .iter()
-            .any(|l: &Location| l.source == loc.source && l.source_id == loc.source_id)
+            .any(|l: &Location| same_location(l, &loc))
         {
             continue;
         }
@@ -92,6 +133,37 @@ pub fn merge(into: &mut Work, other: Work) {
             loc.primary = false;
         }
         into.locations.push(loc);
+    }
+    if let Some(theirs) = other.provenance {
+        match into.provenance.as_mut() {
+            Some(mine) => {
+                if mine.sources.is_empty() {
+                    mine.sources.push(mine.source.clone());
+                }
+                if !mine.sources.contains(&theirs.source) {
+                    mine.sources.push(theirs.source);
+                }
+            }
+            None => into.provenance = Some(theirs),
+        }
+    }
+    if let Some(theirs) = other.metrics {
+        match into.metrics.as_mut() {
+            Some(mine) => {
+                if mine.cited_by_all.is_empty() {
+                    mine.cited_by_all.extend(mine.cited_by.clone());
+                }
+                for count in theirs.cited_by.into_iter().chain(theirs.cited_by_all) {
+                    if !mine.cited_by_all.iter().any(|c| c.source == count.source) {
+                        mine.cited_by_all.push(count);
+                    }
+                }
+                if mine.cited_by.is_none() {
+                    mine.cited_by = mine.cited_by_all.first().cloned();
+                }
+            }
+            None => into.metrics = Some(theirs),
+        }
     }
     if into.title.is_none() {
         into.title = other.title;
@@ -111,15 +183,32 @@ pub fn merge(into: &mut Work, other: Work) {
     if into.doi.is_none() {
         into.doi = other.doi;
     }
-    if into.metrics.is_none() {
-        into.metrics = other.metrics;
+    if into.volume.is_none() {
+        into.volume = other.volume;
+    }
+    if into.issue.is_none() {
+        into.issue = other.issue;
+    }
+    if into.page.is_none() {
+        into.page = other.page;
+    }
+    if into.language.is_none() {
+        into.language = other.language;
+    }
+    if into.url.is_none() {
+        into.url = other.url;
+    }
+    if into.ty.is_empty() {
+        into.ty = other.ty;
     }
 }
 
-/// Add `row` to `rows`, folding it into an existing row that shares an id.
+/// Add `row` to `rows`, folding it into an existing row that shares an id;
+/// the higher-priority source's body wins ([`federation::merge_works`]).
 pub fn merge_into(rows: &mut Vec<Work>, row: Work) {
     if let Some(existing) = rows.iter_mut().find(|r| shares_id(r, &row)) {
-        merge(existing, row);
+        let kept = std::mem::take(existing);
+        *existing = federation::merge_works(vec![kept, row]);
     } else {
         rows.push(row);
     }
@@ -197,6 +286,12 @@ mod tests {
         };
         assert!(shares_id(&a, &b));
         assert!(!shares_id(&a, &c), "a title alone never merges");
+        assert_eq!(normalise_id("arxiv", "arXiv:2101.00001v3"), "2101.00001");
+        assert_eq!(normalise_id("arxiv", "hep-th/9901001v2"), "hep-th/9901001");
+        assert_eq!(
+            normalise_id("doi", "10.1126/Science.1063991 "),
+            "10.1126/science.1063991"
+        );
         let mut rows = vec![a.clone()];
         merge_into(&mut rows, c.clone());
         assert_eq!(rows.len(), 2);

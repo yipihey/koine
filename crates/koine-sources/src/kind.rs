@@ -94,6 +94,10 @@ pub struct Provenance {
     pub source_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query: Option<String>,
+    /// Every source that contributed to a merged record (S-D7), the one
+    /// whose body was kept first; empty for a row one source answered.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<String>,
 }
 
 /// A count and who counted it: counts differ by source.
@@ -105,8 +109,13 @@ pub struct Counted {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Metrics {
+    /// The count to show: the highest-priority source's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cited_by: Option<Counted>,
+    /// Every source's count when sources were merged (S-D7: counts differ by
+    /// source and none is fused away), `cited_by`'s first; empty otherwise.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cited_by_all: Vec<Counted>,
 }
 
 /// The canonical record, typed.

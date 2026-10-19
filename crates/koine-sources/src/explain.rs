@@ -52,6 +52,25 @@ pub struct Etiquette {
     pub limit: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
+    /// The daily budget the API documents (S-D8), when it does: the adapter
+    /// declares `per_day`; the service fills `remaining` and `resets_at`
+    /// from its in-process count when it answers `explain`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<Budget>,
+}
+
+/// A source's daily request budget (S-D8).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Budget {
+    /// Requests per UTC day the API documents.
+    pub per_day: u64,
+    /// What the service's count says is left today; absent in the adapter's
+    /// own declaration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remaining: Option<u64>,
+    /// When the count resets (RFC 3339, the next UTC midnight).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<String>,
 }
 
 /// One source's declaration.

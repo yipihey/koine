@@ -177,6 +177,7 @@ pub fn work(item: &Value, fetched_at: &str, query: Option<&Query>) -> Option<Wor
             source: SOURCE.into(),
             source_id: pmid,
             query: query.and_then(|q| serde_json::to_string(q).ok()),
+            sources: Vec::new(),
         }),
         metrics: item
             .get("pmcrefcount")
@@ -186,6 +187,7 @@ pub fn work(item: &Value, fetched_at: &str, query: Option<&Query>) -> Option<Wor
                     value: n,
                     source: CITED_BY_SOURCE.into(),
                 }),
+                cited_by_all: Vec::new(),
             }),
     })
 }

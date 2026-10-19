@@ -286,6 +286,7 @@ pub fn work(entry: &Entry, fetched_at: &str, query: Option<&Query>) -> Option<Wo
             source: SOURCE.into(),
             source_id: id,
             query: query.and_then(|q| serde_json::to_string(q).ok()),
+            sources: Vec::new(),
         }),
         ..Default::default()
     })

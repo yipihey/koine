@@ -486,6 +486,7 @@ async fn the_service_runs_the_adapter_end_to_end() {
             Some(3),
             None,
             None,
+            None,
         )
         .await;
     let answer = r.answer.expect("ok");
@@ -496,7 +497,9 @@ async fn the_service_runs_the_adapter_end_to_end() {
         .any(|d| d.source == "crossref" && d.status == Status::Done));
     assert!(answer.next.unwrap().contains("crossref"));
 
-    let r = service.fetch(format!("https://doi.org/{DOI}"), None).await;
+    let r = service
+        .fetch(format!("https://doi.org/{DOI}"), None, None)
+        .await;
     assert_eq!(
         r.answer.unwrap().work.title.as_deref(),
         Some("The Formation of the First Star in the Universe")
