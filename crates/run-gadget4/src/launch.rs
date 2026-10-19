@@ -37,6 +37,13 @@ pub struct LaunchOptions {
     pub name: Option<String>,
     /// `problem.name` (R-D2.4): what this run is a run of.
     pub problem: String,
+    /// The whole `problem` object, verbatim, when the caller (run-service
+    /// passes `--problem <json>`) has one: the key it predicted is computed
+    /// over it, so nothing is added to it. `problem` is then ignored.
+    pub problem_json: Option<Value>,
+    /// Resume from this checkpoint (a `restartfiles/restart.N`, the
+    /// directory, or a snapshot): see [`crate::resume`].
+    pub resume_from: Option<PathBuf>,
     pub mpi: Option<u32>,
     /// The binary and any arguments after the parameter file (`0`, `1`, ...).
     pub command: Vec<String>,
@@ -56,6 +63,8 @@ impl LaunchOptions {
             schema: None,
             name: None,
             problem: "gadget4".into(),
+            problem_json: None,
+            resume_from: None,
             mpi: None,
             command,
             poll: Duration::from_millis(200),
@@ -170,19 +179,35 @@ struct Launcher {
     pending_checkpoints: Vec<String>,
     stop_requested: bool,
     first_snapshot: Option<PathBuf>,
+    /// `changed{by: "restart"}` events to write right after `started`.
+    resume_changes: Vec<crate::resume::Change>,
+    resume_step: u64,
 }
 
 pub fn launch(opts: &LaunchOptions) -> Result<Outcome, Error> {
+    // 0. A resume decides its parent, its parameters and its refusals first.
+    let resume = match &opts.resume_from {
+        Some(from) => Some(
+            crate::resume::plan(from, &opts.params, opts.schema.as_ref(), opts.mpi)
+                .map_err(Error::Invalid)?,
+        ),
+        None => None,
+    };
+    let run_params = resume
+        .as_ref()
+        .map(|r| r.params.clone())
+        .unwrap_or_else(|| opts.params.clone());
+
     // 1. Validate and render before anything exists on disk.
-    let param_txt = render::render(&opts.params, opts.schema.as_ref()).map_err(Error::Invalid)?;
-    let values = render::values(&opts.params);
+    let param_txt = render::render(&run_params, opts.schema.as_ref()).map_err(Error::Invalid)?;
+    let values = render::values(&run_params);
     let out_rel_path = post::output_dir(&values).map_err(|p| Error::Invalid(vec![p]))?;
     if opts.command.is_empty() {
         return Err(Error::other("launch needs a binary after `--`"));
     }
 
     // 2. params.json with sources, key, run.json (`created`).
-    let entries = render::entries(&opts.params).map_err(Error::Invalid)?;
+    let entries = render::entries(&run_params).map_err(Error::Invalid)?;
     let mut pj = Map::new();
     for e in &entries {
         pj.insert(
@@ -192,10 +217,16 @@ pub fn launch(opts: &LaunchOptions) -> Result<Outcome, Error> {
     }
     let params = Value::Object(pj);
 
-    let mut problem = json!({"name": opts.problem});
-    if let Some(inp) = input_file(&values, &opts.run_dir) {
-        problem["inputs"] = json!([inp]);
-    }
+    let problem = match &opts.problem_json {
+        Some(p) => p.clone(),
+        None => {
+            let mut problem = json!({"name": opts.problem});
+            if let Some(inp) = input_file(&values, &opts.run_dir) {
+                problem["inputs"] = json!([inp]);
+            }
+            problem
+        }
+    };
     let key = run_convention::key_of(&problem, &run_convention::values_of(&params));
 
     let mut argv: Vec<String> = Vec::new();
@@ -204,6 +235,14 @@ pub fn launch(opts: &LaunchOptions) -> Result<Outcome, Error> {
     }
     argv.push(opts.command[0].clone());
     argv.push("param.txt".into());
+    if let Some(r) = &resume {
+        // The restart mode is a command-line argument of GADGET-4, after the
+        // parameter file (src/main/main.cc), never a tag in it.
+        argv.push(r.flag.to_string());
+        if let Some(n) = r.snapnum {
+            argv.push(n.to_string());
+        }
+    }
     argv.extend(opts.command[1..].iter().cloned());
 
     let mut run = json!({
@@ -216,6 +255,16 @@ pub fn launch(opts: &LaunchOptions) -> Result<Outcome, Error> {
         "lineage": {},
         "status": {"state": "created"},
     });
+    if let Some(r) = &resume {
+        run["lineage"] = json!({"parent": {
+            "run": r.parent_id,
+            "relation": "resume",
+            "checkpoint": {
+                "path": r.checkpoint_path.to_string_lossy(),
+                "sha256": r.checkpoint_sha256,
+            }
+        }});
+    }
     if let Some(n) = &opts.name {
         run["name"] = json!(n);
     }
@@ -236,6 +285,18 @@ pub fn launch(opts: &LaunchOptions) -> Result<Outcome, Error> {
 
     let out_dir = dir.join(&out_rel_path);
     io("create output dir", fs::create_dir_all(&out_dir))?;
+    if let Some(r) = &resume {
+        for (src, name) in &r.stage {
+            let dst = out_dir.join(name);
+            if let Some(d) = dst.parent() {
+                io("create staging dir", fs::create_dir_all(d))?;
+            }
+            io(
+                format!("stage {} for the restart", src.display()),
+                fs::copy(src, &dst),
+            )?;
+        }
+    }
     let log_path = dir.join("stdout.log");
     let log = io("create stdout.log", File::create(&log_path))?;
     let log_err = io("clone stdout.log", log.try_clone())?;
@@ -277,6 +338,11 @@ pub fn launch(opts: &LaunchOptions) -> Result<Outcome, Error> {
             .to_string(),
         values: values.clone(),
         params,
+        resume_changes: resume
+            .as_ref()
+            .map(|r| r.changes.clone())
+            .unwrap_or_default(),
+        resume_step: resume.as_ref().map(|r| r.step).unwrap_or(0),
         begin,
         max,
         comoving: values
@@ -387,6 +453,13 @@ impl Launcher {
             }
         }
         self.w.event_at(&t, "started", json!({}))?;
+        for c in std::mem::take(&mut self.resume_changes) {
+            self.w.event_at(
+                &t,
+                "changed",
+                json!({"param": c.param, "from": c.from, "to": c.to, "by": "restart", "step": self.resume_step}),
+            )?;
+        }
         let seq = self.w.last_seq();
         self.w.set_status(|s| {
             s.insert("state".into(), json!("running"));

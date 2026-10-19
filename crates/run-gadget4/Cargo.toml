@@ -16,6 +16,14 @@ koine-workspace-hack.workspace = true
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# tests/provider.rs drives run-service's verbs in-process (as its tier_a does).
+run-service = { workspace = true }
+impress-service-core = { workspace = true }
+koine-store = { workspace = true }
+koine-store-memory = { workspace = true }
+koine-agent = { workspace = true }
+koine-tasks = { workspace = true }
+impress-surface = { workspace = true }
 
 [[bin]]
 name = "gadget4-adapt"

@@ -14,9 +14,21 @@
 # `0` or `1 7`): steps=N (3), sleep=SECONDS (0.2 per step), snapshot=FILE,
 # fail=param (refuse the parameter file, exit 0 as GADGET-4 does) or
 # fail=nan (Terminate on NaN, exit 1 as MPI_Abort does), config=short (a
-# compile-settings list that disagrees with the snapshot's Config group).
+# compile-settings list that disagrees with the snapshot's Config group),
+# steps=timemax (run (TimeMax-TimeBegin)/0.001 steps, so a run's length is a
+# parameter, as in the real code).
+# Like the real code, the restart mode is a number right after the parameter
+# file (src/main/main.cc): 1 reads <OutputDir>/restartfiles/restart.0 and
+# continues from the step it records, 2 starts from the snapshot number that
+# follows. A restart with nothing to read ends as GADGET-4 does: Terminate.
 param="$1"
 shift
+restart_flag=0
+case "$1" in
+  [0-9]*) restart_flag="$1"; shift ;;
+esac
+snapnum=""
+if [ "$restart_flag" = 2 ]; then snapnum="$1"; shift; fi
 steps=3
 nap=0.2
 FAKE_SNAPSHOT=""
@@ -31,6 +43,9 @@ for kv in "$@"; do
     config=*) FAKE_CONFIG="${kv#config=}" ;;
   esac
 done
+if [ "$steps" = timemax ]; then
+  steps=$(awk '$1=="TimeBegin"{b=$2} $1=="TimeMax"{m=$2} END{printf "%d", (m-b)/0.001+0.5}' "$param")
+fi
 out=$(awk '$1=="OutputDir"{print $2}' "$param")
 base=$(awk '$1=="SnapshotFileBase"{print $2}' "$param")
 a0=$(awk '$1=="TimeBegin"{print $2}' "$param")
@@ -56,6 +71,23 @@ echo
 awk '!/^[%#]/ && NF>=2 {printf "        %-50s%s\n", $1, $2}' "$param"
 echo
 
+start_i=0
+if [ "$restart_flag" = 1 ]; then
+  if [ ! -f "$out/restartfiles/restart.0" ]; then
+    echo "TERMINATE: ******!!!!!******  Code termination on task=0, function restart::load(), file src/io/restart.cc, line 1:"
+    echo "can't open restart file $out/restartfiles/restart.0"
+    exit 1
+  fi
+  start_i=$(sed -n 's/^fake restart at step \([0-9]*\).*/\1/p' "$out/restartfiles/restart.0")
+  echo "RestartFlag = 1: reading restart files, resuming at step $start_i"
+elif [ "$restart_flag" = 2 ]; then
+  if [ ! -f "$out/snapshot_$snapnum.hdf5" ] && [ -z "$(ls "$out" 2>/dev/null | grep "_$snapnum.hdf5")" ]; then
+    echo "TERMINATE: ******!!!!!******  Code termination on task=0: cannot read snapshot $snapnum"
+    exit 1
+  fi
+  echo "RestartFlag = 2: starting from snapshot $snapnum"
+fi
+
 if [ "${FAKE_FAIL}" = "param" ]; then
   echo "Error in file $param:   Tag 'Bogus' not allowed"
   echo "We stop because of an error in the parameterfile"
@@ -71,7 +103,7 @@ write_restart() {
   echo "fake restart at step $1" > "$out/restartfiles/restart.0"
 }
 
-i=0
+i=$start_i
 while [ "$i" -lt "$steps" ]; do
   if [ -e "$out/stop" ]; then
     rm -f "$out/stop"
