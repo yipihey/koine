@@ -116,6 +116,8 @@ pub fn parse(text: &str) -> Option<Identifier> {
                 }
                 let value = match kind {
                     "arxiv" => value.trim_end_matches(".pdf").to_string(),
+                    // `…/abs/<bibcode>/abstract` is what the ADS UI puts in the address bar.
+                    "bibcode" => value.trim_end_matches("/abstract").to_string(),
                     "pmcid" => format!("PMC{}", value.trim_start_matches("PMC")),
                     _ => value.to_string(),
                 };
@@ -187,6 +189,11 @@ mod tests {
             "arxiv"
         );
         assert_eq!(parse("2002Sci...295...93A").unwrap().kind, "bibcode");
+        let ui = parse("https://ui.adsabs.harvard.edu/abs/2002Sci...295...93A/abstract").unwrap();
+        assert_eq!(
+            (ui.kind.as_str(), ui.value.as_str()),
+            ("bibcode", "2002Sci...295...93A")
+        );
     }
 
     #[test]

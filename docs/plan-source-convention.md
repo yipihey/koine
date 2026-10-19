@@ -153,6 +153,11 @@ The indexes are a **context set** this convention owns, `bib.*`: `any`,
 `title`, `abstract`, `author`, `first_author`, `year`, `container`
 (journal, venue, bibstem), `doi`, `arxiv`, `pmid`, `bibcode`, `isbn`,
 `issn`, `orcid`, `keyword`, `subject`, `cites`, `cited_by`, `similar_to`.
+The three relation indexes read from the result's side: `cites = X` is
+"works that cite X", `cited_by = X` is "works in X's reference list",
+`similar_to = X` is "works like X". The `related` verb's `relation` reads
+the same way. Settled when S3 found the plan silent and ADS, OpenAlex and
+Crossref each name the direction differently.
 An adapter maps each to its native syntax (`author` → ADS `author:"…"`,
 arXiv `au:`, Crossref `query.author`, OpenAlex `filter=authorships.author…`)
 or, for an index its explain record does not list, answers a **diagnostic**
