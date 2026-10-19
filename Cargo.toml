@@ -65,6 +65,9 @@ members = [
     "crates/koine-sources",
     "crates/source-service",
     "crates/source-crossref",
+    "crates/source-arxiv",
+    "crates/source-ads",
+    "crates/source-openalex",
     "crates/koine-workspace-hack",
 ]
 
@@ -214,6 +217,9 @@ koine-py = { path = "crates/koine-py" }
 # The source convention (docs/plan-source-convention.md): the verbs and the adapters.
 source-service = { path = "crates/source-service" }
 source-crossref = { path = "crates/source-crossref" }
+source-arxiv = { path = "crates/source-arxiv" }
+source-ads = { path = "crates/source-ads" }
+source-openalex = { path = "crates/source-openalex" }
 
 # implore crates
 

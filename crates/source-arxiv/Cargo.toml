@@ -1,0 +1,27 @@
+[package]
+name = "source-arxiv"
+description = "The arXiv adapter of the source convention (docs/plan-source-convention.md S-D9): explain record, Atom query mapping, parser into bibliographic-work@1, the one-request-per-three-seconds etiquette"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+source-service = { workspace = true }
+koine-sources = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+urlencoding = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+regex = { workspace = true }
+quick-xml = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+mockito = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

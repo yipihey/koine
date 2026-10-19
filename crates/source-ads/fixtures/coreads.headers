@@ -1,0 +1,18 @@
+HTTP/2 200 
+date: Mon, 19 Oct 2026 21:16:44 GMT
+content-type: application/json
+content-length: 6091
+permissions-policy: browsing-topics=()
+x-frame-options: SAMEORIGIN
+x-content-type-options: nosniff
+content-security-policy: default-src 'self'; object-src 'none'
+strict-transport-security: max-age=31556926; includeSubDomains
+referrer-policy: strict-origin-when-cross-origin
+x-ratelimit-limit: 5000
+x-ratelimit-remaining: 4973
+x-ratelimit-reset: 1792530368
+retry-after: 85763
+access-control-allow-origin: http://0.0.0.0:8000
+access-control-allow-credentials: true
+vary: Origin, Cookie
+

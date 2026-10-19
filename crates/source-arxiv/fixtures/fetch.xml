@@ -1,0 +1,37 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/M5DPSRZ1V5VyIeDbUx3mMlMpdrE</id>
+  <title>arXiv Query: search_query=&amp;id_list=astro-ph/0112088&amp;start=0&amp;max_results=1</title>
+  <updated>2026-10-19T21:04:37Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=&amp;start=0&amp;max_results=1&amp;id_list=astro-ph/0112088" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>1</opensearch:itemsPerPage>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/astro-ph/0112088v1</id>
+    <title>The Formation of the First Star in the Universe</title>
+    <updated>2001-12-04T19:38:08Z</updated>
+    <link href="https://arxiv.org/abs/astro-ph/0112088v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/astro-ph/0112088v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  We describe results from a fully self-consistent three dimensional hydrodynamical simulation of the formation of one of the first stars in the Universe. Dark matter dominated pre-galactic objects form because of gravitational instability from small initidal density perturbations. As they assemble via hierarchical merging, primordial gas cools through ro-vibrational lines of hydrogen molecules and sinks to the center of the dark matter potential well. The high redshift analog of a molecular cloud is formed. When the dense, central parts of the cold gas cloud become self-gravitating, a dense core of approximately 100 solar mass undergoes rapid contraction. At densities n&gt;10^9 cm^-3 a one solar mass proto-stellar core becomes fully molecular due to three-body H_2 formation. Contrary to analytical expectations this process does not lead to renewed fragmentation and only one star is formed. The calculation is stopped when optical depth effects become important, leaving the final mass of the fully formed star somewhat uncertain. At this stage the protostar is acreting material very rapidly (~0.01 solar masses per year). Radiative feedback from the star will not only halt its growth but also inhibit the formation of other stars in the same pre-galactic object (at least until the first star ends its life, presumably as a supernova). We conclude that at most one massive (M &gt;&gt; 1 solar mass) metal free star forms per pre-galactic halo, consistent with recent abundance measurements of metal poor galactic halo stars.</summary>
+    <category term="astro-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2001-12-04T19:38:08Z</published>
+    <arxiv:comment>8 pages, 5 figures. Science. Published in Science Express online on 11/15/2001. More information can be found at http://www.TomAbel.com/GB/</arxiv:comment>
+    <arxiv:primary_category term="astro-ph"/>
+    <arxiv:journal_ref>Science 295:93,2002</arxiv:journal_ref>
+    <author>
+      <name>Tom Abel</name>
+      <arxiv:affiliation>CfA, IoA</arxiv:affiliation>
+    </author>
+    <author>
+      <name>Greg L. Bryan</name>
+      <arxiv:affiliation>MIT</arxiv:affiliation>
+    </author>
+    <author>
+      <name>Michael L. Norman</name>
+      <arxiv:affiliation>UCSD</arxiv:affiliation>
+    </author>
+    <arxiv:doi>10.1126/science.1063991</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1126/science.1063991" title="doi"/>
+  </entry>
+</feed>
