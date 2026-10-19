@@ -4225,8 +4225,11 @@ dependencies = [
  "source-ads",
  "source-arxiv",
  "source-crossref",
+ "source-dblp",
+ "source-inspire",
  "source-openalex",
  "source-pubmed",
+ "source-s2",
  "source-scix",
  "source-service",
  "source-wos",
@@ -7610,6 +7613,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "source-dblp"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "koine-sources",
+ "koine-workspace-hack",
+ "mockito",
+ "quick-xml",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "source-service",
+ "tokio",
+ "tracing",
+ "urlencoding",
+]
+
+[[package]]
+name = "source-inspire"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "koine-sources",
+ "koine-workspace-hack",
+ "mockito",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "source-service",
+ "tokio",
+ "tracing",
+ "urlencoding",
+]
+
+[[package]]
 name = "source-openalex"
 version = "0.1.0"
 dependencies = [
@@ -7628,6 +7668,25 @@ dependencies = [
 
 [[package]]
 name = "source-pubmed"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-service-core",
+ "koine-sources",
+ "koine-workspace-hack",
+ "mockito",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "source-service",
+ "tokio",
+ "tracing",
+ "urlencoding",
+]
+
+[[package]]
+name = "source-s2"
 version = "0.1.0"
 dependencies = [
  "async-trait",

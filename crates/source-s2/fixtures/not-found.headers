@@ -1,0 +1,16 @@
+HTTP/2 404 
+content-type: application/json
+content-length: 64
+date: Mon, 19 Oct 2026 23:11:04 GMT
+x-amzn-remapped-date: Mon, 19 Oct 2026 23:11:04 GMT
+x-amzn-requestid: 01d69ce7-190f-4336-a18d-b5cc5dc5ec1b
+access-control-allow-origin: *
+x-amzn-remapped-content-length: 64
+x-amzn-remapped-connection: keep-alive
+x-amz-apigw-id: Fg59ZGS_vHcEgoQ=
+x-amzn-remapped-server: gunicorn
+x-cache: Error from cloudfront
+via: 1.1 20c43a0e6fb1d8790d777292bc628d74.cloudfront.net (CloudFront)
+x-amz-cf-pop: SFO53-P10
+x-amz-cf-id: dHiwxAHHcnRVA_H6QXMzAvJsyCVxdgy0IOOEXAako1fXxIpUj_oxQA==
+

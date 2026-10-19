@@ -722,6 +722,9 @@ pub fn ensure_linked() {
         source_pubmed::register();
         source_wos::register();
         source_scix::register();
+        source_s2::register();
+        source_dblp::register();
+        source_inspire::register();
     }
     // The run convention (docs/plan-run-convention.md R-D13): the run kind,
     // the thirteen verbs, and the demo code when its binary is at hand.
