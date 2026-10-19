@@ -1,0 +1,14 @@
+HTTP/2 401 
+date: Mon, 19 Oct 2026 21:18:45 GMT
+content-type: application/json
+permissions-policy: browsing-topics=()
+x-frame-options: SAMEORIGIN
+x-content-type-options: nosniff
+content-security-policy: default-src 'self'; object-src 'none'
+strict-transport-security: max-age=31556926; includeSubDomains
+referrer-policy: strict-origin-when-cross-origin
+access-control-allow-origin: http://0.0.0.0:8000
+access-control-allow-credentials: true
+vary: Origin, Cookie
+set-cookie: session=eyJfcGVybWFuZW50Ijp0cnVlfQ.ataJNQ.0gHzukXa_0MwOjyVM6_sjJZCEDc; Expires=Wed, 20 Oct 2027 03:18:45 GMT; Secure; HttpOnly; Path=/; SameSite=Lax
+

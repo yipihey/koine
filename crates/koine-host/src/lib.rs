@@ -719,6 +719,9 @@ pub fn ensure_linked() {
         source_arxiv::register();
         source_ads::register();
         source_openalex::register();
+        source_pubmed::register();
+        source_wos::register();
+        source_scix::register();
     }
 }
 

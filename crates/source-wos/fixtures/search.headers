@@ -1,0 +1,6 @@
+HTTP/2 200
+content-type: application/json
+x-ratelimit-limit-second: 5
+x-ratelimit-remaining-second: 4
+x-ratelimit-limit-year: 5000
+x-ratelimit-remaining-year: 4999
