@@ -61,6 +61,7 @@ members = [
     "crates/koine-plot-veusz",
     "crates/koine-py",
     "crates/koine-demo-mobile",
+    "crates/koine-sources",
     "crates/koine-workspace-hack",
 ]
 
@@ -188,6 +189,7 @@ capabilities-service = { path = "crates/capabilities-service" }
 impress-tags = { path = "crates/impress-tags" }
 impress-flags = { path = "crates/impress-flags" }
 koine-triage = { path = "crates/koine-triage" }
+koine-sources = { path = "crates/koine-sources" }
 koine-collections = { path = "crates/koine-collections" }
 koine-settings-service = { path = "crates/koine-settings-service" }
 impress-scenario-service = { path = "crates/impress-scenario-service" }
