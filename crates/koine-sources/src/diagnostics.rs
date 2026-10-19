@@ -18,6 +18,13 @@ pub enum Status {
     Unsupported,
     /// The source's etiquette limit was reached (S-D8).
     RateLimited,
+    /// The source answered and has no record for the identifier asked for.
+    /// Distinct from `done` so a miss never reads as an answer.
+    NotFound,
+    /// The source could not be asked or its answer could not be read: a
+    /// transport failure, a 5xx, or a body that did not parse. Distinct from
+    /// `refused`, which is the source saying no to a request it understood.
+    Error,
 }
 
 /// One line of a result's `diagnostics`.
@@ -44,6 +51,16 @@ impl Diagnostic {
     /// A source answered.
     pub fn done(source: impl Into<String>) -> Self {
         Self::new(source, Status::Done, "")
+    }
+
+    /// The source has no record for `id`.
+    pub fn not_found(source: impl Into<String>, id: impl Into<String>) -> Self {
+        Self::new(source, Status::NotFound, id)
+    }
+
+    /// The source could not be asked, or its answer could not be read.
+    pub fn error(source: impl Into<String>, what: impl Into<String>) -> Self {
+        Self::new(source, Status::Error, what)
     }
 
     /// A clause the source cannot answer.

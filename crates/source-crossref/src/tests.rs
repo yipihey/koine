@@ -344,7 +344,7 @@ async fn a_429_backs_off_and_is_never_retried() {
 }
 
 #[tokio::test]
-async fn a_server_error_is_a_refused_diagnostic_not_a_panic() {
+async fn a_server_error_is_an_error_diagnostic_not_a_panic() {
     let (mut server, crossref) = adapter().await;
     let _m = server
         .mock("GET", "/works")
@@ -364,7 +364,7 @@ async fn a_server_error_is_a_refused_diagnostic_not_a_panic() {
         )
         .await
         .unwrap_err();
-    assert_eq!(d.status, Status::Refused);
+    assert_eq!(d.status, Status::Error);
     assert!(d.detail.contains("503"));
 }
 

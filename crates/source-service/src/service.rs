@@ -38,22 +38,20 @@ pub const MAX_LIMIT: u32 = 100;
 /// adapter claims), as against one a source answered.
 pub const SERVICE_SOURCE: &str = "source-service";
 
-/// How the closed status set (S-D7) is used for the two outcomes it does not
-/// name: a source that answered "no such record" is `done` with a detail
-/// (an answer is an answer), and a transport or parse failure is `refused`
-/// with the error as detail (the source did not take the call).
+/// The source answered and has no record for `id` (`not_found`), which is
+/// not an answer: fetch-across-sources keeps asking.
 pub fn not_found(source: &str, id: &str) -> Diagnostic {
-    Diagnostic::new(source, Status::Done, format!("no record for {id}"))
+    Diagnostic::not_found(source, id)
 }
 
 /// A transport, HTTP or parse failure at `source`.
 pub fn failed(source: &str, error: impl std::fmt::Display) -> Diagnostic {
-    Diagnostic::new(source, Status::Refused, error.to_string())
+    Diagnostic::error(source, error.to_string())
 }
 
 /// Whether a diagnostic is the "no record" answer of [`not_found`].
 fn is_miss(d: &Diagnostic) -> bool {
-    d.status == Status::Done && d.detail.starts_with("no record for ")
+    d.status == Status::NotFound
 }
 
 #[impress_service]

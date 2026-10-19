@@ -98,7 +98,8 @@ pub struct RowsAnswer {
     #[serde(default)]
     pub next: Option<String>,
     /// Every source's outcome: `done`, `refused`, `timed_out`, `unsupported`
-    /// (with the index in `detail`), `rate_limited`.
+    /// (with the index in `detail`), `rate_limited`, `not_found` (the id in
+    /// `detail`), `error` (the failure in `detail`).
     #[serde(default)]
     pub diagnostics: Vec<Diagnostic>,
 }
