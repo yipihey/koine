@@ -1,0 +1,35 @@
+BlockAMR CICASS: 16³ (B=16, lmax=0) box=0.0160 Mpc/h  z=1000→999  [metal]
+Cosmology set to h=0.710, OmegaM=0.270, OmegaB=0.046
+Run Specs:  output redshift =1000.000, BoxSize =1.600e-02 cMpc/h, GridSize=16
+Filename conventions:  output directory = ., Base file name = cic_stream
+
+
+#cicass: OpenMP + threaded FFTW, 1 threads
+#capi_out: wrote ./cic_stream.cicass (N=16, Ndm=4096, f64 fields)
+#success main
+gas IC: f_b=0.1704 T=2727.6K x_HII=4.745e-02;  DM: 4096 particles
+LEVEL 0 POPULATED at z=999.0000 (blocks=[1]) — stopping
+done: 1 root steps to z=999.0 in 10.8 s
+z=999: <x_HII>=4.683e-02 <f_H2>=2.000e-06 <T>=2822.0K  → /home/user/Projects/vespa-bulk/20260706T192428-bamr-bamr16m5smoke-cbe7a91
+leafprof: 123 leaf cells within R=0.1875 of peak (0.0312,0.0312,0.0312)
+Using initSimCartZI1000.0_Vbc30.0_16_0.0.dat!!!
+#Opened power spectrum file initSimCartZI1000.0_Vbc30.0_16_0.0.dat
+#dim 12 numkpar 1 numkperp 38 TAVG 2727.62 NEAVG 0.0474495
+#Read in growth grid.
+Generating ICs for species 1
+Generating Gaussian Field.
+Done!
+Setting dphif and dphiftot
+Done!
+Generating dphi
+Done!
+Done generating ICs for species 1
+Generating ICs for species 2
+Generating Gaussian Field.
+Done!
+Setting dphif and dphiftot
+Done!
+Generating dphi
+Done!
+Done generating ICs for species 2
+===== EXIT 0 =====

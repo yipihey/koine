@@ -1,0 +1,16 @@
+[precision_matrix]
+created_utc = "20260705T083045Z"
+machine = "host-a"
+vespa_root = "/home/user/Projects/Vespa.jl"
+fvgk_root = "/home/user/Projects/FiniteVolumeGodunovKA.jl"
+vespa_sha = "f17ab87"
+fvgk_sha = "1d19b64"
+vespa_runs_sha = "097d81a"
+ngrids = "128"
+modes = "f16 f32density"
+backend = "metal"
+solver = "fvgk"
+chemistry = "analytic"
+z_end = 200
+z_outputs = "500,200"
+chemistry = "analytic"

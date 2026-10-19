@@ -6913,11 +6913,13 @@ dependencies = [
 name = "run-convention"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "jsonschema",
  "koine-workspace-hack",
  "serde_json",
  "sha2",
  "tempfile",
+ "uuid",
 ]
 
 [[package]]

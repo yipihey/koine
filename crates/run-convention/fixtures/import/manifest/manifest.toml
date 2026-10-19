@@ -1,0 +1,46 @@
+[run]
+id = "20260702-cicass-suite512-paired-fixed-m5"
+code = "cicass-suite512"
+date_utc = "2026-07-02T17:56:49Z"
+tag = "paired-fixed-m5"
+status = "ok"
+wall_sec = 2543
+
+[provenance]
+host = "host-a"
+vespa_sha = "1a5587f"
+vespa_dirty = true
+launch_config = "configs/run_cicass_suite512_paired_fixed.sh"
+julia_ver = "unknown"
+gpu = "Apple Metal"
+cicass_jl_sha = "6f710e5"
+cicass_c_sha = "f7713cc"
+
+[config.env]
+BACKEND = "metal"
+CIC_NGRID = "512"
+CIC_NP = "1"
+CIC_SOLVER = "fvgk"
+CIC_FVGK_F16 = "1"
+CIC_FVGK_DEDUP = "1"
+CIC_FVGK_DIRECT_IC = "1"
+CIC_CHEM = "analytic"
+CIC_PACKED = "1"
+CIC_PSORT = "16"
+CIC_GRAVITY = "gpu"
+CIC_GRAV1BUF = "1"
+CIC_FIXAMP = "1"
+CIC_PK = "1"
+CIC_PKMU = "8"
+CIC_PDF = "1"
+CIC_PDF_NBINS = "192"
+CIC_ZOUT = "1000,500,200,100,50,30,20"
+CIC_SUITE_BOX_KPC = "256 1024 4096 16564"
+CIC_SUITE_SEEDS = "113334 271828"
+
+[outputs]
+scratch_dir = "/home/user/Projects/cicass_suite512_paired_fixed"
+archive_dir = ""
+bulk_bytes = 94489280512
+assembled_h5 = "/home/user/Projects/cicass_suite512_paired_fixed/suite512_assembled.h5"
+synced = ["manifest.tsv", "suite_run_summary.tsv", "suite_box_summary.tsv", "suite_performance_summary.md"]
