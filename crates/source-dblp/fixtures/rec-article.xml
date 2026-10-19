@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="US-ASCII"?>
+<dblp>
+<article key="journals/jmlr/BleiNJ03" mdate="2018-11-14">
+<author pid="b/DavidMBlei">David M. Blei 0001</author>
+<author pid="n/AndrewYNg">Andrew Y. Ng</author>
+<author pid="j/MichaelIJordan">Michael I. Jordan</author>
+<title>Latent Dirichlet Allocation.</title>
+<pages>993-1022</pages>
+<year>2003</year>
+<volume>3</volume>
+<journal>J. Mach. Learn. Res.</journal>
+<ee type="oa">http://jmlr.org/papers/v3/blei03a.html</ee>
+<ee>https://doi.org/10.5555/944919.944937</ee>
+<url>db/journals/jmlr/jmlr3.html#BleiNJ03</url>
+</article>
+</dblp>

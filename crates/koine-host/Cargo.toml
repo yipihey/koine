@@ -66,6 +66,9 @@ source-openalex = { workspace = true, optional = true }
 source-pubmed = { workspace = true, optional = true }
 source-wos = { workspace = true, optional = true }
 source-scix = { workspace = true, optional = true }
+source-s2 = { workspace = true, optional = true }
+source-dblp = { workspace = true, optional = true }
+source-inspire = { workspace = true, optional = true }
 # The run convention's verbs (docs/plan-run-convention.md R-D13): always
 # linked; the only code it knows out of the box is `demo-code` when that
 # binary is beside the host's.
@@ -96,10 +99,11 @@ tier-b = ["impress-layout-service/tier-b", "impress-surface-service/tier-b"]
 # The demo verbs and the tour, for the koine-host binary.
 demo = ["dep:surface-demo-service"]
 # The online-source adapters `source-service_explain` lists: Crossref, arXiv,
-# ADS, OpenAlex, PubMed, Web of Science and SciX
+# ADS, OpenAlex, PubMed, Web of Science, SciX, Semantic Scholar, DBLP and
+# INSPIRE-HEP
 # (docs/plan-source-convention.md S-D9). Without it the six source verbs are
 # linked over an empty inventory.
-sources = ["dep:source-crossref", "dep:source-arxiv", "dep:source-ads", "dep:source-openalex", "dep:source-pubmed", "dep:source-wos", "dep:source-scix"]
+sources = ["dep:source-crossref", "dep:source-arxiv", "dep:source-ads", "dep:source-openalex", "dep:source-pubmed", "dep:source-wos", "dep:source-scix", "dep:source-s2", "dep:source-dblp", "dep:source-inspire"]
 # A native `--window` (webkit2gtk on Linux); without it `--window` opens the browser.
 window-webview = ["koine-window/webview"]
 # The on-device Apple model as a provider. Off by default: it builds a Swift

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="US-ASCII"?>
+<dblp>
+<inproceedings key="conf/nips/VaswaniSPUJGKP17" mdate="2021-01-21">
+<author pid="152/0814">Ashish Vaswani</author>
+<author pid="s/NoamShazeer">Noam Shazeer</author>
+<author pid="98/1790">Niki Parmar</author>
+<author pid="125/3180">Jakob Uszkoreit</author>
+<author pid="14/8076">Llion Jones</author>
+<author pid="27/9484">Aidan N. Gomez</author>
+<author pid="54/9019">Lukasz Kaiser</author>
+<author pid="148/5110">Illia Polosukhin</author>
+<title>Attention is All you Need.</title>
+<pages>5998-6008</pages>
+<year>2017</year>
+<booktitle>NIPS</booktitle>
+<ee>https://proceedings.neurips.cc/paper/2017/hash/3f5ee243547dee91fbd053c1c4a845aa-Abstract.html</ee>
+<crossref>conf/nips/2017</crossref>
+<url>db/conf/nips/nips2017.html#VaswaniSPUJGKP17</url>
+</inproceedings>
+</dblp>

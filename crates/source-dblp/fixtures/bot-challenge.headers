@@ -1,0 +1,6 @@
+HTTP/2 202 
+cache-control: no-store
+content-type: text/html; charset=utf-8
+refresh: 2; url=/.within.website/x/cmd/anubis/api/pass-challenge?challenge=1bc7e970c3841b53893c6668833739e3c16f3e02cf682209906fd7a99962d78ffe432d74b6e2fd133328affc6856baecb06924a000cff004f4dbf39d2a678a39&id=01a1567a-1301-713a-9c04-3f1790766a89&redir=%2Fsearch%2Fpubl%2Fapi%3Fq%3Dattention%2520is%2520all%2520you%2520need%26format%3Djson%26h%3D3%26f%3D0
+date: Mon, 19 Oct 2026 23:23:23 GMT
+

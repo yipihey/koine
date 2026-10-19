@@ -113,6 +113,12 @@ pub fn parse(text: &str) -> Option<Identifier> {
         ("wos", &["wos:"][..]),
         ("openalex", &["openalex:", "https://openalex.org/"][..]),
         ("s2", &["s2:", "semanticscholar:"][..]),
+        ("corpusid", &["corpusid:"][..]),
+        ("dblp", &["dblp:", "https://dblp.org/rec/"][..]),
+        (
+            "inspire",
+            &["inspire:", "recid:", "https://inspirehep.net/literature/"][..],
+        ),
         ("isbn", &["isbn:"][..]),
     ] {
         for p in prefixes {
@@ -236,6 +242,39 @@ mod tests {
             "wos:WOS:000175157300021"
         );
         assert_eq!(parse("WOS:123"), None);
+    }
+
+    #[test]
+    fn source_native_ids_route_by_prefix() {
+        for (text, kind, value) in [
+            ("corpusid:13756489", "corpusid", "13756489"),
+            ("CorpusId:13756489", "corpusid", "13756489"),
+            (
+                "dblp:conf/nips/VaswaniSPUJGKP17",
+                "dblp",
+                "conf/nips/VaswaniSPUJGKP17",
+            ),
+            (
+                "https://dblp.org/rec/journals/jmlr/BleiNJ03",
+                "dblp",
+                "journals/jmlr/BleiNJ03",
+            ),
+            ("inspire:728142", "inspire", "728142"),
+            ("recid:728142", "inspire", "728142"),
+            (
+                "https://inspirehep.net/literature/728142",
+                "inspire",
+                "728142",
+            ),
+        ] {
+            let id = parse(text).unwrap_or_else(|| panic!("{text}"));
+            assert_eq!(
+                (id.kind.as_str(), id.value.as_str()),
+                (kind, value),
+                "{text}"
+            );
+        }
+        assert_eq!(parse("728142"), None, "a bare number is nobody's id");
     }
 
     #[test]

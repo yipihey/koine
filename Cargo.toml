@@ -73,6 +73,9 @@ members = [
     "crates/source-pubmed",
     "crates/source-wos",
     "crates/source-scix",
+    "crates/source-s2",
+    "crates/source-dblp",
+    "crates/source-inspire",
     "crates/koine-workspace-hack",
 ]
 
@@ -230,6 +233,9 @@ source-openalex = { path = "crates/source-openalex" }
 source-pubmed = { path = "crates/source-pubmed" }
 source-wos = { path = "crates/source-wos" }
 source-scix = { path = "crates/source-scix" }
+source-s2 = { path = "crates/source-s2" }
+source-dblp = { path = "crates/source-dblp" }
+source-inspire = { path = "crates/source-inspire" }
 
 # implore crates
 
