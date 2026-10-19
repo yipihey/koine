@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://koine.dev/run@1/parameter-schema.schema.json",
+  "title": "a code's emitted parameter schema",
+  "description": "R-D2.1: a meta-schema for what a code emits on `--schema`: one JSON Schema object whose `properties` are its parameters, named `component.name` (R-D2.2), each with a standard JSON Schema description (type, default, enum, minimum/maximum, pattern, description) plus an optional `x-run` object. A parameter requires `type` and `description` (the plan wants every parameter documented). A parameter of type `file` (R-D2.4) is `type: string` with `format: \"file\"`. `x-run` keys are closed so a misspelt key is an error (R-D2.5): unit (UCUM or astropy-parseable string), group, mutable (never|restart|always, default never), env, advanced, requires (list of {param, equals?}: this parameter needs `param` to be set, to `equals` when given; R-D2.6), open (an open group, which must name a `generator`, R-D2.5). Top-level `x-run` may declare `metrics` (R-D6.4: name, unit, description) and `groups`, a map from group name to {description, open, generator}; `open: true` without a `generator` is a schema error. A schema that sets `additionalProperties` must set it to false (unknown is an error).",
+  "type": "object",
+  "required": ["type", "properties"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "title": { "type": "string" },
+    "description": { "type": "string" },
+    "type": { "const": "object" },
+    "additionalProperties": { "const": false },
+    "properties": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+$" },
+      "additionalProperties": { "$ref": "#/$defs/parameter" }
+    },
+    "$defs": { "type": "object" },
+    "x-run": {
+      "type": "object",
+      "properties": {
+        "metrics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "unit": { "type": "string" },
+              "description": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "groups": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "description": { "type": "string" },
+              "open": { "type": "boolean" },
+              "generator": { "type": "string", "minLength": 1 }
+            },
+            "if": { "properties": { "open": { "const": true } }, "required": ["open"] },
+            "then": { "required": ["generator"] },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "parameter": {
+      "type": "object",
+      "required": ["type", "description"],
+      "properties": {
+        "type": { "enum": ["string", "number", "integer", "boolean", "array", "object"] },
+        "description": { "type": "string", "minLength": 1 },
+        "title": { "type": "string" },
+        "default": {},
+        "enum": { "type": "array", "minItems": 1 },
+        "const": {},
+        "minimum": { "type": "number" },
+        "maximum": { "type": "number" },
+        "exclusiveMinimum": { "type": "number" },
+        "exclusiveMaximum": { "type": "number" },
+        "multipleOf": { "type": "number", "exclusiveMinimum": 0 },
+        "pattern": { "type": "string" },
+        "format": { "type": "string" },
+        "minLength": { "type": "integer", "minimum": 0 },
+        "maxLength": { "type": "integer", "minimum": 0 },
+        "items": { "type": ["object", "boolean"] },
+        "minItems": { "type": "integer", "minimum": 0 },
+        "maxItems": { "type": "integer", "minimum": 0 },
+        "x-run": {
+          "type": "object",
+          "properties": {
+            "unit": { "type": "string" },
+            "group": { "type": "string", "minLength": 1 },
+            "mutable": { "type": "string", "enum": ["never", "restart", "always"], "default": "never" },
+            "env": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+            "advanced": { "type": "boolean" },
+            "requires": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["param"],
+                "properties": { "param": { "type": "string", "minLength": 1 }, "equals": {} },
+                "additionalProperties": false
+              }
+            },
+            "open": { "type": "boolean" },
+            "generator": { "type": "string", "minLength": 1 }
+          },
+          "if": { "properties": { "open": { "const": true } }, "required": ["open"] },
+          "then": { "required": ["generator"] },
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

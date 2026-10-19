@@ -1,0 +1,23 @@
+[package]
+name = "run-convention"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The run convention (docs/plan-run-convention.md): JSON Schemas for a run directory and run-check, the conformance checker"
+
+[dependencies]
+jsonschema = { version = "0.33", default-features = false }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[bin]]
+name = "run-check"
+path = "src/bin/run-check.rs"
+
+[lints]
+workspace = true

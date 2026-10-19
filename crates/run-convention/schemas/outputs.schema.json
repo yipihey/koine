@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://koine.dev/run@1/outputs.schema.json",
+  "title": "outputs.json",
+  "description": "R-D7: the index of artifacts the code produced. Choice where the plan is silent: the file is an object {\"outputs\": [...]} (so it can grow top-level fields), one entry per artifact. `path` is relative to the run directory and must exist (checked by run-check). Every `output` event is also an entry here: the file is the index, the event is the notification. `format` is free text (hdf5, openpmd, jls, csv, bin+toml, ...). `schema` is the path of a sidecar describing the format (Vespa's fields.toml).",
+  "type": "object",
+  "required": ["outputs"],
+  "properties": {
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "kind"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "enum": ["snapshot", "checkpoint", "series", "spectrum", "image", "log", "other"] },
+          "format": { "type": "string" },
+          "step": { "type": "integer", "minimum": 0 },
+          "time": { "type": "number" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "schema": { "type": "string" }
+        }
+      }
+    }
+  }
+}

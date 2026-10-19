@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://koine.dev/run@1/run.schema.json",
+  "title": "run.json",
+  "description": "R-D4: the record of one run (identity, code, problem, host, lineage, status). Written at start and updated only in its `status` block. `key` is sha256 hex of the RFC 8785 canonical form of {\"problem\": run.problem, \"params\": <values of params.json>}; it is required unless the record is `provenance: \"imported\"` (R-D11: an import has a key only when the full parameter set was recovered). The key is verified by run-check, not by this schema. Choices where the plan is silent: objects are open (unknown fields are kept, TR-D13); terminal states (done, failed, cancelled) require `ended_at` and `exit`; the exit-code bands are enforced here.",
+  "type": "object",
+  "required": ["id", "convention", "code", "problem", "status"],
+  "properties": {
+    "convention": { "const": "run@1", "description": "The version of the run convention this record follows." },
+    "id": { "type": "string", "format": "uuid", "description": "UUID minted at start; not a hash (R-D4.1)." },
+    "key": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 hex of canonical({problem, params-values}) (R-D4.3)." },
+    "name": { "type": "string", "description": "Human alias, free text, not unique." },
+    "provenance": { "type": "string", "enum": ["native", "imported"], "description": "Absent means native. `imported` marks a record built by an importer from an old run folder (R-D11)." },
+    "code": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string" },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$", "description": "Full git commit hash." },
+        "dirty": { "type": "boolean" },
+        "diff_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Hash of the diff when dirty; the diff itself is a blob." },
+        "build_flags": { "type": ["string", "array", "object"] },
+        "lock_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Hash of the environment lock file (Manifest.toml)." }
+      }
+    },
+    "problem": {
+      "type": "object",
+      "required": ["name"],
+      "description": "R-D2.4: the named, versioned generator of the initial state and its own parameters. This whole object is part of the key.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string" },
+        "params": { "type": "object" },
+        "inputs": {
+          "type": "array",
+          "description": "Input files recorded by content hash (R-D4.2).",
+          "items": {
+            "type": "object",
+            "required": ["path", "sha256"],
+            "properties": {
+              "path": { "type": "string" },
+              "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+            }
+          }
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "properties": {
+        "hostname": { "type": "string" },
+        "os": { "type": "string" },
+        "cpu": { "type": "string" },
+        "accelerator": { "type": "string" },
+        "scheduler_job_id": { "type": "string" },
+        "argv": { "type": "array", "items": { "type": "string" } },
+        "env": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "properties": {
+        "parent": {
+          "type": "object",
+          "required": ["run"],
+          "description": "The run this one resumed from or forked from. A restart asserts what it resumed from (R-D4.2).",
+          "properties": {
+            "run": { "type": "string", "format": "uuid" },
+            "relation": { "type": "string", "enum": ["resume", "fork"] },
+            "checkpoint": {
+              "type": "object",
+              "required": ["path", "sha256"],
+              "properties": {
+                "path": { "type": "string" },
+                "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+              }
+            }
+          }
+        },
+        "sweep": { "type": "string", "format": "uuid", "description": "The `id` of the sweep.json this run belongs to (R-D10)." }
+      }
+    },
+    "status": {
+      "type": "object",
+      "required": ["state"],
+      "description": "The only block that changes after start (R-D4.2).",
+      "properties": {
+        "state": { "type": "string", "enum": ["created", "running", "suspended", "done", "failed", "cancelled"], "description": "R-D4.4. `orphaned` is derived by a tool and never written." },
+        "started_at": { "type": "string", "format": "date-time" },
+        "ended_at": { "type": "string", "format": "date-time" },
+        "exit": { "$ref": "#/$defs/exit" },
+        "last_event_seq": { "type": "integer", "minimum": 0 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "enum": ["done", "failed", "cancelled"] } }, "required": ["state"] },
+          "then": { "required": ["ended_at", "exit"] }
+        }
+      ]
+    }
+  },
+  "if": { "not": { "required": ["provenance"] } },
+  "then": { "required": ["key"] },
+  "else": {
+    "if": { "properties": { "provenance": { "const": "native" } } },
+    "then": { "required": ["key"] }
+  },
+  "$defs": {
+    "exit": {
+      "type": "object",
+      "required": ["code", "label"],
+      "description": "R-D4.5. Bands: 0 ok; 100-199 stopped by environment; 200-299 invalid input; 300-399 numerical failure; 400-499 code-specific. Nothing else is a valid exit code.",
+      "properties": {
+        "code": { "type": "integer", "anyOf": [{ "const": 0 }, { "minimum": 100, "maximum": 499 }] },
+        "label": { "type": "string", "minLength": 1 },
+        "message": { "type": "string" },
+        "invalidates_reuse": { "type": "boolean", "description": "On a failure: the run must not be treated as the answer for its key." }
+      }
+    }
+  }
+}

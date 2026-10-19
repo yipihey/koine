@@ -6897,6 +6897,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "run-convention"
+version = "0.1.0"
+dependencies = [
+ "jsonschema",
+ "koine-workspace-hack",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "rusqlite"
 version = "0.32.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

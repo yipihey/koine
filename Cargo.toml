@@ -61,6 +61,7 @@ members = [
     "crates/koine-plot-veusz",
     "crates/koine-py",
     "crates/koine-demo-mobile",
+    "crates/run-convention",
     "crates/koine-workspace-hack",
 ]
 
