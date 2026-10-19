@@ -103,8 +103,10 @@ has them namespaced with their sources, and the key hashes that.
 in `run.log` (0 -> done/ok; n -> failed, `400+n`); else a Julia `ERROR:` or
 `Stacktrace:` (failed, banded: Metal unavailable 110, NaN/Inf 300, `must be`
 200, else 400); else a `COMPLETE` line (done/ok); else **done with
-`exit: {code: 0, label: "unknown"}` and a message saying the outcome was not
-recorded**. `ended_at` is `started_at + wall_sec`, else the mtime of
+`exit: {code: 0, label: "unknown", invalidates_reuse: true}` and a message
+saying the outcome was not recorded** — code 0 is the only band-neutral code,
+so `invalidates_reuse` is what stops a tool from taking such a run as the
+answer for its key. `ended_at` is `started_at + wall_sec`, else the mtime of
 `run.log` (named in `imported.ended_at_source`).
 
 **Outputs.** Files present (depth 3, hidden files and symlinks skipped, at most

@@ -740,7 +740,7 @@ impl Facts {
                     ),
                     other => (
                         "done",
-                        json!({"code": 0, "label": "unknown",
+                        json!({"code": 0, "label": "unknown", "invalidates_reuse": true,
                                "message": format!("manifest status `{other}` not understood")}),
                     ),
                 };
@@ -769,7 +769,10 @@ impl Facts {
             }
             (
                 "done",
-                json!({"code": 0, "label": "unknown",
+                // Code 0 is the only band-neutral code the schema allows, so an unrecorded
+                // outcome also carries `invalidates_reuse`: a tool that reads `code == 0` as
+                // "reusable result" must not take this run as a cache hit.
+                json!({"code": 0, "label": "unknown", "invalidates_reuse": true,
                        "message": "outcome was not recorded: no manifest status, no EXIT sentinel and no recognisable end of run.log"}),
             )
         };
