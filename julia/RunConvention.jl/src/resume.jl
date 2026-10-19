@@ -39,13 +39,12 @@ function resume(dir::AbstractString; from::AbstractString, argv = ARGS, file = n
     rel = startswith(ck, normpath(abspath(pdir)) * "/") ? ck[length(normpath(abspath(pdir)))+2:end] : ck
     pstep = step
     if pstep === nothing
-        for o in read_json(joinpath(pdir, "outputs.json"))
+        for o in read_json(joinpath(pdir, "outputs.json"))["outputs"]
             o["path"] == rel && haskey(o, "step") && (pstep = o["step"])
         end
     end
-    lineage = Dict{String,Any}("parent" => Dict{String,Any}("run" => parent["id"], "checkpoint" => rel,
-                                                             "sha256" => sha256_file(ck)),
-                               "sweep" => nothing)
+    lineage = Dict{String,Any}("parent" => Dict{String,Any}("run" => parent["id"], "relation" => "resume",
+                                   "checkpoint" => Dict{String,Any}("path" => rel, "sha256" => sha256_file(ck))))
     run = start_run(dir; problem = parent["problem"],
                     name = name === nothing ? get(parent, "name", nothing) : name,
                     params = p, lineage, on_checkpoint)

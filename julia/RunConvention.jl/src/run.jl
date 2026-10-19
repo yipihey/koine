@@ -17,6 +17,9 @@ mutable struct Run
 end
 Base.show(io::IO, r::Run) = print(io, "Run(", r.id, " @ ", r.dir, ", seq=", r.seq, r.finished ? ", finished)" : ")")
 
+"Drop keys whose value is `nothing`: an absent optional field is omitted, never null."
+compact(d::AbstractDict) = Dict{String,Any}(string(k) => v for (k, v) in d if v !== nothing)
+
 # ---- provenance -------------------------------------------------------------------
 
 function git(dir, args...)
@@ -42,20 +45,17 @@ function code_block(code_dir::AbstractString, name, version)
         end
     end
     manifest = nothing
-    for d in filter(!isnothing, (pdir, code_dir)), f in ("Manifest.toml",)
-        isfile(joinpath(d, f)) && (manifest = sha256_file(joinpath(d, f)); break)
+    for d in filter(!isnothing, (pdir, code_dir))
+        isfile(joinpath(d, "Manifest.toml")) && (manifest = sha256_file(joinpath(d, "Manifest.toml")); break)
     end
-    b = Dict{String,Any}("name" => name === nothing ? nothing : String(name),
-                         "version" => version === nothing ? nothing : String(version),
-                         "julia" => string(VERSION), "manifest_sha256" => manifest)
-    head = git(code_dir, "rev-parse", "HEAD")
+    b = Dict{String,Any}("name" => name === nothing ? "unnamed" : String(name),
+                         "version" => version === nothing ? "0" : String(version),
+                         "julia" => string(VERSION), "lock_sha256" => manifest)
     if Sys.which("git") === nothing || git(code_dir, "rev-parse", "--is-inside-work-tree") === nothing
         b["git_available"] = false
-        b["commit"] = nothing
-        b["dirty"] = nothing
-        b["diff_sha256"] = nothing
     else
         b["git_available"] = true
+        head = git(code_dir, "rev-parse", "HEAD")
         b["commit"] = head === nothing ? nothing : strip(head)
         st = git(code_dir, "status", "--porcelain")
         dirty = st === nothing ? nothing : !isempty(strip(st))
@@ -63,7 +63,7 @@ function code_block(code_dir::AbstractString, name, version)
         diff = dirty === true ? git(code_dir, "diff", "HEAD") : nothing
         b["diff_sha256"] = diff === nothing ? nothing : sha256_hex(diff)
     end
-    b
+    compact(b)
 end
 
 function host_block(p::Params)
@@ -80,20 +80,20 @@ function host_block(p::Params)
         haskey(ENV, e) && (job = ENV[e]; break)
     end
     cpus = Sys.cpu_info()
-    Dict{String,Any}("hostname" => gethostname(), "os" => string(Sys.KERNEL),
+    compact(Dict{String,Any}("hostname" => gethostname(), "os" => string(Sys.KERNEL),
                      "arch" => string(Sys.ARCH), "cpu" => isempty(cpus) ? nothing : cpus[1].model,
                      "cpu_threads" => Sys.CPU_THREADS, "julia_threads" => Threads.nthreads(),
-                     "accelerator" => nothing, "scheduler_job_id" => job,
-                     "argv" => String[PROGRAM_FILE; ARGS], "env" => envs)
+                     "scheduler_job_id" => job,
+                     "argv" => String[PROGRAM_FILE; ARGS], "env" => envs))
 end
 
-normalize_problem(::Nothing) = Dict{String,Any}("name" => "", "version" => "", "params" => Dict{String,Any}())
+normalize_problem(::Nothing) = Dict{String,Any}("name" => "unnamed", "version" => "0", "params" => Dict{String,Any}())
 function normalize_problem(pr)
     get2(k, i) = pr isa AbstractDict ? get(pr, k, get(pr, Symbol(k), nothing)) :
                  pr isa NamedTuple ? get(pr, Symbol(k), nothing) : pr[i]
     ps = get2("params", 3)
-    Dict{String,Any}("name" => String(something(get2("name", 1), "")),
-                     "version" => String(something(get2("version", 2), "")),
+    Dict{String,Any}("name" => String(something(get2("name", 1), "unnamed")),
+                     "version" => String(something(get2("version", 2), "0")),
                      "params" => ps === nothing ? Dict{String,Any}() : plain_params(ps))
 end
 plain_params(d::AbstractDict) = Dict{String,Any}(string(k) => v for (k, v) in d)
@@ -145,12 +145,12 @@ function start_run(dir::AbstractString; problem = nothing, name = nothing, param
         "code" => code_block(cdir, code_name, code_version),
         "problem" => pr, "params" => Dict{String,Any}("key" => key),
         "host" => host_block(p),
-        "lineage" => lineage === nothing ? Dict{String,Any}("parent" => nothing, "sweep" => nothing) : lineage,
-        "status" => Dict{String,Any}("state" => "running", "started_at" => started,
-                                      "ended_at" => nothing, "exit" => nothing, "last_event_seq" => 0))
+        "lineage" => lineage === nothing ? Dict{String,Any}() : lineage,
+        "status" => Dict{String,Any}("state" => "running", "started_at" => started, "last_event_seq" => 0))
+    record = compact(record)
     write_json_atomic(joinpath(dir, "params.json"), params_document(p))   # before the first step
     write_json_atomic(joinpath(dir, "run.json"), record)
-    write_json_atomic(joinpath(dir, "outputs.json"), Any[])
+    write_outputs(dir, Dict{String,Any}[])
     run = Run(dir, id, key, record, p, 0, open_events(dir), ReentrantLock(), Dict{String,Any}[],
               false, on_checkpoint)
     emit!(run, "started")
@@ -162,8 +162,14 @@ end
 progress!(run::Run; step, time = nothing, dt = nothing, fraction = nothing) =
     emit!(run, "progress", "step" => step, "time" => time, "dt" => dt, "fraction" => fraction)
 
-metric!(run::Run; step, values::AbstractDict) =
-    emit!(run, "metric", "step" => step, "values" => Dict{String,Any}(string(k) => v for (k, v) in values))
+function metric!(run::Run; step, values::AbstractDict)
+    ok = Dict{String,Any}(string(k) => v for (k, v) in values if !(v isa Real && !isfinite(v)))
+    bad = sort!([string(k) for (k, v) in values if v isa Real && !isfinite(v)])
+    e = emit!(run, "metric", "step" => step, "values" => ok)
+    isempty(bad) || warn!(run, "non-finite metric values omitted: " * join(bad, ", "); step,
+                          data = Dict{String,Any}("non_finite" => bad))
+    e
+end
 
 warn!(run::Run, msg::AbstractString; step = nothing, data = nothing) =
     emit!(run, "warning", "message" => String(msg), "step" => step, "data" => data)
@@ -179,21 +185,25 @@ function relpath_in(run::Run, path::AbstractString)
     abs, rel
 end
 
-function index_output!(run::Run, path, kind, format, step, time, extra...; by = nothing)
+const OUTPUT_KINDS = ("snapshot", "checkpoint", "series", "spectrum", "image", "log", "other")
+write_outputs(dir, outs) = write_json_atomic(joinpath(dir, "outputs.json"), Dict{String,Any}("outputs" => outs))
+
+function index_output!(run::Run, path, kind, format, step, time)
+    kind in OUTPUT_KINDS || throw(ArgumentError("output kind $(repr(kind)) must be one of $(OUTPUT_KINDS)"))
     abs, rel = relpath_in(run, path)
-    entry = Dict{String,Any}("path" => rel, "kind" => String(kind),
-                             "format" => format === nothing ? splitext(rel)[2][2:end] : String(format),
-                             "sha256" => sha256_file(abs), "bytes" => filesize(abs))
+    entry = compact(Dict{String,Any}("path" => rel, "kind" => String(kind),
+                             "format" => format === nothing ? (e = splitext(rel)[2]; isempty(e) ? nothing : e[2:end]) : String(format),
+                             "sha256" => sha256_file(abs), "bytes" => filesize(abs)))
     step === nothing || (entry["step"] = step)
     time === nothing || (entry["time"] = time)
     lock(run.lock) do
         push!(run.outputs, entry)
-        write_json_atomic(joinpath(run.dir, "outputs.json"), run.outputs)
+        write_outputs(run.dir, run.outputs)
     end
     entry
 end
 
-function checkpoint!(run::Run, path::AbstractString; step = nothing, time = nothing, format = nothing, by = nothing)
+function checkpoint!(run::Run, path::AbstractString; step, time = nothing, format = nothing, by = nothing)
     e = index_output!(run, path, "checkpoint", format, step, time)
     emit!(run, "checkpoint", "path" => e["path"], "sha256" => e["sha256"], "bytes" => e["bytes"],
           "step" => step, "by" => by)
@@ -202,7 +212,7 @@ end
 function output!(run::Run, path::AbstractString; kind = "other", format = nothing, step = nothing,
                  time = nothing, schema = nothing)
     e = index_output!(run, path, kind, format, step, time)
-    schema === nothing || (e["schema"] = String(schema); write_json_atomic(joinpath(run.dir, "outputs.json"), run.outputs))
+    schema === nothing || (e["schema"] = String(schema); write_outputs(run.dir, run.outputs))
     emit!(run, "output", "path" => e["path"], "kind_of" => e["kind"], "format" => e["format"],
           "step" => step, "time" => time, "sha256" => e["sha256"], "bytes" => e["bytes"])
 end
