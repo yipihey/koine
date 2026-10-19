@@ -141,14 +141,7 @@ fn render_surface(
     rows: Option<RowSchema>,
     missing_secrets: &[&str],
 ) -> SurfaceSpec {
-    let mut form_fields: Vec<Node> = Vec::new();
-    let required = required_names(input_schema);
-    if let Some(props) = input_schema.get("properties").and_then(|p| p.as_object()) {
-        for (name, prop) in props {
-            let prefill = example_args.get(name).cloned();
-            form_fields.push(argument_field(name, prop, required.contains(name), prefill));
-        }
-    }
+    let form_fields = schema_fields(input_schema, example_args, "state");
 
     let review = available && matches!(safety, SafetyClass::Destructive | SafetyClass::External);
 
@@ -436,6 +429,90 @@ fn adverb_field(adverb: Adverb) -> Option<Node> {
     )
 }
 
+/// One form field per property of `schema`, bound under `bind_prefix`
+/// (`state` for a verb's own arguments, `state.params` for a code's
+/// parameters), grouped by `x-run.group` when any property carries one
+/// (docs/plan-run-convention.md R-D2.1: "470 parameters need grouping before
+/// a form is usable").
+///
+/// Without groups the fields come back flat, in schema order — exactly what
+/// every verb form had before. With groups, the ungrouped fields come first,
+/// then one `Section` per group in first-seen order; a group whose every
+/// parameter is `x-run.advanced` starts collapsed. A dotted parameter name
+/// (`sink.tau`, R-D2.2) binds under its slug (`state.params.sink_tau`),
+/// because a state path is split on `.`; the caller maps the slug back to
+/// the name in the call's arguments ([`bind_slug`]).
+pub fn schema_fields(schema: &Value, prefill: &Value, bind_prefix: &str) -> Vec<Node> {
+    let required = required_names(schema);
+    let Some(props) = schema.get("properties").and_then(|p| p.as_object()) else {
+        return Vec::new();
+    };
+    let field_of = |name: &str, prop: &Value| {
+        argument_field(
+            name,
+            prop,
+            required.contains(name),
+            prefill.get(name).cloned(),
+            bind_prefix,
+        )
+    };
+    let grouped = props.values().any(|p| group_of(p).is_some());
+    if !grouped {
+        return props.iter().map(|(n, p)| field_of(n, p)).collect();
+    }
+    let mut out: Vec<Node> = Vec::new();
+    // (title, fields, every field advanced)
+    let mut groups: Vec<(String, Vec<Node>, bool)> = Vec::new();
+    for (name, prop) in props {
+        match group_of(prop) {
+            None => out.push(field_of(name, prop)),
+            Some(group) => {
+                let advanced = prop
+                    .pointer("/x-run/advanced")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                match groups.iter_mut().find(|(g, _, _)| g == group) {
+                    Some((_, fields, all_advanced)) => {
+                        fields.push(field_of(name, prop));
+                        *all_advanced = *all_advanced && advanced;
+                    }
+                    None => groups.push((group.to_string(), vec![field_of(name, prop)], advanced)),
+                }
+            }
+        }
+    }
+    let descriptions = schema.pointer("/x-run/groups").cloned();
+    for (title, fields, collapsed) in groups {
+        let mut section = Node::leaf(NodeKind::Section(Section {
+            title: title.clone(),
+            collapsed,
+            body: Box::new(Node::leaf(NodeKind::Column(fields))),
+        }))
+        .with_id(format!("group-{}", bind_slug(&title)));
+        if let Some(help) = descriptions
+            .as_ref()
+            .and_then(|d| d.get(&title))
+            .and_then(|g| g.get("description"))
+            .and_then(Value::as_str)
+        {
+            section = section.with_help(help);
+        }
+        out.push(section);
+    }
+    out
+}
+
+/// The `x-run.group` of a property, if it names one.
+fn group_of(prop: &Value) -> Option<&str> {
+    prop.pointer("/x-run/group").and_then(Value::as_str)
+}
+
+/// The state-path segment a property binds under: its name with every `.`
+/// (a namespaced parameter) as `_`. The identity for an ordinary argument.
+pub fn bind_slug(name: &str) -> String {
+    name.replace('.', "_")
+}
+
 /// The set of required property names, from the schema's `"required"` array.
 fn required_names(schema: &Value) -> std::collections::HashSet<String> {
     schema
@@ -450,8 +527,22 @@ fn required_names(schema: &Value) -> std::collections::HashSet<String> {
 }
 
 /// Table 2: one JSON-Schema property to one form field.
-fn argument_field(name: &str, prop: &Value, required: bool, prefill: Option<Value>) -> Node {
-    let label = name.replace('_', " ");
+fn argument_field(
+    name: &str,
+    prop: &Value,
+    required: bool,
+    prefill: Option<Value>,
+    bind_prefix: &str,
+) -> Node {
+    let mut label = name.replace('_', " ");
+    // R-D2.1: a unit on the label, so "tau (s)" needs no help text.
+    if let Some(unit) = prop
+        .pointer("/x-run/unit")
+        .and_then(Value::as_str)
+        .filter(|u| !u.is_empty())
+    {
+        label = format!("{label} ({unit})");
+    }
     let help = prop
         .get("description")
         .and_then(|d| d.as_str())
@@ -478,7 +569,7 @@ fn argument_field(name: &str, prop: &Value, required: bool, prefill: Option<Valu
         } else {
             label
         })
-        .with_bind(format!("state.{name}"));
+        .with_bind(format!("{bind_prefix}.{}", bind_slug(name)));
     if let Some(help) = help {
         node = node.with_help(help);
     }
