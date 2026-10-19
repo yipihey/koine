@@ -6927,6 +6927,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "run-gadget4"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "koine-workspace-hack",
+ "run-convention",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "rusqlite"
 version = "0.32.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

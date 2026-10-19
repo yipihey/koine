@@ -1,0 +1,81 @@
+# name	group	type	mutable	unit	advanced	description
+# type: int|float|string|path. Names with # are per-class/per-type patterns. mutable follows add_param(PARAM_FIXED|PARAM_CHANGEABLE) in src/data/allvars.cc (TimeMax: FIXED in the table but extendable on restart, see the comment there).
+InitCondFile	io	path	never		0	Initial-conditions file (without .hdf5 extension for snapshot formats); unused by NGenIC-created ICs
+OutputDir	io	path	restart		0	Directory for snapshots, restart files and diagnostics. The adapter requires it to stay inside the run directory
+SnapshotFileBase	io	string	restart		0	Snapshot file base name; files are <base>_NNN.hdf5
+OutputListFilename	output	path	restart		0	File listing the output times (scale factors or times) when OutputListOn is 1
+OutputListOn	output	int	restart		0	1: output times come from OutputListFilename; 0: from TimeOfFirstSnapshot/TimeBetSnapshot
+Omega0	cosmology	float	never		0	Total matter density in units of the critical density at z=0
+OmegaBaryon	cosmology	float	never		0	Baryon density in units of the critical density at z=0
+OmegaLambda	cosmology	float	never		0	Vacuum energy density in units of the critical density at z=0
+Hubble	cosmology	float	never		0	Hubble constant in code units (100 when length is Mpc/h and velocity km/s)
+HubbleParam	cosmology	float	never		0	Dimensionless Hubble parameter h; only enters through unit conversions
+BoxSize	time	float	never	code_length	0	Periodic box side length
+MaxMemSize	memory	int	restart	MBy	0	Memory the code may allocate per MPI rank
+TimeOfFirstSnapshot	output	float	restart	code_time	0	Time (or scale factor) of the first snapshot when OutputListOn is 0
+CpuTimeBetRestartFile	restart	float	restart	s	0	CPU time between regular restart-file writes
+TimeBetStatistics	output	float	restart	code_time	0	Interval between writes of the energy/statistics diagnostic
+TimeBegin	time	float	never	code_time	0	Start time (scale factor a for comoving runs)
+TimeMax	time	float	restart	code_time	0	End time (scale factor a for comoving runs); restart files can be extended past it
+TimeBetSnapshot	output	float	restart	code_time	0	Snapshot spacing when OutputListOn is 0 (a multiplicative factor in comoving runs)
+UnitVelocity_in_cm_per_s	units	float	never	cm/s	0	Internal velocity unit
+UnitLength_in_cm	units	float	never	cm	0	Internal length unit
+UnitMass_in_g	units	float	never	g	0	Internal mass unit
+GravityConstantInternal	units	float	never		0	Value of G in internal units; 0 derives it from the unit parameters
+ErrTolIntAccuracy	integration	float	restart		0	Accuracy of the gravitational time-step criterion
+ErrTolTheta	gravity	float	restart		0	Tree opening angle of the geometric criterion
+ErrTolThetaMax	gravity	float	restart		0	Maximum opening angle for the relative criterion
+ErrTolForceAcc	gravity	float	restart		0	Force accuracy of the relative tree opening criterion
+MaxSizeTimestep	integration	float	restart	code_time	0	Largest allowed time step (ln a for comoving runs)
+MinSizeTimestep	integration	float	restart	code_time	0	Smallest allowed time step
+ArtBulkViscConst	sph	float	restart		0	Artificial bulk viscosity strength
+CourantFac	integration	float	restart		0	Courant factor of the hydrodynamic time-step criterion
+DesNumNgb	sph	int	restart		0	Desired SPH neighbour number
+TopNodeFactor	domain	float	restart		0	Number of top-level tree nodes per MPI rank
+ActivePartFracForNewDomainDecomp	domain	float	restart		0	Active-particle fraction below which no new domain decomposition is done
+MaxNumNgbDeviation	sph	float	restart		0	Allowed deviation from DesNumNgb
+ComovingIntegrationOn	time	int	never		0	1: cosmological comoving integration; 0: physical coordinates
+ICFormat	io	int	restart		0	Initial-conditions file format; same choices as SnapFormat
+SnapFormat	io	int	restart		0	Snapshot file format (1, 2 binary; 3 HDF5)
+NumFilesPerSnapshot	io	int	restart		0	Number of files each snapshot is split into
+MaxFilesWithConcurrentIO	io	int	restart		0	Number of snapshot files written or read concurrently
+TypeOfOpeningCriterion	gravity	int	never		0	Tree opening criterion: 0 geometric (angle theta), 1 relative (force error)
+TimeLimitCPU	restart	float	restart	s	0	CPU-time limit; the code stops with restart files at 85 percent of it
+InitGasTemp	sph	float	never	K	0	Initial gas temperature; 0 takes it from the ICs
+MinEgySpec	cooling_sf	float	restart	code_velocity^2	0	Minimum specific internal energy of gas
+ActivePartFracForPMinsteadOfEwald	gravity	float	restart		0	Active fraction above which PM replaces the Ewald correction
+MinimumComovingHydroSoftening	softening	float	never	code_length	1	Minimum comoving SPH softening length
+AdaptiveHydroSofteningSpacing	softening	float	never		1	Spacing of the adaptive hydro softening lengths
+GasSoftFactor	softening	float	never		1	Gas softening as a multiple of the SPH smoothing length
+ViscosityAlphaMin	sph	float	restart		0	Minimum value of the time-dependent artificial viscosity
+DesLinkNgb	subfind	int	restart		0	Neighbour number used by the SUBFIND density estimate
+LightConeDefinitionFile	lightcone	path	restart		1	Lightcone geometry definition file
+LightConeOriginsFile	lightcone	path	restart		1	File of lightcone observer positions
+LightConeMassMapsNside	lightcone	int	never		1	HEALPix Nside of lightcone mass maps
+LightConeMassMapThickness	lightcone	float	restart	code_length	1	Thickness of lightcone mass-map shells
+LightConeMassMapMaxRedshift	lightcone	float	restart		1	Maximum redshift of lightcone mass maps
+FlushCpuTimeDiff	restart	float	restart	s	1	Minimum CPU time between flushes of the diagnostic files
+TreecoolFile	cooling_sf	path	restart		0	UV-background cooling-rate table
+CritOverDensity	cooling_sf	float	never		0	Critical overdensity for star formation (comoving runs)
+CritPhysDensity	cooling_sf	float	never		0	Critical physical density for star formation
+FactorSN	cooling_sf	float	never		0	Mass fraction of stars that go supernova (beta)
+FactorEVP	cooling_sf	float	never		0	Evaporation factor of the multiphase model (A)
+TempSupernova	cooling_sf	float	never	K	0	Effective supernova temperature of the multiphase model
+TempClouds	cooling_sf	float	never	K	0	Temperature of cold clouds in the multiphase model
+MaxSfrTimescale	cooling_sf	float	never	code_time	0	Star-formation timescale at the threshold density
+NSample	ngenic	int	never		0	NGenIC: k-space sampling grid size per dimension
+SphereMode	ngenic	int	never		0	NGenIC: 1 uses modes with |k| below Nyquist (a sphere), 0 a cube in k-space
+PowerSpectrumType	ngenic	int	never		0	NGenIC: linear-spectrum parameterization (1 Eisenstein and Hu, 2 tabulated in PowerSpectrumFile, other Efstathiou)
+ReNormalizeInputSpectrum	ngenic	int	never		0	NGenIC: 1 rescales the input spectrum to Sigma8
+PrimordialIndex	ngenic	float	never		0	NGenIC: primordial spectral index n_s
+ShapeGamma	ngenic	float	never		0	NGenIC: shape parameter for the Efstathiou power-spectrum fit
+Sigma8	ngenic	float	never		0	NGenIC: target rms density fluctuation on 8 Mpc/h at z=0
+PowerSpectrumFile	ngenic	path	never		0	NGenIC: tabulated power-spectrum file
+InputSpectrum_UnitLength_in_cm	ngenic	float	never	cm	0	NGenIC: length unit of the tabulated spectrum
+Seed	ngenic	int	never		0	NGenIC: random seed of the white-noise field
+GridSize	ngenic	int	never		0	NGenIC: particle load grid size per dimension (CREATE_GRID)
+A_StaticHQHalo	special	float	never	code_length	1	Scale radius of the static Hernquist halo
+Mass_StaticHQHalo	special	float	never	code_mass	1	Mass of the static Hernquist halo
+SofteningComovingClass#	softening	float	never	code_length	0	Comoving gravitational softening length of softening class #
+SofteningMaxPhysClass#	softening	float	never	code_length	0	Maximum physical softening length of softening class #
+SofteningClassOfPartType#	softening	int	never		0	Softening class used by particle type #

@@ -1,0 +1,108 @@
+Shared memory islands host a minimum of 1 and a maximum of 1 MPI ranks.
+
+  ___    __    ____    ___  ____  ____       __
+ / __)  /__\  (  _ \  / __)( ___)(_  _)___  /. |
+( (_-. /(__)\  )(_) )( (_-. )__)   )( (___)(_  _)
+ \___/(__)(__)(____/  \___/(____) (__)       (_)
+
+This is Gadget, version 4.0.
+Git commit 6e4f1128ac696260d3f2aff68cb6fa7b335e4c1c, Tue May 20 19:00:00 2025 +0200
+
+Code was compiled with the following compiler and flags:
+mpicxx  -std=c++11     -O3 -Wall -Wno-format-security      -I/opt/homebrew/opt/hdf5/include -I/opt/homebrew/opt/gsl/include -I/opt/homebrew/opt/fftw/include    -Ibuild-capi -Isrc
+
+
+Code was compiled with the following settings:
+    ASMTH=2.0
+    CREATE_GRID
+    DOUBLEPRECISION=1
+    FOF
+    GADGET2_HEADER
+    IDS_32BIT
+    NGENIC=256
+    NGENIC_2LPT
+    NSOFTCLASSES=1
+    NTYPES=2
+    PERIODIC
+    PMGRID=256
+    RANDOMIZE_DOMAINCENTER
+    SELFGRAVITY
+    SUBFIND
+    TREEPM_NOTIMESPLIT
+
+
+Running on 1 MPI tasks.
+
+
+BEGRUN: Size of particle structure        104  [bytes]
+BEGRUN: Size of sph particle structure    192  [bytes]
+BEGRUN: Size of gravity tree node          96  [bytes]
+BEGRUN: Size of neighbour tree node       192  [bytes]
+BEGRUN: Size of subfind auxiliary data    104  [bytes]
+
+Obtaining parameters from file 'param.txt':
+
+        InitCondFile                                      ./dummy.dat
+        OutputDir                                         ./output
+        SnapshotFileBase                                  snapshot
+        OutputListFilename                                outputs.txt
+        ICFormat                                          3
+        SnapFormat                                        3
+        TimeLimitCPU                                      86400
+        CpuTimeBetRestartFile                             7200
+        MaxMemSize                                        1800
+        TimeBegin                                         0.1
+        TimeMax                                           0.11
+        ComovingIntegrationOn                             1
+        Omega0                                            0.308
+        OmegaLambda                                       0.692
+        OmegaBaryon                                       0.0482
+        HubbleParam                                       0.678
+        Hubble                                            100
+        BoxSize                                           50
+        OutputListOn                                      1
+        TimeBetSnapshot                                   0
+        TimeOfFirstSnapshot                               0
+        TimeBetStatistics                                 0.01
+        NumFilesPerSnapshot                               1
+        MaxFilesWithConcurrentIO                          1
+        ErrTolIntAccuracy                                 0.01
+        CourantFac                                        0.3
+        MaxSizeTimestep                                   0.005
+        MinSizeTimestep                                   0
+        TypeOfOpeningCriterion                            1
+        ErrTolTheta                                       0.75
+        ErrTolThetaMax                                    1
+        ErrTolForceAcc                                    0.002
+        TopNodeFactor                                     3
+        ActivePartFracForNewDomainDecomp                  0.01
+        ActivePartFracForPMinsteadOfEwald                 0.05
+        DesNumNgb                                         64
+        MaxNumNgbDeviation                                1
+        UnitLength_in_cm                                  3.08568e+24
+        UnitMass_in_g                                     1.989e+43
+        UnitVelocity_in_cm_per_s                          100000
+        GravityConstantInternal                           0
+        SofteningComovingClass0                           0.05
+        SofteningMaxPhysClass0                            0.05
+        SofteningClassOfPartType0                         0
+        SofteningClassOfPartType1                         0
+        ArtBulkViscConst                                  1
+        MinEgySpec                                        0
+        InitGasTemp                                       0
+        NSample                                           16
+        GridSize                                          16
+        Seed                                              181170
+        SphereMode                                        1
+        PowerSpectrumType                                 0
+        ReNormalizeInputSpectrum                          1
+        PrimordialIndex                                   1
+        ShapeGamma                                        0.21
+        Sigma8                                            0.9
+        PowerSpectrumFile                                 powerspec
+        InputSpectrum_UnitLength_in_cm                    3.08568e+21
+        DesLinkNgb                                        20
+
+MALLOC: Allocation of shared memory took 6.4e-05 sec
+
+found 2 times in output-list.
