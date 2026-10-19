@@ -1,0 +1,3407 @@
+[
+ {
+  "name": "exact_bardeen_all_fields",
+  "citation": {
+   "authors": [
+    "Bardeen, J. M."
+   ],
+   "title": "The statistics of peaks of Gaussian random fields",
+   "year": 1986,
+   "journal": "ApJ",
+   "volume": "304",
+   "pages": "15"
+  },
+  "candidates": [
+   {
+    "title": "The statistics of peaks of Gaussian random fields",
+    "authors": [
+     "Bardeen, J. M.",
+     "Bond, J. R.",
+     "Kaiser, N.",
+     "Szalay, A. S."
+    ],
+    "year": 1986,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/164143",
+    "bibcode": "1986ApJ...304...15B"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "exact_planck_two_candidates",
+  "citation": {
+   "authors": [
+    "Planck Collaboration"
+   ],
+   "title": "Planck 2018 results. VI. Cosmological parameters",
+   "year": 2020,
+   "journal": "A&A",
+   "volume": "641",
+   "pages": "A6"
+  },
+  "candidates": [
+   {
+    "title": "Planck 2018 results. VI. Cosmological parameters",
+    "authors": [
+     "Planck Collaboration",
+     "Aghanim, N.",
+     "Akrami, Y."
+    ],
+    "year": 2020,
+    "venue": "Astronomy & Astrophysics",
+    "doi": "10.1051/0004-6361/201833910",
+    "arxiv": "1807.06209",
+    "bibcode": "2020A&A...641A...6P"
+   },
+   {
+    "title": "Planck 2018 results. VIII. Gravitational lensing",
+    "authors": [
+     "Planck Collaboration",
+     "Aghanim, N.",
+     "Akrami, Y."
+    ],
+    "year": 2020,
+    "venue": "Astronomy & Astrophysics",
+    "doi": "10.1051/0004-6361/201833886",
+    "arxiv": "1807.06210",
+    "bibcode": "2020A&A...641A...8P"
+   }
+  ],
+  "scores": [
+   1,
+   0.92
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": [
+   0,
+   1
+  ]
+ },
+ {
+  "name": "exact_riess_vs_perlmutter",
+  "citation": {
+   "authors": [
+    "Riess, A. G."
+   ],
+   "title": "Observational Evidence from Supernovae for an Accelerating Universe and a Cosmological Constant",
+   "year": 1998,
+   "journal": "AJ",
+   "volume": "116",
+   "pages": "1009"
+  },
+  "candidates": [
+   {
+    "title": "Measurements of Omega and Lambda from 42 High-Redshift Supernovae",
+    "authors": [
+     "Perlmutter, S.",
+     "Aldering, G.",
+     "Goldhaber, G."
+    ],
+    "year": 1999,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/307221",
+    "arxiv": "astro-ph/9812133",
+    "bibcode": "1999ApJ...517..565P"
+   },
+   {
+    "title": "Observational Evidence from Supernovae for an Accelerating Universe and a Cosmological Constant",
+    "authors": [
+     "Riess, A. G.",
+     "Filippenko, A. V.",
+     "Challis, P."
+    ],
+    "year": 1998,
+    "venue": "The Astronomical Journal",
+    "doi": "10.1086/300499",
+    "arxiv": "astro-ph/9805201",
+    "bibcode": "1998AJ....116.1009R"
+   }
+  ],
+  "scores": [
+   0.28,
+   0.8
+  ],
+  "accepted": 1,
+  "rule": "margin",
+  "kept": [
+   1
+  ]
+ },
+ {
+  "name": "exact_no_identifier_on_candidate",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal"
+   }
+  ],
+  "scores": [
+   0.8500000000000001
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "exact_but_no_venue_on_candidate",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.8
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "exact_without_query_journal",
+  "citation": {
+   "authors": [
+    "Springel, V."
+   ],
+   "title": "The cosmological simulation code GADGET-2",
+   "year": 2005,
+   "volume": "364",
+   "pages": "1105"
+  },
+  "candidates": [
+   {
+    "title": "The cosmological simulation code GADGET-2",
+    "authors": [
+     "Springel, V."
+    ],
+    "year": 2005,
+    "venue": "Monthly Notices of the Royal Astronomical Society",
+    "doi": "10.1111/j.1365-2966.2005.09655.x",
+    "arxiv": "astro-ph/0505010",
+    "bibcode": "2005MNRAS.364.1105S"
+   }
+  ],
+  "scores": [
+   0.7200000000000001
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "exact_without_query_title",
+  "citation": {
+   "authors": [
+    "Springel, V."
+   ],
+   "year": 2005,
+   "journal": "MNRAS",
+   "volume": "364",
+   "pages": "1105"
+  },
+  "candidates": [
+   {
+    "title": "The cosmological simulation code GADGET-2",
+    "authors": [
+     "Springel, V."
+    ],
+    "year": 2005,
+    "venue": "Monthly Notices of the Royal Astronomical Society",
+    "doi": "10.1111/j.1365-2966.2005.09655.x",
+    "arxiv": "astro-ph/0505010",
+    "bibcode": "2005MNRAS.364.1105S"
+   }
+  ],
+  "scores": [
+   0.8
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "exact_authors_year_only",
+  "citation": {
+   "authors": [
+    "Springel, V."
+   ],
+   "year": 2005,
+   "volume": "364",
+   "pages": "1105"
+  },
+  "candidates": [
+   {
+    "title": "The cosmological simulation code GADGET-2",
+    "authors": [
+     "Springel, V."
+    ],
+    "year": 2005,
+    "venue": "Monthly Notices of the Royal Astronomical Society",
+    "doi": "10.1111/j.1365-2966.2005.09655.x",
+    "arxiv": "astro-ph/0505010",
+    "bibcode": "2005MNRAS.364.1105S"
+   }
+  ],
+  "scores": [
+   0.6
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "query_has_doi_scorer_ignores_it",
+  "citation": {
+   "authors": [
+    "Bardeen, J. M."
+   ],
+   "title": "The statistics of peaks of Gaussian random fields",
+   "year": 1986,
+   "journal": "ApJ",
+   "volume": "304",
+   "pages": "15",
+   "doi": "10.1086/164143"
+  },
+  "candidates": [
+   {
+    "title": "The statistics of peaks of Gaussian random fields",
+    "authors": [
+     "Bardeen, J. M.",
+     "Bond, J. R.",
+     "Kaiser, N.",
+     "Szalay, A. S."
+    ],
+    "year": 1986,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/164143"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "query_doi_matches_but_wrong_paper",
+  "citation": {
+   "authors": [
+    "Bardeen, J. M."
+   ],
+   "title": "The statistics of peaks of Gaussian random fields",
+   "year": 1986,
+   "journal": "ApJ",
+   "volume": "304",
+   "pages": "15",
+   "doi": "10.1086/164143"
+  },
+  "candidates": [
+   {
+    "title": "Cosmic strings and the origin of galaxies",
+    "authors": [
+     "Albrecht, A."
+    ],
+    "year": 1984,
+    "venue": "Physics Letters",
+    "doi": "10.1086/164143",
+    "bibcode": "1986ApJ...304...15B"
+   }
+  ],
+  "scores": [
+   0
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "year_plus_one_published_later",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1998,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.88
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "year_minus_one_preprint_earlier",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1996,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.88
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "year_off_by_two",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1999,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.8
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "query_year_missing",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.8
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "candidate_year_missing",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.8
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "year_off_by_one_is_only_signal",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "Unrelated title about different matters entirely",
+    "authors": [
+     "Someone, A."
+    ],
+    "year": 1998,
+    "venue": "Other Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.22999999999999998
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "partial_surname_hyphen_extension",
+  "citation": {
+   "authors": [
+    "Navarro"
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro-Gonzalez, J."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.9
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "partial_surname_false_positive_white",
+  "citation": {
+   "authors": [
+    "White, S. D. M."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "Unrelated halo profile study",
+    "authors": [
+     "Whiteside, K."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal"
+   }
+  ],
+  "scores": [
+   0.6000000000000001
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "partial_surname_short_name_li",
+  "citation": {
+   "authors": [
+    "Li, Y."
+   ],
+   "title": "Dark matter halo density profile",
+   "year": 2010,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "Dark matter halo density profile",
+    "authors": [
+     "Lilly, S. J."
+    ],
+    "year": 2010,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.9
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "partial_surname_reversed_not_matched",
+  "citation": {
+   "authors": [
+    "Navarro-Gonzalez, J."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.7500000000000001
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "author_initials_first_format",
+  "citation": {
+   "authors": [
+    "J. F. Navarro"
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "author_initials_trailing_no_comma",
+  "citation": {
+   "authors": [
+    "Navarro J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.7500000000000001
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "author_surname_only_matches",
+  "citation": {
+   "authors": [
+    "Navarro"
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "author_case_insensitive",
+  "citation": {
+   "authors": [
+    "NAVARRO, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "author_empty_query_authors",
+  "citation": {
+   "authors": [],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.7500000000000001
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "author_empty_candidate_authors",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.7500000000000001
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "author_collaboration_surname_only",
+  "citation": {
+   "authors": [
+    "Planck"
+   ],
+   "title": "Planck 2018 results. VI. Cosmological parameters",
+   "year": 2020,
+   "journal": "A&A",
+   "volume": "641",
+   "pages": "A6"
+  },
+  "candidates": [
+   {
+    "title": "Planck 2018 results. VI. Cosmological parameters",
+    "authors": [
+     "Planck Collaboration",
+     "Aghanim, N.",
+     "Akrami, Y."
+    ],
+    "year": 2020,
+    "venue": "Astronomy & Astrophysics",
+    "doi": "10.1051/0004-6361/201833910",
+    "arxiv": "1807.06209",
+    "bibcode": "2020A&A...641A...6P"
+   }
+  ],
+  "scores": [
+   0.7500000000000001
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "author_collaboration_full_string",
+  "citation": {
+   "authors": [
+    "Planck Collaboration"
+   ],
+   "title": "Planck 2018 results. VI. Cosmological parameters",
+   "year": 2020,
+   "journal": "A&A",
+   "volume": "641",
+   "pages": "A6"
+  },
+  "candidates": [
+   {
+    "title": "Planck 2018 results. VI. Cosmological parameters",
+    "authors": [
+     "Planck Collaboration",
+     "Aghanim, N.",
+     "Akrami, Y."
+    ],
+    "year": 2020,
+    "venue": "Astronomy & Astrophysics",
+    "doi": "10.1051/0004-6361/201833910",
+    "arxiv": "1807.06209",
+    "bibcode": "2020A&A...641A...6P"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "author_prefix_surname_first_format",
+  "citation": {
+   "authors": [
+    "van der Marel, R. P."
+   ],
+   "title": "Tidal radii of dwarf galaxies",
+   "year": 2005,
+   "journal": "MNRAS",
+   "volume": "364",
+   "pages": "1105"
+  },
+  "candidates": [
+   {
+    "title": "Tidal radii of dwarf galaxies",
+    "authors": [
+     "R. P. van der Marel"
+    ],
+    "year": 2005,
+    "venue": "Monthly Notices of the Royal Astronomical Society"
+   }
+  ],
+  "scores": [
+   0.52
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "author_second_author_only_listed_first",
+  "citation": {
+   "authors": [
+    "Bond, J. R."
+   ],
+   "title": "The statistics of peaks of Gaussian random fields",
+   "year": 1986,
+   "journal": "ApJ",
+   "volume": "304",
+   "pages": "15"
+  },
+  "candidates": [
+   {
+    "title": "The statistics of peaks of Gaussian random fields",
+    "authors": [
+     "Bardeen, J. M.",
+     "Bond, J. R.",
+     "Kaiser, N.",
+     "Szalay, A. S."
+    ],
+    "year": 1986,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/164143",
+    "bibcode": "1986ApJ...304...15B"
+   }
+  ],
+  "scores": [
+   0.7500000000000001
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "unicode_query_matches_unicode_candidate",
+  "citation": {
+   "authors": [
+    "Lemaître, G."
+   ],
+   "title": "Un Univers homogène de masse constante et de rayon croissant rendant compte de la vitesse radiale des nébuleuses extra-galactiques",
+   "year": 1927,
+   "journal": "Ann. Soc. Sci. Bruxelles",
+   "volume": "47",
+   "pages": "49"
+  },
+  "candidates": [
+   {
+    "title": "Un Univers homogène de masse constante et de rayon croissant rendant compte de la vitesse radiale des nébuleuses extra-galactiques",
+    "authors": [
+     "Lemaître, G."
+    ],
+    "year": 1927,
+    "venue": "Annales de la Société Scientifique de Bruxelles",
+    "bibcode": "1927ASSB...47...49L"
+   }
+  ],
+  "scores": [
+   0.8
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "unicode_query_vs_ascii_candidate",
+  "citation": {
+   "authors": [
+    "Lemaître, G."
+   ],
+   "title": "Un Univers homogène de masse constante et de rayon croissant rendant compte de la vitesse radiale des nébuleuses extra-galactiques",
+   "year": 1927,
+   "journal": "Ann. Soc. Sci. Bruxelles",
+   "volume": "47",
+   "pages": "49"
+  },
+  "candidates": [
+   {
+    "title": "Un Univers homogene de masse constante et de rayon croissant rendant compte de la vitesse radiale des nebuleuses extra-galactiques",
+    "authors": [
+     "Lemaitre, G."
+    ],
+    "year": 1927,
+    "venue": "Annales de la Société Scientifique de Bruxelles",
+    "bibcode": "1927ASSB...47...49L"
+   }
+  ],
+  "scores": [
+   0.55
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "latex_query_decoded_vs_unicode_candidate",
+  "citation": {
+   "authors": [
+    "Lema\\^{\\i}tre, G."
+   ],
+   "title": "Un Univers homog\\`ene de masse constante et de rayon croissant rendant compte de la vitesse radiale des n\\'ebuleuses extra-galactiques",
+   "year": 1927,
+   "journal": "Ann. Soc. Sci. Bruxelles",
+   "volume": "47",
+   "pages": "49"
+  },
+  "candidates": [
+   {
+    "title": "Un Univers homogène de masse constante et de rayon croissant rendant compte de la vitesse radiale des nébuleuses extra-galactiques",
+    "authors": [
+     "Lemaître, G."
+    ],
+    "year": 1927,
+    "venue": "Annales de la Société Scientifique de Bruxelles",
+    "bibcode": "1927ASSB...47...49L"
+   }
+  ],
+  "scores": [
+   0.55
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "latex_candidate_not_decoded",
+  "citation": {
+   "authors": [
+    "Lemaître, G."
+   ],
+   "title": "Un Univers homogène de masse constante et de rayon croissant rendant compte de la vitesse radiale des nébuleuses extra-galactiques",
+   "year": 1927,
+   "journal": "Ann. Soc. Sci. Bruxelles",
+   "volume": "47",
+   "pages": "49"
+  },
+  "candidates": [
+   {
+    "title": "Un Univers homogène de masse constante et de rayon croissant rendant compte de la vitesse radiale des nébuleuses extra-galactiques",
+    "authors": [
+     "Lema\\^{\\i}tre, G."
+    ],
+    "year": 1927,
+    "venue": "Annales de la Société Scientifique de Bruxelles",
+    "bibcode": "1927ASSB...47...49L"
+   }
+  ],
+  "scores": [
+   0.55
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "latex_accent_sanchez_query",
+  "citation": {
+   "authors": [
+    "S\\'anchez, A. G."
+   ],
+   "title": "The clustering of galaxies in the SDSS-III Baryon Oscillation Spectroscopic Survey: cosmological implications of the full shape of the clustering wedges",
+   "year": 2017,
+   "journal": "MNRAS",
+   "volume": "464",
+   "pages": "1640"
+  },
+  "candidates": [
+   {
+    "title": "The clustering of galaxies in the SDSS-III Baryon Oscillation Spectroscopic Survey: cosmological implications of the full shape of the clustering wedges",
+    "authors": [
+     "Sánchez, A. G.",
+     "Scoccimarro, R.",
+     "Crocce, M."
+    ],
+    "year": 2017,
+    "venue": "Monthly Notices of the Royal Astronomical Society",
+    "doi": "10.1093/mnras/stw2443",
+    "arxiv": "1607.03147",
+    "bibcode": "2017MNRAS.464.1640S"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "unicode_sanchez_vs_ascii_candidate",
+  "citation": {
+   "authors": [
+    "Sánchez, A. G."
+   ],
+   "title": "The clustering of galaxies in the SDSS-III Baryon Oscillation Spectroscopic Survey: cosmological implications of the full shape of the clustering wedges",
+   "year": 2017,
+   "journal": "MNRAS",
+   "volume": "464",
+   "pages": "1640"
+  },
+  "candidates": [
+   {
+    "title": "The clustering of galaxies in the SDSS-III Baryon Oscillation Spectroscopic Survey: cosmological implications of the full shape of the clustering wedges",
+    "authors": [
+     "Sanchez, A. G."
+    ],
+    "year": 2017,
+    "venue": "Monthly Notices of the Royal Astronomical Society",
+    "doi": "10.1093/mnras/stw2443",
+    "arxiv": "1607.03147",
+    "bibcode": "2017MNRAS.464.1640S"
+   }
+  ],
+  "scores": [
+   0.7500000000000001
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "latex_apostrophe_zeldovich",
+  "citation": {
+   "authors": [
+    "Zel'dovich, Ya. B."
+   ],
+   "title": "Gravitational instability: an approximate theory for large density perturbations",
+   "year": 1970,
+   "journal": "A&A",
+   "volume": "5",
+   "pages": "84"
+  },
+  "candidates": [
+   {
+    "title": "Gravitational instability: an approximate theory for large density perturbations",
+    "authors": [
+     "Zel'dovich, Y. B."
+    ],
+    "year": 1970,
+    "venue": "Astronomy and Astrophysics",
+    "bibcode": "1970A&A.....5...84Z"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "latex_title_math_and_ampersand",
+  "citation": {
+   "authors": [
+    "Planck Collaboration"
+   ],
+   "title": "Planck 2018 results. VI. Cosmological parameters of the $\\Lambda$CDM model \\& beyond",
+   "year": 2020,
+   "journal": "A&A",
+   "volume": "641",
+   "pages": "A6"
+  },
+  "candidates": [
+   {
+    "title": "Planck 2018 results. VI. Cosmological parameters",
+    "authors": [
+     "Planck Collaboration",
+     "Aghanim, N.",
+     "Akrami, Y."
+    ],
+    "year": 2020,
+    "venue": "Astronomy & Astrophysics",
+    "doi": "10.1051/0004-6361/201833910",
+    "arxiv": "1807.06209",
+    "bibcode": "2020A&A...641A...6P"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_bibstem_apj_full_name",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_apj_matches_letters_and_supplement",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal Supplement Series",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_aj_not_in_bibstem_table",
+  "citation": {
+   "authors": [
+    "Riess, A. G."
+   ],
+   "title": "Observational Evidence from Supernovae for an Accelerating Universe and a Cosmological Constant",
+   "year": 1998,
+   "journal": "AJ",
+   "volume": "116",
+   "pages": "1009"
+  },
+  "candidates": [
+   {
+    "title": "Observational Evidence from Supernovae for an Accelerating Universe and a Cosmological Constant",
+    "authors": [
+     "Riess, A. G.",
+     "Filippenko, A. V.",
+     "Challis, P."
+    ],
+    "year": 1998,
+    "venue": "The Astronomical Journal",
+    "doi": "10.1086/300499",
+    "arxiv": "astro-ph/9805201",
+    "bibcode": "1998AJ....116.1009R"
+   }
+  ],
+  "scores": [
+   0.8
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_phys_rev_lett_dotted_form",
+  "citation": {
+   "authors": [
+    "Abbott, B. P."
+   ],
+   "title": "Observation of Gravitational Waves from a Binary Black Hole Merger",
+   "year": 2016,
+   "journal": "Phys. Rev. Lett.",
+   "volume": "116",
+   "pages": "061102"
+  },
+  "candidates": [
+   {
+    "title": "Observation of Gravitational Waves from a Binary Black Hole Merger",
+    "authors": [
+     "Abbott, B. P.",
+     "Abbott, R.",
+     "Abbott, T. D."
+    ],
+    "year": 2016,
+    "venue": "Physical Review Letters",
+    "doi": "10.1103/PhysRevLett.116.061102",
+    "arxiv": "1602.03837",
+    "bibcode": "2016PhRvL.116f1102A"
+   }
+  ],
+  "scores": [
+   0.8
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_prd_bibstem",
+  "citation": {
+   "authors": [
+    "Hui, L."
+   ],
+   "title": "Ultralight scalars as cosmological dark matter",
+   "year": 2017,
+   "journal": "PRD",
+   "volume": "95",
+   "pages": "043541"
+  },
+  "candidates": [
+   {
+    "title": "Ultralight scalars as cosmological dark matter",
+    "authors": [
+     "Hui, L.",
+     "Ostriker, J. P.",
+     "Tremaine, S.",
+     "Witten, E."
+    ],
+    "year": 2017,
+    "venue": "Physical Review D",
+    "doi": "10.1103/PhysRevD.95.043541",
+    "arxiv": "1610.08297",
+    "bibcode": "2017PhRvD..95d3541H"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_phys_rev_d_dotted_form_misses",
+  "citation": {
+   "authors": [
+    "Hui, L."
+   ],
+   "title": "Ultralight scalars as cosmological dark matter",
+   "year": 2017,
+   "journal": "Phys. Rev. D",
+   "volume": "95",
+   "pages": "043541"
+  },
+  "candidates": [
+   {
+    "title": "Ultralight scalars as cosmological dark matter",
+    "authors": [
+     "Hui, L.",
+     "Ostriker, J. P.",
+     "Tremaine, S.",
+     "Witten, E."
+    ],
+    "year": 2017,
+    "venue": "Physical Review D",
+    "doi": "10.1103/PhysRevD.95.043541",
+    "arxiv": "1610.08297",
+    "bibcode": "2017PhRvD..95d3541H"
+   }
+  ],
+  "scores": [
+   0.8
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_nature_matches_nature_physics",
+  "citation": {
+   "authors": [
+    "Schive, H.-Y."
+   ],
+   "title": "Cosmic structure as the quantum interference of a coherent dark wave",
+   "year": 2014,
+   "journal": "Nature",
+   "volume": "10",
+   "pages": "496"
+  },
+  "candidates": [
+   {
+    "title": "Cosmic structure as the quantum interference of a coherent dark wave",
+    "authors": [
+     "Schive, H.-Y.",
+     "Chiueh, T.",
+     "Broadhurst, T."
+    ],
+    "year": 2014,
+    "venue": "Nature Physics",
+    "doi": "10.1038/nphys2996",
+    "arxiv": "1406.6586",
+    "bibcode": "2014NatPh..10..496S"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_science_matches_science_advances",
+  "citation": {
+   "authors": [
+    "Abel, T."
+   ],
+   "title": "The Formation of the First Star in the Universe",
+   "year": 2002,
+   "journal": "Science",
+   "volume": "295",
+   "pages": "93"
+  },
+  "candidates": [
+   {
+    "title": "The Formation of the First Star in the Universe",
+    "authors": [
+     "Abel, T.",
+     "Bryan, G. L.",
+     "Norman, M. L."
+    ],
+    "year": 2002,
+    "venue": "Science Advances",
+    "doi": "10.1126/science.1063991",
+    "arxiv": "astro-ph/0112088",
+    "bibcode": "2002Sci...295...93A"
+   }
+  ],
+  "scores": [
+   0.92
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_nature_astronomy_vs_nature",
+  "citation": {
+   "authors": [
+    "Schive, H.-Y."
+   ],
+   "title": "Cosmic structure as the quantum interference of a coherent dark wave",
+   "year": 2014,
+   "journal": "Nature",
+   "volume": "10",
+   "pages": "496"
+  },
+  "candidates": [
+   {
+    "title": "Cosmic structure as the quantum interference of a coherent dark wave",
+    "authors": [
+     "Schive, H.-Y.",
+     "Chiueh, T.",
+     "Broadhurst, T."
+    ],
+    "year": 2014,
+    "venue": "Nature Astronomy",
+    "doi": "10.1038/nphys2996",
+    "arxiv": "1406.6586",
+    "bibcode": "2014NatPh..10..496S"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_candidate_contains_query_arxiv",
+  "citation": {
+   "authors": [
+    "Planck Collaboration"
+   ],
+   "title": "Planck 2018 results. VI. Cosmological parameters",
+   "year": 2020,
+   "journal": "arXiv",
+   "volume": "641",
+   "pages": "A6"
+  },
+  "candidates": [
+   {
+    "title": "Planck 2018 results. VI. Cosmological parameters",
+    "authors": [
+     "Planck Collaboration",
+     "Aghanim, N.",
+     "Akrami, Y."
+    ],
+    "year": 2020,
+    "venue": "arXiv e-prints",
+    "doi": "10.1051/0004-6361/201833910",
+    "arxiv": "1807.06209",
+    "bibcode": "2020A&A...641A...6P"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_query_contains_candidate",
+  "citation": {
+   "authors": [
+    "Springel, V."
+   ],
+   "title": "The cosmological simulation code GADGET-2",
+   "year": 2005,
+   "journal": "Mon. Not. R. Astron. Soc.",
+   "volume": "364",
+   "pages": "1105"
+  },
+  "candidates": [
+   {
+    "title": "The cosmological simulation code GADGET-2",
+    "authors": [
+     "Springel, V."
+    ],
+    "year": 2005,
+    "venue": "MNRAS",
+    "doi": "10.1111/j.1365-2966.2005.09655.x",
+    "arxiv": "astro-ph/0505010",
+    "bibcode": "2005MNRAS.364.1105S"
+   }
+  ],
+  "scores": [
+   0.7200000000000001
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_mnras_bibstem",
+  "citation": {
+   "authors": [
+    "Springel, V."
+   ],
+   "title": "The cosmological simulation code GADGET-2",
+   "year": 2005,
+   "journal": "MNRAS",
+   "volume": "364",
+   "pages": "1105"
+  },
+  "candidates": [
+   {
+    "title": "The cosmological simulation code GADGET-2",
+    "authors": [
+     "Springel, V."
+    ],
+    "year": 2005,
+    "venue": "Monthly Notices of the Royal Astronomical Society",
+    "doi": "10.1111/j.1365-2966.2005.09655.x",
+    "arxiv": "astro-ph/0505010",
+    "bibcode": "2005MNRAS.364.1105S"
+   }
+  ],
+  "scores": [
+   0.92
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_ampersand_aanda",
+  "citation": {
+   "authors": [
+    "Planck Collaboration"
+   ],
+   "title": "Planck 2018 results. VI. Cosmological parameters",
+   "year": 2020,
+   "journal": "A&A",
+   "volume": "641",
+   "pages": "A6"
+  },
+  "candidates": [
+   {
+    "title": "Planck 2018 results. VI. Cosmological parameters",
+    "authors": [
+     "Planck Collaboration",
+     "Aghanim, N.",
+     "Akrami, Y."
+    ],
+    "year": 2020,
+    "venue": "Astronomy & Astrophysics",
+    "doi": "10.1051/0004-6361/201833910",
+    "arxiv": "1807.06209",
+    "bibcode": "2020A&A...641A...6P"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_wrong_journal",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "MNRAS",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.8
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_empty_query_journal_string",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.8
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "venue_short_query_contained_in_longer_name",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "J",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "title_overlap_0_words",
+  "citation": {
+   "authors": [
+    "Nobody, X."
+   ],
+   "title": "alpha beta gamma delta epsilon zetas etas thetas",
+   "year": 2001,
+   "journal": "Zed"
+  },
+  "candidates": [
+   {
+    "title": "quick brown foxes jumped",
+    "authors": [
+     "Other, Y."
+    ],
+    "year": 1990,
+    "venue": "Other"
+   }
+  ],
+  "scores": [
+   0
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "title_overlap_1_word",
+  "citation": {
+   "authors": [
+    "Nobody, X."
+   ],
+   "title": "alpha beta gamma delta epsilon zetas etas thetas",
+   "year": 2001,
+   "journal": "Zed"
+  },
+  "candidates": [
+   {
+    "title": "alpha brown foxes jumped",
+    "authors": [
+     "Other, Y."
+    ],
+    "year": 1990,
+    "venue": "Other"
+   }
+  ],
+  "scores": [
+   0.05
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "title_overlap_2_words",
+  "citation": {
+   "authors": [
+    "Nobody, X."
+   ],
+   "title": "alpha beta gamma delta epsilon zetas etas thetas",
+   "year": 2001,
+   "journal": "Zed"
+  },
+  "candidates": [
+   {
+    "title": "alpha beta foxes jumped",
+    "authors": [
+     "Other, Y."
+    ],
+    "year": 1990,
+    "venue": "Other"
+   }
+  ],
+  "scores": [
+   0.05
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "title_overlap_3_words",
+  "citation": {
+   "authors": [
+    "Nobody, X."
+   ],
+   "title": "alpha beta gamma delta epsilon zetas etas thetas",
+   "year": 2001,
+   "journal": "Zed"
+  },
+  "candidates": [
+   {
+    "title": "alpha beta gamma jumped",
+    "authors": [
+     "Other, Y."
+    ],
+    "year": 1990,
+    "venue": "Other"
+   }
+  ],
+  "scores": [
+   0.12
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "title_overlap_4_words",
+  "citation": {
+   "authors": [
+    "Nobody, X."
+   ],
+   "title": "alpha beta gamma delta epsilon zetas etas thetas",
+   "year": 2001,
+   "journal": "Zed"
+  },
+  "candidates": [
+   {
+    "title": "alpha beta gamma delta",
+    "authors": [
+     "Other, Y."
+    ],
+    "year": 1990,
+    "venue": "Other"
+   }
+  ],
+  "scores": [
+   0.12
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "title_overlap_5_words",
+  "citation": {
+   "authors": [
+    "Nobody, X."
+   ],
+   "title": "alpha beta gamma delta epsilon zetas etas thetas",
+   "year": 2001,
+   "journal": "Zed"
+  },
+  "candidates": [
+   {
+    "title": "alpha beta gamma delta epsilon",
+    "authors": [
+     "Other, Y."
+    ],
+    "year": 1990,
+    "venue": "Other"
+   }
+  ],
+  "scores": [
+   0.2
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "title_overlap_8_words_saturates",
+  "citation": {
+   "authors": [
+    "Nobody, X."
+   ],
+   "title": "alpha beta gamma delta epsilon zetas etas thetas",
+   "year": 2001,
+   "journal": "Zed"
+  },
+  "candidates": [
+   {
+    "title": "alpha beta gamma delta epsilon zetas etas thetas",
+    "authors": [
+     "Other, Y."
+    ],
+    "year": 1990,
+    "venue": "Other"
+   }
+  ],
+  "scores": [
+   0.2
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "title_overlap_1_word_with_identifier",
+  "citation": {
+   "authors": [
+    "Nobody, X."
+   ],
+   "title": "alpha beta gamma delta epsilon zetas etas thetas",
+   "year": 2001,
+   "journal": "Zed"
+  },
+  "candidates": [
+   {
+    "title": "alpha brown foxes jumped",
+    "authors": [
+     "Other, Y."
+    ],
+    "year": 1990,
+    "venue": "Other",
+    "doi": "10.1000/x"
+   }
+  ],
+  "scores": [
+   0.2
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "title_overlap_3_words_with_identifier",
+  "citation": {
+   "authors": [
+    "Nobody, X."
+   ],
+   "title": "alpha beta gamma delta epsilon zetas etas thetas",
+   "year": 2001,
+   "journal": "Zed"
+  },
+  "candidates": [
+   {
+    "title": "alpha beta gamma jumped",
+    "authors": [
+     "Other, Y."
+    ],
+    "year": 1990,
+    "venue": "Other",
+    "doi": "10.1000/x"
+   }
+  ],
+  "scores": [
+   0.27
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "title_overlap_5_words_with_identifier",
+  "citation": {
+   "authors": [
+    "Nobody, X."
+   ],
+   "title": "alpha beta gamma delta epsilon zetas etas thetas",
+   "year": 2001,
+   "journal": "Zed"
+  },
+  "candidates": [
+   {
+    "title": "alpha beta gamma delta epsilon",
+    "authors": [
+     "Other, Y."
+    ],
+    "year": 1990,
+    "venue": "Other",
+    "doi": "10.1000/x"
+   }
+  ],
+  "scores": [
+   0.35
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "title_overlap_0_words_with_identifier_gets_no_bonus",
+  "citation": {
+   "authors": [
+    "Nobody, X."
+   ],
+   "title": "alpha beta gamma delta epsilon zetas etas thetas",
+   "year": 2001,
+   "journal": "Zed"
+  },
+  "candidates": [
+   {
+    "title": "quick brown foxes jumped",
+    "authors": [
+     "Other, Y."
+    ],
+    "year": 1990,
+    "venue": "Other",
+    "doi": "10.1000/x"
+   }
+  ],
+  "scores": [
+   0
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "title_short_words_ignored_under_4_chars",
+  "citation": {
+   "authors": [],
+   "title": "A new look at the halo of the Milky Way",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A new look at the halo of the Milky Way",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "venue": "The Astrophysical Journal"
+   }
+  ],
+  "scores": [
+   0.12
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "title_repeated_words_counted_once",
+  "citation": {
+   "authors": [],
+   "title": "halo halo halo halo halo profile",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "halo profile",
+    "authors": [],
+    "year": null,
+    "venue": ""
+   }
+  ],
+  "scores": [
+   0.05
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "title_hyphenated_words_split",
+  "citation": {
+   "authors": [],
+   "title": "Self-consistent N-body halo models",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "Self consistent body halo models",
+    "authors": [],
+    "year": null,
+    "venue": ""
+   }
+  ],
+  "scores": [
+   0.2
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "title_substring_not_matched",
+  "citation": {
+   "authors": [],
+   "title": "Halos",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "Halo profile",
+    "authors": [],
+    "year": null,
+    "venue": ""
+   }
+  ],
+  "scores": [
+   0
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "accept_high_confidence_clear_margin",
+  "citation": {
+   "authors": [
+    "Bardeen, J. M."
+   ],
+   "title": "The statistics of peaks of Gaussian random fields",
+   "year": 1986,
+   "journal": "ApJ",
+   "volume": "304",
+   "pages": "15"
+  },
+  "candidates": [
+   {
+    "title": "The statistics of peaks of Gaussian random fields",
+    "authors": [
+     "Bardeen, J. M.",
+     "Bond, J. R.",
+     "Kaiser, N.",
+     "Szalay, A. S."
+    ],
+    "year": 1986,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/164143",
+    "bibcode": "1986ApJ...304...15B"
+   },
+   {
+    "title": "Peaks in Gaussian fields revisited",
+    "authors": [
+     "Bond, J. R."
+    ],
+    "year": 1990,
+    "venue": "Other",
+    "doi": "10.1/y",
+    "bibcode": "1986ApJ...304...15B"
+   }
+  ],
+  "scores": [
+   1,
+   0.27
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "margin_too_small_two_equal_candidates",
+  "citation": {
+   "authors": [
+    "Bardeen, J. M."
+   ],
+   "title": "The statistics of peaks of Gaussian random fields",
+   "year": 1986,
+   "journal": "ApJ",
+   "volume": "304",
+   "pages": "15"
+  },
+  "candidates": [
+   {
+    "title": "The statistics of peaks of Gaussian random fields",
+    "authors": [
+     "Bardeen, J. M.",
+     "Bond, J. R.",
+     "Kaiser, N.",
+     "Szalay, A. S."
+    ],
+    "year": 1986,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/164143",
+    "bibcode": "1986ApJ...304...15B"
+   },
+   {
+    "title": "The statistics of peaks of Gaussian random fields",
+    "authors": [
+     "Bardeen, J. M.",
+     "Bond, J. R.",
+     "Kaiser, N.",
+     "Szalay, A. S."
+    ],
+    "year": 1986,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/164143x",
+    "bibcode": "1986ApJ...304...15B"
+   }
+  ],
+  "scores": [
+   1,
+   1
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": [
+   0,
+   1
+  ]
+ },
+ {
+  "name": "margin_just_inside_0_15",
+  "citation": {
+   "authors": [
+    "Bardeen, J. M."
+   ],
+   "title": "The statistics of peaks of Gaussian random fields",
+   "year": 1986,
+   "journal": "ApJ",
+   "volume": "304",
+   "pages": "15"
+  },
+  "candidates": [
+   {
+    "title": "The statistics of peaks of Gaussian random fields",
+    "authors": [
+     "Bardeen, J. M.",
+     "Bond, J. R.",
+     "Kaiser, N.",
+     "Szalay, A. S."
+    ],
+    "year": 1986,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/164143",
+    "bibcode": "1986ApJ...304...15B"
+   },
+   {
+    "title": "The statistics of peaks of Gaussian random fields",
+    "authors": [
+     "Bardeen, J. M.",
+     "Bond, J. R.",
+     "Kaiser, N.",
+     "Szalay, A. S."
+    ],
+    "year": 1986,
+    "venue": "Other Letters"
+   }
+  ],
+  "scores": [
+   1,
+   0.65
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0,
+   1
+  ]
+ },
+ {
+  "name": "preprint_vs_published_same_paper",
+  "citation": {
+   "authors": [
+    "Hui, L."
+   ],
+   "title": "Ultralight scalars as cosmological dark matter",
+   "year": 2017,
+   "journal": "PRD",
+   "volume": "95",
+   "pages": "043541"
+  },
+  "candidates": [
+   {
+    "title": "Ultralight scalars as cosmological dark matter",
+    "authors": [
+     "Hui, L.",
+     "Ostriker, J. P.",
+     "Tremaine, S.",
+     "Witten, E."
+    ],
+    "year": 2016,
+    "venue": "arXiv e-prints",
+    "arxiv": "1610.08297",
+    "bibcode": "2016arXiv161008297H"
+   },
+   {
+    "title": "Ultralight scalars as cosmological dark matter",
+    "authors": [
+     "Hui, L.",
+     "Ostriker, J. P.",
+     "Tremaine, S.",
+     "Witten, E."
+    ],
+    "year": 2017,
+    "venue": "Physical Review D",
+    "doi": "10.1103/PhysRevD.95.043541",
+    "arxiv": "1610.08297",
+    "bibcode": "2017PhRvD..95d3541H"
+   }
+  ],
+  "scores": [
+   0.68,
+   1
+  ],
+  "accepted": 1,
+  "rule": "high-confidence",
+  "kept": [
+   1,
+   0
+  ]
+ },
+ {
+  "name": "preprint_vs_published_year_differs_published_wins",
+  "citation": {
+   "authors": [
+    "Hui, L."
+   ],
+   "title": "Ultralight scalars as cosmological dark matter",
+   "year": 2017,
+   "journal": "PRD",
+   "volume": "95",
+   "pages": "043541"
+  },
+  "candidates": [
+   {
+    "title": "Ultralight scalars as cosmological dark matter",
+    "authors": [
+     "Hui, L.",
+     "Ostriker, J. P.",
+     "Tremaine, S.",
+     "Witten, E."
+    ],
+    "year": 2016,
+    "venue": "arXiv e-prints",
+    "arxiv": "1610.08297",
+    "bibcode": "2016arXiv161008297H"
+   },
+   {
+    "title": "Ultralight scalars as cosmological dark matter",
+    "authors": [
+     "Hui, L.",
+     "Ostriker, J. P.",
+     "Tremaine, S.",
+     "Witten, E."
+    ],
+    "year": 2017,
+    "venue": "Physical Review D",
+    "doi": "10.1103/PhysRevD.95.043541",
+    "arxiv": "1610.08297",
+    "bibcode": "2017PhRvD..95d3541H"
+   }
+  ],
+  "scores": [
+   0.68,
+   1
+  ],
+  "accepted": 1,
+  "rule": "high-confidence",
+  "kept": [
+   1,
+   0
+  ]
+ },
+ {
+  "name": "preprint_vs_published_query_cites_preprint_year",
+  "citation": {
+   "authors": [
+    "Hui, L."
+   ],
+   "title": "Ultralight scalars as cosmological dark matter",
+   "year": 2016,
+   "journal": "PRD",
+   "volume": "95",
+   "pages": "043541"
+  },
+  "candidates": [
+   {
+    "title": "Ultralight scalars as cosmological dark matter",
+    "authors": [
+     "Hui, L.",
+     "Ostriker, J. P.",
+     "Tremaine, S.",
+     "Witten, E."
+    ],
+    "year": 2016,
+    "venue": "arXiv e-prints",
+    "arxiv": "1610.08297",
+    "bibcode": "2016arXiv161008297H"
+   },
+   {
+    "title": "Ultralight scalars as cosmological dark matter",
+    "authors": [
+     "Hui, L.",
+     "Ostriker, J. P.",
+     "Tremaine, S.",
+     "Witten, E."
+    ],
+    "year": 2017,
+    "venue": "Physical Review D",
+    "doi": "10.1103/PhysRevD.95.043541",
+    "arxiv": "1610.08297",
+    "bibcode": "2017PhRvD..95d3541H"
+   }
+  ],
+  "scores": [
+   0.8,
+   0.88
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": [
+   1,
+   0
+  ]
+ },
+ {
+  "name": "single_hit_between_0_50_and_0_70",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "Halo profiles",
+   "year": 1997,
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "Something else altogether",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "Other",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.6
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "single_hit_just_below_0_50",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "Halo profiles",
+   "year": 1997,
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "Something else altogether",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1998,
+    "venue": "Other",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.48
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "single_hit_0_60_wrong_paper_same_author_year",
+  "citation": {
+   "authors": [
+    "Riess, A. G."
+   ],
+   "title": "Observational evidence from supernovae for an accelerating universe",
+   "year": 1998,
+   "volume": "116",
+   "pages": "1009"
+  },
+  "candidates": [
+   {
+    "title": "Time dilation from spectral feature age measurements",
+    "authors": [
+     "Riess, A. G.",
+     "Filippenko, A. V.",
+     "Challis, P."
+    ],
+    "year": 1998,
+    "venue": "Other",
+    "doi": "10.1086/300499",
+    "arxiv": "astro-ph/9805201",
+    "bibcode": "1998AJ....116.1009R"
+   }
+  ],
+  "scores": [
+   0.65
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "two_hits_top_0_80_margin_0_80_accepts_via_margin_rule",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "Halo profiles",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "Something else altogether",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   },
+   {
+    "title": "Zzz",
+    "authors": [
+     "Q, Q."
+    ],
+    "year": 1980,
+    "venue": "Z"
+   }
+  ],
+  "scores": [
+   0.8,
+   0
+  ],
+  "accepted": 0,
+  "rule": "margin",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "two_hits_top_0_80_margin_0_20_rejected",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "Halo profiles",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "Something else altogether",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   },
+   {
+    "title": "Something else altogether",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "Other",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.8,
+   0.6
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": [
+   0,
+   1
+  ]
+ },
+ {
+  "name": "two_hits_top_below_0_70",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "Halo profiles",
+   "year": 1997,
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "Something else altogether",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "Other",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   },
+   {
+    "title": "Zzz",
+    "authors": [
+     "Q, Q."
+    ],
+    "year": 1980,
+    "venue": "Z"
+   }
+  ],
+  "scores": [
+   0.6,
+   0
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "three_candidates_runner_up_decides_margin",
+  "citation": {
+   "authors": [
+    "Springel, V."
+   ],
+   "title": "The cosmological simulation code GADGET-2",
+   "year": 2005,
+   "journal": "MNRAS",
+   "volume": "364",
+   "pages": "1105"
+  },
+  "candidates": [
+   {
+    "title": "The cosmological simulation code GADGET-2",
+    "authors": [
+     "Springel, V."
+    ],
+    "year": 2005,
+    "venue": "Monthly Notices of the Royal Astronomical Society",
+    "doi": "10.1111/j.1365-2966.2005.09655.x",
+    "arxiv": "astro-ph/0505010",
+    "bibcode": "2005MNRAS.364.1105S"
+   },
+   {
+    "title": "The cosmological simulation code GADGET-2",
+    "authors": [
+     "Springel, V."
+    ],
+    "year": 2005,
+    "venue": "Other",
+    "doi": "10.1111/j.1365-2966.2005.09655.x",
+    "arxiv": "astro-ph/0505010",
+    "bibcode": "2005MNRAS.364.1105S"
+   },
+   {
+    "title": "The cosmological simulation code GADGET-2",
+    "authors": [
+     "Springel, V."
+    ],
+    "year": 2006,
+    "venue": "Monthly Notices of the Royal Astronomical Society",
+    "doi": "10.1111/j.1365-2966.2005.09655.x",
+    "arxiv": "astro-ph/0505010",
+    "bibcode": "2005MNRAS.364.1105S"
+   }
+  ],
+  "scores": [
+   0.92,
+   0.7200000000000001,
+   0.8
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": [
+   0,
+   2,
+   1
+  ]
+ },
+ {
+  "name": "kept_threshold_0_40_single_below_accept",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "Halo profiles",
+   "year": 1997,
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "Other",
+    "authors": [
+     "Navarro, J."
+    ],
+    "year": 1990,
+    "venue": "Z",
+    "doi": "10.1/a"
+   }
+  ],
+  "scores": [
+   0.4
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "kept_threshold_exactly_0_30_partial_author_plus_identifier",
+  "citation": {
+   "authors": [
+    "Navarro"
+   ],
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "x",
+    "authors": [
+     "Navarro-Gonzalez, J."
+    ],
+    "year": null,
+    "venue": "",
+    "doi": "10.1/a"
+   }
+  ],
+  "scores": [
+   0.3
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "kept_threshold_just_below_0_30_year_pm1_plus_partial_author",
+  "citation": {
+   "authors": [
+    "Navarro"
+   ],
+   "year": 1997,
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "x",
+    "authors": [
+     "Navarro-Gonzalez, J."
+    ],
+    "year": 1998,
+    "venue": ""
+   }
+  ],
+  "scores": [
+   0.22999999999999998
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "single_hit_exactly_0_50_boundary",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "halo profiles",
+   "year": 1997,
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "halo",
+    "authors": [
+     "Navarro, J. F."
+    ],
+    "year": 1997,
+    "venue": ""
+   }
+  ],
+  "scores": [
+   0.5
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "margin_rule_0_15_float_boundary_0_85_vs_0_70",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal"
+   },
+   {
+    "title": "Something else altogether",
+    "authors": [
+     "Navarro-Gonzalez, J."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/304888",
+    "arxiv": "astro-ph/9611107",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   0.8500000000000001,
+   0.7000000000000001
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0,
+   1
+  ]
+ },
+ {
+  "name": "unicode_nfd_candidate_vs_nfc_query",
+  "citation": {
+   "authors": [
+    "Lemaître, G."
+   ],
+   "title": "Un Univers homogène de masse constante et de rayon croissant rendant compte de la vitesse radiale des nébuleuses extra-galactiques",
+   "year": 1927,
+   "journal": "Ann. Soc. Sci. Bruxelles",
+   "volume": "47",
+   "pages": "49"
+  },
+  "candidates": [
+   {
+    "title": "Un Univers homogène de masse constante et de rayon croissant rendant compte de la vitesse radiale des nébuleuses extra-galactiques",
+    "authors": [
+     "Lemaître, G."
+    ],
+    "year": 1927,
+    "venue": "Annales de la Société Scientifique de Bruxelles",
+    "bibcode": "1927ASSB...47...49L"
+   }
+  ],
+  "scores": [
+   0.8
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "latex_umlaut_decoded_matches",
+  "citation": {
+   "authors": [
+    "Schr\\\"odinger, E."
+   ],
+   "title": "Quantisierung als Eigenwertproblem",
+   "year": 1926,
+   "journal": "Ann. Phys.",
+   "volume": "364",
+   "pages": "1105"
+  },
+  "candidates": [
+   {
+    "title": "Quantisierung als Eigenwertproblem",
+    "authors": [
+     "Schrödinger, E."
+    ],
+    "year": 1926,
+    "venue": "Annalen der Physik"
+   }
+  ],
+  "scores": [
+   0.5
+  ],
+  "accepted": 0,
+  "rule": "single-hit",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "empty_candidates",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [],
+  "scores": [],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "empty_citation_empty_candidate",
+  "citation": {
+   "authors": []
+  },
+  "candidates": [
+   {
+    "title": "",
+    "authors": [],
+    "year": null,
+    "venue": ""
+   }
+  ],
+  "scores": [
+   0
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "empty_citation_with_identifier_candidate",
+  "citation": {
+   "authors": []
+  },
+  "candidates": [
+   {
+    "title": "Anything",
+    "authors": [
+     "A, B."
+    ],
+    "year": 2000,
+    "venue": "V",
+    "doi": "10.1/a"
+   }
+  ],
+  "scores": [
+   0
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "identifier_empty_strings_not_counted",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "doi": "",
+    "arxiv": "",
+    "bibcode": ""
+   }
+  ],
+  "scores": [
+   0.8500000000000001
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "identifier_arxiv_only_counts",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "arxiv": "astro-ph/9611107"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "identifier_bibcode_only_counts",
+  "citation": {
+   "authors": [
+    "Navarro, J. F."
+   ],
+   "title": "A Universal Density Profile from Hierarchical Clustering",
+   "year": 1997,
+   "journal": "ApJ",
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "A Universal Density Profile from Hierarchical Clustering",
+    "authors": [
+     "Navarro, J. F.",
+     "Frenk, C. S.",
+     "White, S. D. M."
+    ],
+    "year": 1997,
+    "venue": "The Astrophysical Journal",
+    "bibcode": "1997ApJ...490..493N"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "identifier_bonus_only_after_year_pm1",
+  "citation": {
+   "authors": [],
+   "year": 1997,
+   "volume": "490",
+   "pages": "493"
+  },
+  "candidates": [
+   {
+    "title": "x",
+    "authors": [],
+    "year": 1998,
+    "venue": "",
+    "doi": "10.1/a"
+   }
+  ],
+  "scores": [
+   0.22999999999999998
+  ],
+  "accepted": null,
+  "rule": null,
+  "kept": []
+ },
+ {
+  "name": "score_capped_at_one",
+  "citation": {
+   "authors": [
+    "Bardeen, J. M."
+   ],
+   "title": "The statistics of peaks of Gaussian random fields",
+   "year": 1986,
+   "journal": "ApJ",
+   "volume": "304",
+   "pages": "15"
+  },
+  "candidates": [
+   {
+    "title": "The statistics of peaks of Gaussian random fields",
+    "authors": [
+     "Bardeen, J. M.",
+     "Bond, J. R.",
+     "Kaiser, N.",
+     "Szalay, A. S."
+    ],
+    "year": 1986,
+    "venue": "The Astrophysical Journal",
+    "doi": "10.1086/164143",
+    "bibcode": "1986ApJ...304...15B"
+   }
+  ],
+  "scores": [
+   1
+  ],
+  "accepted": 0,
+  "rule": "high-confidence",
+  "kept": [
+   0
+  ]
+ },
+ {
+  "name": "ranking_order_differs_from_input_order",
+  "citation": {
+   "authors": [
+    "Springel, V."
+   ],
+   "title": "The cosmological simulation code GADGET-2",
+   "year": 2005,
+   "journal": "MNRAS",
+   "volume": "364",
+   "pages": "1105"
+  },
+  "candidates": [
+   {
+    "title": "The cosmological simulation code GADGET-2",
+    "authors": [
+     "Springel, V."
+    ],
+    "year": 2004,
+    "venue": "Other"
+   },
+   {
+    "title": "The cosmological simulation code GADGET-2",
+    "authors": [
+     "Springel, V."
+    ],
+    "year": 2005,
+    "venue": "Monthly Notices of the Royal Astronomical Society",
+    "doi": "10.1111/j.1365-2966.2005.09655.x",
+    "arxiv": "astro-ph/0505010",
+    "bibcode": "2005MNRAS.364.1105S"
+   }
+  ],
+  "scores": [
+   0.45,
+   0.92
+  ],
+  "accepted": 1,
+  "rule": "high-confidence",
+  "kept": [
+   1,
+   0
+  ]
+ }
+]

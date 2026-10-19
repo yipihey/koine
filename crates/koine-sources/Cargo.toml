@@ -1,6 +1,6 @@
 [package]
 name = "koine-sources"
-description = "The source convention's vocabulary: the bibliographic-work kind, the explain record, the bib.* query grammar and its diagnostics (docs/plan-source-convention.md S1). Types only: no HTTP, no adapters"
+description = "The source convention's vocabulary: the bibliographic-work kind, the explain record, the bib.* query grammar and its diagnostics (docs/plan-source-convention.md S1). plus the citation-resolution scorer and cascade (S-D6). No HTTP, no adapters"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,6 +12,8 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 schemars = { workspace = true }
 thiserror = { workspace = true }
+regex = { workspace = true }
+unicode-normalization = { workspace = true }
 koine-workspace-hack.workspace = true
 
 [dev-dependencies]

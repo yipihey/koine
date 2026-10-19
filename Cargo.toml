@@ -103,6 +103,7 @@ nom = "7.1"
 # enables it; the browser bundle does not). The pure-Rust regex engine: no onig.
 syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-fancy", "parsing"] }
 regex = "1.10"
+unicode-normalization = "0.1"
 lazy_static = "1.4"
 
 # UniFFI for FFI bindings (optional).
