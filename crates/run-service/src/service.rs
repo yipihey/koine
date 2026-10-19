@@ -118,7 +118,7 @@ pub trait RunService: Send + Sync + 'static {
     /// One run: its record, the last `progress`, the last value of each
     /// metric, the outputs index, the notes, and every control request with
     /// its outcome (`pending`, `applied`, `refused` with the code's reason).
-    /// `orphaned` is true when the record says `running` but the process
+    /// `orphaned` is true when the record says `running` (or `created`) but the process
     /// this host launched has exited (R-D4.4: derived, never written).
     #[impress_method(effects(reads = ["run@1.0.0"], reach = [fs]))]
     #[impress_example(
@@ -331,7 +331,10 @@ pub fn row_of(item: &Item) -> RunRow {
         code: p.get("code").cloned().unwrap_or(json!({})),
         problem: p.get("problem").cloned().unwrap_or(json!({})),
         key: text(&p, "key"),
-        orphaned: state == "running" && koine.get("exited").is_some(),
+        // A launched process that exited while run.json still says it is live:
+        // `created` counts, since a code says `running` only once it has read
+        // its inputs (GADGET-4 writes its banner first; R7b).
+        orphaned: matches!(state.as_str(), "running" | "created") && koine.get("exited").is_some(),
         state,
         provenance: text(&p, "provenance"),
         started_at: status
@@ -957,7 +960,9 @@ impl RunService for DefaultRunService {
             Err(r) => return r.into(),
         };
         let row = row_of(&item);
-        if row.state == "running" && !row.orphaned {
+        // `created` is live too: the process is up and has not yet reported
+        // `running` (a just-launched GADGET-4, R7b), so a resume now would race it.
+        if matches!(row.state.as_str(), "running" | "created") && !row.orphaned {
             return StartResult::refused(
                 refusal::CONFLICT,
                 format!(
