@@ -670,11 +670,16 @@ async fn the_service_runs_the_adapter_end_to_end() {
             Some(3),
             None,
             None,
+            None,
         )
         .await;
     assert_eq!(r.answer.expect("ok").rows.len(), 2);
     let r = service
-        .fetch(format!("https://ui.adsabs.harvard.edu/abs/{BIB}"), None)
+        .fetch(
+            format!("https://ui.adsabs.harvard.edu/abs/{BIB}"),
+            None,
+            None,
+        )
         .await;
     assert_eq!(r.answer.unwrap().work.ids["bibcode"], BIB);
 }

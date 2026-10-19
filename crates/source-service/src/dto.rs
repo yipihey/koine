@@ -72,6 +72,26 @@ macro_rules! refusable {
     };
 }
 
+/// How the service federates (S-D7), reported by `explain`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct Federation {
+    /// The per-source timeout a call gets unless it passes `timeout_ms`; a
+    /// source past it is a `timed_out` diagnostic and the others' rows return.
+    pub timeout_ms: u64,
+    /// How rows from different sources become one: `identifier` — an
+    /// overlap on `ids.{doi, arxiv, pmid, bibcode}`, never a title.
+    pub merge: String,
+}
+
+impl Default for Federation {
+    fn default() -> Self {
+        Federation {
+            timeout_ms: crate::federation::DEFAULT_TIMEOUT_MS,
+            merge: crate::federation::MERGE.into(),
+        }
+    }
+}
+
 /// The inventory (S-D9): every linked adapter's explain record.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ExplainAnswer {
@@ -79,6 +99,11 @@ pub struct ExplainAnswer {
     /// none and `KOINE_SOURCE_CONTACT` is unset.
     #[serde(default)]
     pub contact: Option<String>,
+    /// The per-source timeout and the merge rule (S-D7).
+    #[serde(default)]
+    pub federation: Federation,
+    /// Each record's `etiquette.budget` carries today's `remaining` and
+    /// `resets_at` where the source declares a daily budget (S-D8).
     pub sources: Vec<ExplainRecord>,
 }
 

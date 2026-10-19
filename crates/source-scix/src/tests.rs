@@ -528,6 +528,7 @@ async fn the_service_runs_the_adapter_end_to_end_and_reports_refused_without_a_t
             Some(3),
             None,
             None,
+            None,
         )
         .await
         .answer
@@ -537,7 +538,9 @@ async fn the_service_runs_the_adapter_end_to_end_and_reports_refused_without_a_t
         .diagnostics
         .iter()
         .any(|d| d.source == "scix" && d.status == Status::Done));
-    let fetched = service.fetch(format!("bibcode:{BIBCODE}"), None).await;
+    let fetched = service
+        .fetch(format!("bibcode:{BIBCODE}"), None, None)
+        .await;
     assert_eq!(fetched.answer.unwrap().work.ids["bibcode"], BIBCODE);
     secrets::install(Arc::new(Holds(None)));
     let answer = service
@@ -545,6 +548,7 @@ async fn the_service_runs_the_adapter_end_to_end_and_reports_refused_without_a_t
             Query::clause("title", "any", "first star"),
             None,
             Some(3),
+            None,
             None,
             None,
         )

@@ -422,13 +422,14 @@ async fn the_service_runs_the_adapter_end_to_end() {
             Some(3),
             None,
             None,
+            None,
         )
         .await;
     let answer = r.answer.expect("ok");
     assert_eq!(answer.rows.len(), 3);
     assert!(answer.next.unwrap().contains("arxiv"));
     let r = service
-        .fetch(format!("https://arxiv.org/abs/{ID}"), None)
+        .fetch(format!("https://arxiv.org/abs/{ID}"), None, None)
         .await;
     assert_eq!(
         r.answer.unwrap().work.title.as_deref(),

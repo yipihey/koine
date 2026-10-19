@@ -168,12 +168,14 @@ pub fn work(item: &Value, fetched_at: &str, query: Option<&Query>) -> Option<Wor
             source: SOURCE.into(),
             source_id: uid,
             query: query.and_then(|q| serde_json::to_string(q).ok()),
+            sources: Vec::new(),
         }),
         metrics: cited.map(|n| Metrics {
             cited_by: Some(Counted {
                 value: n,
                 source: SOURCE.into(),
             }),
+            cited_by_all: Vec::new(),
         }),
     })
 }

@@ -523,12 +523,15 @@ async fn the_service_runs_the_adapter_end_to_end() {
             Some(3),
             None,
             None,
+            None,
         )
         .await;
     let answer = r.answer.expect("ok");
     assert_eq!(answer.rows.len(), 3);
     assert!(answer.next.unwrap().contains("openalex"));
-    let r = service.fetch(format!("https://doi.org/{DOI}"), None).await;
+    let r = service
+        .fetch(format!("https://doi.org/{DOI}"), None, None)
+        .await;
     assert_eq!(r.answer.unwrap().work.ids["openalex"], W);
 }
 
