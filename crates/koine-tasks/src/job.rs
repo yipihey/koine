@@ -379,6 +379,75 @@ pub fn append_event<S: AttributedStore + ?Sized>(
     Err(JobError::SeqContended(name.to_string(), MAX_ATTEMPTS))
 }
 
+/// Append an event under a `seq` the caller already holds — a run's own
+/// gap-free `seq` from its `events.jsonl` (docs/plan-run-convention.md
+/// R-D6.2: "an ingested run's events need no translation") — rather than
+/// the next one this ring would assign. The row id is still derived from
+/// `(task, seq)`, so a second ingest of the same line is `Ok(false)`: the
+/// row existed, nothing was written. The ring is pruned to
+/// [`EVENT_RING_CAPACITY`] below `seq` as [`append_event`] prunes.
+///
+/// Mixing the two appenders on one task is the caller's mistake: the next
+/// [`append_event`] takes `max + 1`, which a caller-assigned `seq` may have
+/// skipped past.
+pub fn append_event_at<S: AttributedStore + ?Sized>(
+    store: &S,
+    task: ItemId,
+    seq: u64,
+    name: &str,
+    payload: &serde_json::Value,
+    author: &str,
+) -> Result<bool> {
+    let payload_text =
+        serde_json::to_string(payload).map_err(|e| JobError::Encode(e.to_string()))?;
+    let mut fields: BTreeMap<String, Value> = BTreeMap::new();
+    fields.insert(field::event::TASK.into(), Value::String(task.to_string()));
+    fields.insert(
+        field::event::SEQ.into(),
+        Value::Int(seq.min(i64::MAX as u64) as i64),
+    );
+    fields.insert(field::event::NAME.into(), Value::String(name.to_string()));
+    fields.insert(field::event::PAYLOAD.into(), Value::String(payload_text));
+    fields.insert(
+        field::event::AT.into(),
+        Value::String(Utc::now().to_rfc3339()),
+    );
+    let now = Utc::now();
+    let item = Item {
+        id: event_row_id(task, seq),
+        schema: TASK_EVENT_SCHEMA,
+        payload: fields,
+        created: now,
+        modified: now,
+        author: author.into(),
+        author_kind: ActorKind::Agent,
+        logical_clock: 0,
+        origin: None,
+        canonical_id: None,
+        tags: vec![],
+        flag: None,
+        is_read: false,
+        is_starred: false,
+        priority: Priority::None,
+        visibility: Visibility::Private,
+        message_type: None,
+        produced_by: None,
+        version: None,
+        batch_id: None,
+        references: vec![],
+        parent: None,
+        extra: Default::default(),
+    };
+    match store.insert(item) {
+        Ok(_) => {
+            prune(store, task, seq)?;
+            Ok(true)
+        }
+        Err(StoreError::AlreadyExists(_)) => Ok(false),
+        Err(e) => Err(e.into()),
+    }
+}
+
 /// Events of `task` with `seq > after`, oldest first, capped at `limit` (0 =
 /// unbounded). ONE store read, filtered and ordered by the store — the
 /// cursor a caller hands back comes from these rows, never a second read.
@@ -548,6 +617,24 @@ mod tests {
         assert!(
             matches!(item.payload.get("assigned_to"), Some(Value::String(a)) if a == "inline:1@t")
         );
+    }
+
+    #[test]
+    fn an_event_appended_at_a_held_seq_is_idempotent_and_reads_in_order() {
+        let s = store();
+        let id = create_job(&s, "v", &json!({}), "r", "t").unwrap();
+        assert!(append_event_at(&s, id, 2, "progress", &json!({"step": 2}), "t").unwrap());
+        assert!(append_event_at(&s, id, 1, "started", &json!({}), "t").unwrap());
+        // The same line again: the row exists, nothing is written.
+        assert!(!append_event_at(&s, id, 1, "started", &json!({}), "t").unwrap());
+        let rows = events_after(&s, id, 0, 0).unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|r| (r.seq, r.name.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(1, "started"), (2, "progress")]
+        );
+        assert_eq!(max_seq(&s, id).unwrap(), 2);
     }
 
     #[test]

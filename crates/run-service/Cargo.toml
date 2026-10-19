@@ -1,0 +1,48 @@
+[package]
+name = "run-service"
+description = "The run convention's koine side (docs/plan-run-convention.md R-D13): the run@1.0.0 kind, ingestion of a conforming run directory, its events as the task-event ring, and the generic verbs that start, watch and steer any conforming code from its emitted parameter schema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The convention (R1): schemas, check_dir, the key.
+run-convention = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+impress-item = { workspace = true }
+# The store this process has (for_write refuses a stand-in), and its workspace.
+koine-store = { workspace = true }
+# The event ring (append_event_at), the sweep's tasks and its parent job.
+koine-tasks = { workspace = true, features = ["runtime"] }
+# The agent desk: a 3xx exit files a `diagnose` request (R-D13).
+koine-agent = { workspace = true }
+# The generated form, grouped by x-run.group.
+impress-verb-surface = { workspace = true }
+impress-surface = { workspace = true }
+jsonschema = { version = "0.33", default-features = false }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
+# spawn_blocking: a launch, a follow and an ingest block.
+tokio = { workspace = true, features = ["rt"] }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+koine-store-memory = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+# The one built-in code, for proof: emits a schema and writes a conforming run.
+[[bin]]
+name = "demo-code"
+path = "src/bin/demo-code.rs"
+
+[lints]
+workspace = true

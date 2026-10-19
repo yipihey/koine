@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "the built-in demo code of run-service: a counted loop that writes a conforming run",
+  "properties": {
+    "demo.cadence": {
+      "default": 2,
+      "description": "every how many steps progress and metrics are written and the inbox is read",
+      "minimum": 1.0,
+      "type": "integer",
+      "x-run": {
+        "env": "DEMO_CADENCE",
+        "group": "io",
+        "mutable": "always"
+      }
+    },
+    "demo.dt": {
+      "default": 1.0,
+      "description": "the time step",
+      "minimum": 0.0,
+      "type": "number",
+      "x-run": {
+        "group": "run",
+        "mutable": "restart",
+        "unit": "s"
+      }
+    },
+    "demo.fail_at": {
+      "default": 0,
+      "description": "the step at which the run fails with exit 320 (nan-in-state); 0 never fails",
+      "minimum": 0.0,
+      "type": "integer",
+      "x-run": {
+        "advanced": true,
+        "group": "failure",
+        "mutable": "never"
+      }
+    },
+    "demo.label": {
+      "default": "demo",
+      "description": "a label written into the series output",
+      "type": "string",
+      "x-run": {
+        "group": "io",
+        "mutable": "never"
+      }
+    },
+    "demo.sleep_ms": {
+      "default": 0,
+      "description": "wall-clock pause per step, so steering can be exercised",
+      "minimum": 0.0,
+      "type": "integer",
+      "x-run": {
+        "advanced": true,
+        "group": "run",
+        "mutable": "never",
+        "unit": "ms"
+      }
+    },
+    "demo.steps": {
+      "default": 10,
+      "description": "how many steps the run takes",
+      "minimum": 1.0,
+      "type": "integer",
+      "x-run": {
+        "group": "run",
+        "mutable": "never"
+      }
+    }
+  },
+  "title": "demo-code",
+  "type": "object",
+  "x-run": {
+    "groups": {
+      "failure": {
+        "description": "make the run fail on purpose"
+      },
+      "io": {
+        "description": "what is written and when"
+      },
+      "run": {
+        "description": "how long and how fast"
+      }
+    },
+    "metrics": [
+      {
+        "description": "1/step, so it falls",
+        "name": "energy",
+        "unit": ""
+      }
+    ]
+  }
+}

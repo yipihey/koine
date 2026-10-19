@@ -715,6 +715,9 @@ pub fn ensure_linked() {
     source_service::ensure_linked();
     #[cfg(feature = "sources")]
     source_crossref::register();
+    // The run convention (docs/plan-run-convention.md R-D13): the run kind,
+    // the thirteen verbs, and the demo code when its binary is at hand.
+    run_service::ensure_linked();
 }
 
 #[cfg(test)]

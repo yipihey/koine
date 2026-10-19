@@ -4219,6 +4219,7 @@ dependencies = [
  "koine-window",
  "koine-workspace-hack",
  "reqwest",
+ "run-service",
  "serde",
  "serde_json",
  "source-crossref",
@@ -6923,6 +6924,34 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "uuid",
+]
+
+[[package]]
+name = "run-service"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-item",
+ "impress-service-core",
+ "impress-service-macros",
+ "impress-surface",
+ "impress-verb-surface",
+ "jsonschema",
+ "koine-agent",
+ "koine-store",
+ "koine-store-memory",
+ "koine-tasks",
+ "koine-workspace-hack",
+ "run-convention",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 

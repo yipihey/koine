@@ -1,6 +1,6 @@
 # The run convention: how a scientific code declares itself
 
-**Status:** design, 2026-10-19. Nothing is built. **Builds on:** plan-koine-store.md
+**Status:** design, 2026-10-19; R1, R2, R5 and R6 built (see R-D6.5a, R-D13.1). **Builds on:** plan-koine-store.md
 (the directory store's layout and its port), plan-koine-notebook.md (runs and the
 call log), plan-koine-ai-tasks.md (jobs, events, workflows), plan-koine-trust.md
 (TR-D12 kind evolution, TR-D13 keeping the unknown), plan-koine-live.md (L-D3
@@ -516,6 +516,53 @@ and the one new koine capability is `run-service`, generic over any
 conforming code. The host that runs it is `koine-host --tasks` on the
 machine that has the runs' filesystem; the GPU box serves the laptop through
 the network listener it already has.
+
+**R-D13.1 Built (R6, 2026-10-19), and what the text left open.** `crates/run-service`
+is the capability; the kind is `run@1.0.0` in `schema-refs.json` with
+`run-service` its only writer. Settled while building, each the nearest
+honest reading of the text:
+
+- *No `run-event` kind.* A run's events are `task-event@1.0.0` rows keyed by
+  the run id, written with the run's own `seq`
+  (`koine_tasks::job::append_event_at`): R-D6.2 says the two rings are one
+  shape, so a second kind would be a second reader for `progress` and the
+  bound plot. The ring keeps the last 200; `events.jsonl` is the archive, and
+  `run-service_events` answers `gap` when the ring was pruned past the cursor.
+- *A code is not a P8 runtime provider.* Those serve verbs over an endpoint
+  with a token and a trust decision; a code is launched and writes files.
+  What a code hands koine is a `CodeProvider` — name, version, the `--schema`
+  output, and a launch template saying how the directory (`--dir` | cwd |
+  env), the parameters (a `params.json`-shaped file | `--name=value` |
+  `x-run.env`), the problem (`--problem`) and a checkpoint (`--from`) reach
+  the process — registered in-process (`run-service_register-code` runs the
+  binary's `--schema`). The table above says "registered by the code's
+  process"; it is registered *from* the code's binary.
+- *`ingest` is `mutating, idempotent`*, not read-only: it writes the run row
+  and the ring. `list`, `status`, `events`, `codes`, `form` read. `start`,
+  `resume` and `register-code` are `external`, not `mutating`: they launch a
+  process, and koine's effects test holds a `subprocess` reach to that class
+  (the table above says "each `mutating`"; the inbox verbs `set`, `stop`,
+  `checkpoint` are).
+- *The `diagnose` request carries the last 20 events* (the table says 50): a
+  model's window beside the record. It is filed once per run, on the ingest
+  that first sees `failed` with a `3xx` exit; `status` names the request.
+- *`resume` is R-D12's `resume(dir; from)`*, a child run from a checkpoint
+  with `lineage.parent`, not the inbox's un-pause: pending `restart` values
+  from `set` ride along and are cleared on the parent; a code without a
+  resume flag is `unsupported`. The inbox's `pause`/`resume`/`step`/`until`
+  have no verb yet.
+- *A sweep is N `koine.verb` tasks plus one parent job*; the last `start`
+  (each is given `sweep`) records the run in `sweep.json` and finishes the
+  job. `sampler` generators are refused `unsupported` (no sampling library
+  here); `values`, `linspace`, `logspace`, `grid` expand.
+- *The start's `name`* is koine's alias (the convention gives a code no way
+  to receive one); a `name` the code writes wins.
+- *`orphaned`* is derived only for a run this host launched (the tail sees
+  the process exit while `run.json` still says `running`); a run started
+  elsewhere is never called orphaned by a host that cannot know.
+- *Reuse predicts the key* from the schema's defaults plus the start's
+  values and the provider's `default_problem`; a code that records a
+  different problem simply never matches, which is safe.
 
 ### R-D14. Not in this plan
 

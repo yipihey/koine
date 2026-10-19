@@ -60,6 +60,10 @@ koine-providers = { workspace = true }
 # reqwest, which a `default-features = false` host leaves out, H-D10).
 source-service = { workspace = true }
 source-crossref = { workspace = true, optional = true }
+# The run convention's verbs (docs/plan-run-convention.md R-D13): always
+# linked; the only code it knows out of the box is `demo-code` when that
+# binary is beside the host's.
+run-service = { workspace = true }
 # The demo verbs the binary links (the library itself names no domain): the
 # `demo` feature.
 surface-demo-service = { workspace = true, optional = true }

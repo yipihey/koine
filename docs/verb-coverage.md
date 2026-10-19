@@ -39,6 +39,7 @@ There is no second list.
 | `store-query-service` | koine-store-query | 4 |
 | `provider-service` | koine-providers | 2 |
 | `source-service` | source-service | 6 |
+| `run-service` | run-service | 13 |
 <!-- verb-coverage:end -->
 
 `impress-settings` is the registry library and has no `impress_service_impl!`
