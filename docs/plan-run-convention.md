@@ -69,6 +69,13 @@ decision cites it.
   Python, software version strings in its cache hash invalidated every cache
   on every upgrade (replaced by an explicit counter), and AiiDAlab generates
   no GUI from the spec — every panel is hand-written.
+- **The public codes** (Enzo, GADGET-4, Arepo, Athena++, RAMSES, FLASH,
+  MUSIC) were surveyed for what a retrofit can lean on: six parameter-file
+  dialects, no machine-readable schema outside FLASH, unknown names an
+  error in two codes and ignored or warned in five, a used-values dump in
+  three, a stop file in three, and `Config` inside snapshots in two. The
+  only multi-engine launcher found is `sbmy_control` (monofonIC + GADGET-4),
+  bespoke to one group; yt and its kin read outputs and never launch.
 - **ParaView Catalyst** and **Ascent** steer running codes through declared
   parameters; **openPMD** is the field's metadata standard for mesh and
   particle data; **Workflow Run RO-Crate** is the archival export for a run's
@@ -389,6 +396,42 @@ frequently") and of DrWatson's "entirely non-invasive": the moment
 conformance needs a dependency, the Fortran code, the shell-scripted code
 and the collaborator's code are out.
 
+**R-D9.1 An adapter is a conforming code that does not know it.** A public
+code whose source is not ours (Enzo, GADGET-4, Arepo, Athena++, RAMSES,
+FLASH, MUSIC) conforms through an *adapter*: a small program that owns the
+schema, renders the code's native parameter file, launches the code,
+and writes the run directory from what comes back. The directory it
+produces is the same directory a native code writes, and the checker, the
+importer and koine cannot tell the two apart. That is the test: a frontend
+that could tell would be a frontend per code.
+
+What an adapter does, per code, is fixed by what the code refuses to
+(surveyed 2026-10-19):
+
+| Job | Why the adapter does it |
+|---|---|
+| owns the schema | only FLASH emits a parseable one (`setup_params`); GADGET-4 and Arepo echo every parameter at startup in paste-able form; an Enzo zero-step dump lists inputs plus assumed defaults; Athena++ and MUSIC are scraped from docs. A harvest tool drafts it; a person adds units, groups and mutability once; it is versioned with the code it was harvested from |
+| renders the native file | `param.txt`, `athinput` blocks, Fortran namelists, INI sections: one renderer each (Vespa's `MusicSpec.write_config` is one already) |
+| validates before launch | Enzo *warns* on an unknown name, Athena++ and MUSIC *ignore* it, GADGET-4 and Arepo refuse the whole run for one extra keyword; R-D2.5 holds for all of them only if the adapter checks first (`athena -n` and Arepo's `check.py` are the only dry runs) |
+| records the build | GADGET-4 and Arepo write `Config` into every snapshot; Enzo, Athena++ (`-c` prints it, stores nothing), RAMSES and FLASH do not |
+| synthesizes events | GADGET-4's `info.txt` is one tabular line per step; Athena++ and RAMSES have stdout only; the adapter tails what exists and appends `progress`, and watches the output directory for `outputs.json` |
+| normalizes stop | `touch stop` (GADGET-4, Arepo), `.dump_restart` (FLASH), SIGTERM or `-t` (Athena++), SIGUSR1 (RAMSES, "not on all machines"), nothing at all (Enzo): one `stop` request, five transports, and waiting for the next dump as the fallback |
+| enforces restart rules | GADGET-4's `RestartFlag 1` needs the same rank count and refuses cosmology changes; Athena++ forbids mesh changes: these are `never` and `restart` classes on the adapter's schema, and the adapter diffs the new file against the old and writes `changed{by: "restart"}` |
+
+Steering is shallow for every public code — stop, checkpoint-and-stop,
+restart with changes — and `always` exists in none of them. A frontend
+shows live controls only where a schema declares an `always` parameter.
+
+Two things follow. The open question "who writes `outputs.json` for a
+bare binary" is answered: the adapter. And the chain from an IC generator
+to the code it feeds closes: nothing today links a MUSIC config to the
+GADGET run that reads its output (`InitCondFile` and the cosmology are
+retyped by hand), whereas two runs link by the IC run's indexed output as
+the simulation run's input, by content hash, with one cosmology copied
+by the adapter rather than retyped. A cross-code comparison (Vespa's
+`MultiCode`, one spec through six engines) is a sweep (R-D10) over the
+`code` parameter.
+
 A **conformance checker** (`run-check <dir>`) is the other half of this
 decision: it validates the files against the schemas in this document,
 checks the key against `params.json`, the event sequence for gaps, the
@@ -511,6 +554,14 @@ the network listener it already has.
 5. **The importer** over `vespa-runs`. One week.
 6. **koine `run-service`** and the `run@1.0.0` kind. Two weeks; after this,
    the next code pays nothing.
+7. **The first adapter: GADGET-4** (R-D9.1). It has the most to work with —
+   unknown names are errors, `parameters-usedvalues` and `info.txt` exist,
+   `touch stop` works, `Config` is in every snapshot — so the adapter is
+   mostly a schema harvest from the startup echo and a renderer.
+   `Gadget4.jl` already launches it as a child process. One week, and it
+   is the proof that an adapted run is indistinguishable from a native one.
+   Then MUSIC/monofonIC, to close the IC chain; then Enzo, the hardest
+   (650 parameters, warnings on typos, no stop file).
 
 Steps 1–5 need no koine change and are worth doing alone.
 
@@ -525,9 +576,12 @@ Steps 1–5 need no koine change and are worth doing alone.
   is not. The schema's `x-run.metrics` could carry a cadence, or metrics
   could go to a columnar file with only a pointer event. Decide on the
   first run that hits 10⁶ lines.
-- **Who writes `outputs.json` for a code that cannot** (a Fortran binary
-  writing dumps by itself): a sidecar watcher in the launcher, or the
-  importer after the fact. Both conform; neither is specified here.
+- **Harvested schemas go stale.** Enzo's ~650 parameters move between
+  versions. An adapter's schema names the code version it was harvested
+  from, and the checker flags a parameter file the code's own startup echo
+  (GADGET-4, Arepo) or zero-step dump (Enzo) does not match. For codes with
+  neither (Athena++, MUSIC) there is no such check, and a stale schema is
+  found the hard way.
 - **Secrets and paths in `host`.** `argv` and environment can hold tokens
   and home directories. The library redacts by a declared list; the checker
   flags anything that looks like a credential.
