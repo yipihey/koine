@@ -11,6 +11,9 @@ gadget4-adapt launch <run-dir> --params params.json [--schema schema.json] [--mp
                      [--name NAME] [--problem NAME] [--poll-ms N] [--progress-every N]
                      -- <Gadget4 binary> [args after param.txt, e.g. 0]
 gadget4-adapt adopt  <gadget4-output-dir> [--name NAME] [--problem NAME] [--log stdout.log]
+gadget4-adapt --schema
+gadget4-adapt run --dir <run-dir> --params <koine-input.json> [--from <ckpt>] [--problem <json>]
+                  [--schema schema.json] [--poll-ms N] [-- <Gadget4 binary> [--mpi N] [args]]
 ```
 
 Exit status of the tool: 0 ok (or suspended); 1 the run failed (the labelled
@@ -151,11 +154,72 @@ stdout the ending is *inferred* (last sync point at `TimeMax` is `ok`; a `cont`
 file is `walltime`; restart files without completion is `stopped`; else
 `incomplete`) and the exit message says so; `--log` classifies the real log.
 
+## Through koine's `run-service` (R-D13): `--schema`, `run`, `--from`
+
+A GADGET-4 run is started, watched and steered through the generic
+`run-service_*` verbs with no wrapper: `gadget4-adapt` is a code binary in the
+sense of `run-service`'s `CodeProvider`. `run_gadget4::provider(adapt, gadget4,
+mpi)` returns the arguments of `run-service_register-code` (this crate does not
+depend on `run-service`, and `koine-host` does not link GADGET-4; a host
+registers it with one call, a person pastes the JSON):
+
+```json
+{"name": "GADGET-4", "version": "4.0+6e4f112",
+ "launch": {"argv": ["/path/gadget4-adapt", "run"], "params": "file",
+            "params_flag": "--params", "dir": "flag", "dir_name": "--dir",
+            "problem_flag": "--problem", "resume_flag": "--from",
+            "env": {"GADGET4_BIN": "/path/Gadget4", "GADGET4_MPI": "1"}},
+ "default_problem": {"name": "gadget4", "version": "4.0+6e4f112"}}
+```
+
+- `gadget4-adapt run --schema` (and `gadget4-adapt --schema`) prints the schema
+  harvested from the committed `data/parameters.tsv` and the recorded echo
+  (`fixtures/startup-echo.txt`); no GADGET-4 is needed. A different build has
+  different tags: set `GADGET4_ECHO` to its startup echo or
+  `parameters-usedvalues`.
+- **The binary and the rank count are environment, not arguments.** run-service
+  runs `argv + [--dir D, --params P, --problem J, --from C]` and appends nothing
+  else, so there is no place after a `--` for the GADGET-4 executable.
+  `launch.env` is the contract's slot for what is fixed per host: `GADGET4_BIN`,
+  `GADGET4_MPI` (run as `mpirun -np N`), `GADGET4_ARGS` (extra arguments after
+  the parameter file). `-- <bin> [--mpi N]` after the flags still works by hand
+  and wins.
+- `--params` is the `koine-input.json` run-service writes
+  (`{name: {value, source}}`, every tag, the schema's defaults under the
+  caller's values). `--problem` is the problem object, used verbatim (the key
+  run-service predicted is computed over it, so the adapter adds nothing to it).
+- Inputs the code reads from the working directory (`PowerSpectrumFile`,
+  `OutputListFilename`, `InitCondFile`) must exist before the run directory
+  does, so name them by absolute path: the launch has no staging hook.
+
+### Resume (`--from`)
+
+`run-service_resume {id[, from, params]}` passes the checkpoint (the last
+`checkpoint` event's `restartfiles/restart.N`, or a snapshot named in `from`).
+**`RestartFlag` is a command-line argument of GADGET-4, never a tag in
+`param.txt`** (`src/main/main.cc`: `Gadget4 <param.txt> [<RestartFlag>
+[<snapnum>]]`; an unknown tag is a fatal error), so the child's `param.txt` has
+no `RestartFlag` line and its `host.argv` is `[..., "param.txt", "1"]`:
+
+| `--from` | flag | staged into the child's `OutputDir` |
+|---|---|---|
+| `restartfiles/restart.N`, or the `restartfiles` directory | `1` (`RST_RESUME`) | every `restart.N`, copied (the code overwrites them in place) |
+| a snapshot `<base>_NNN.hdf5` | `2` (`RST_STARTFROMSNAP`) then `NNN` | the snapshot, copied |
+
+The parent is the nearest ancestor run directory of the checkpoint, and the
+child asserts it: `lineage.parent = {run, relation: "resume", checkpoint:
+{path, sha256}}`. Parameters are the parent's `params.json`, then its
+`restart-pending.json` (what `set` recorded), then the values supplied; a
+difference from the parent is a `changed{param, from, to, by: "restart", step}`
+event after `started`. A difference in a `never` parameter is refused before
+anything is written: exit status 3, `207 [never-changed]` on stderr naming the
+parameter (run-service reports it as `process-failed` with that text). The restart
+file count must equal the rank count (`208 [bad-restart-source]`). Verified
+against the real code: it also refuses to *reduce* `TimeMax` on a restart
+(`readjust_timebase`), which the schema cannot express.
+
 ## Not built
 
-- `resume` (restart with `RestartFlag 1`, the `changed{by: "restart"}` events
-  and the refusal of a changed `never` value): the schema carries the classes,
-  nothing applies them yet.
 - Multi-rank restart-file bookkeeping beyond one event per `restart.N`.
 
 ## Verified live, and not
@@ -168,11 +232,16 @@ GADGET-4 wrote restart files and ended: `suspended`, exit 130 `stopped`); a
 `checkpoint` request (`touch <OutputDir>/restart`: restart files written, run
 continued, the `checkpoint` event names the request).
 
+Through `run-service` (the `#[ignore]` test `live_gadget4_start_stop_and_resume_through_run_service`
+in `tests/provider.rs`, ~60 s): `start` -> `stop` (`suspended`, 130) -> `resume`
+with `time.TimeMax` 0.11 -> 0.112 (`RestartFlag 1`, the real code read the
+staged `restart.0`; `done`, `check_dir` clean, `lineage.parent` and a
+`changed{by: "restart"}` event).
+
 Read from the source, never seen live: the `cont` file and `reaching
 time-limit` ending (110); the log text of the NaN, timestep-collapse and I/O
 `Terminate` calls (320/310/150 match substrings of the `Terminate(...)`
 strings in the source; only the out-of-memory one, 120, was seen, by accident
 on a first run with `MaxMemSize 200`); multi-rank runs (rank-numbered restart
-files, `bak-restart.N`); `RestartFlag` 1/2 with changed parameters (nothing
-applies the `restart` class yet); `cpu.csv` (its header has one more column
+files, `bak-restart.N`); `RestartFlag` 2 against the real code (the fake binary covers it); `cpu.csv` (its header has one more column
 than its rows, so no CPU metric is taken from it).

@@ -16,6 +16,10 @@ pub const MISSING_PARAMETER: (u16, &str) = (203, "missing-parameter");
 pub const BAD_VALUE: (u16, &str) = (204, "bad-value");
 pub const BAD_OUTPUT_DIR: (u16, &str) = (205, "output-dir-outside-run");
 pub const BAD_SCHEMA: (u16, &str) = (206, "bad-schema");
+/// A resume asks for a different value of a `never` parameter (R-D2.3).
+pub const NEVER_CHANGED: (u16, &str) = (207, "never-changed");
+/// `--from` is not something GADGET-4 can restart from, or its run is unknown.
+pub const BAD_RESTART_SOURCE: (u16, &str) = (208, "bad-restart-source");
 
 impl Problem {
     pub fn new(kind: (u16, &'static str), message: impl Into<String>) -> Self {

@@ -6947,8 +6947,15 @@ name = "run-gadget4"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "impress-service-core",
+ "impress-surface",
+ "koine-agent",
+ "koine-store",
+ "koine-store-memory",
+ "koine-tasks",
  "koine-workspace-hack",
  "run-convention",
+ "run-service",
  "serde_json",
  "sha2",
  "tempfile",
