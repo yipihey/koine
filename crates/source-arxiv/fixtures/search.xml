@@ -1,0 +1,86 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/kxQCbYfdbwBMH3nc1ga+blcPSZk</id>
+  <title>arXiv Query: search_query=au:Abel AND ti:"first star"&amp;id_list=&amp;start=0&amp;max_results=3</title>
+  <updated>2026-10-19T21:04:33Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=au:Abel+AND+ti:%22first+star%22&amp;start=0&amp;max_results=3&amp;id_list=" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>3</opensearch:itemsPerPage>
+  <opensearch:totalResults>5</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/astro-ph/0112088v1</id>
+    <title>The Formation of the First Star in the Universe</title>
+    <updated>2001-12-04T19:38:08Z</updated>
+    <link href="https://arxiv.org/abs/astro-ph/0112088v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/astro-ph/0112088v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  We describe results from a fully self-consistent three dimensional hydrodynamical simulation of the formation of one of the first stars in the Universe. Dark matter dominated pre-galactic objects form because of gravitational instability from small initidal density perturbations. As they assemble via hierarchical merging, primordial gas cools through ro-vibrational lines of hydrogen molecules and sinks to the center of the dark matter potential well. The high redshift analog of a molecular cloud is formed. When the dense, central parts of the cold gas cloud become self-gravitating, a dense core of approximately 100 solar mass undergoes rapid contraction. At densities n&gt;10^9 cm^-3 a one solar mass proto-stellar core becomes fully molecular due to three-body H_2 formation. Contrary to analytical expectations this process does not lead to renewed fragmentation and only one star is formed. The calculation is stopped when optical depth effects become important, leaving the final mass of the fully formed star somewhat uncertain. At this stage the protostar is acreting material very rapidly (~0.01 solar masses per year). Radiative feedback from the star will not only halt its growth but also inhibit the formation of other stars in the same pre-galactic object (at least until the first star ends its life, presumably as a supernova). We conclude that at most one massive (M &gt;&gt; 1 solar mass) metal free star forms per pre-galactic halo, consistent with recent abundance measurements of metal poor galactic halo stars.</summary>
+    <category term="astro-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2001-12-04T19:38:08Z</published>
+    <arxiv:comment>8 pages, 5 figures. Science. Published in Science Express online on 11/15/2001. More information can be found at http://www.TomAbel.com/GB/</arxiv:comment>
+    <arxiv:primary_category term="astro-ph"/>
+    <arxiv:journal_ref>Science 295:93,2002</arxiv:journal_ref>
+    <author>
+      <name>Tom Abel</name>
+      <arxiv:affiliation>CfA, IoA</arxiv:affiliation>
+    </author>
+    <author>
+      <name>Greg L. Bryan</name>
+      <arxiv:affiliation>MIT</arxiv:affiliation>
+    </author>
+    <author>
+      <name>Michael L. Norman</name>
+      <arxiv:affiliation>UCSD</arxiv:affiliation>
+    </author>
+    <arxiv:doi>10.1126/science.1063991</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1126/science.1063991" title="doi"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/0801.2124v1</id>
+    <title>First Stars III Conference Summary</title>
+    <updated>2008-01-14T18:06:31Z</updated>
+    <link href="https://arxiv.org/abs/0801.2124v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/0801.2124v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  The understanding of the formation, life, and death of Population III stars, as well as the impact that these objects had on later generations of structure formation, is one of the foremost issues in modern cosmological research and has been an active area of research during the past several years. We summarize the results presented at "First Stars III," a conference sponsored by Los Alamos National Laboratory, the Kavli Institute for Particle Astrophysics and Cosmology, and the Joint Institute for Nuclear Astrophysics. This conference, the third in a series, took place in July 2007 at the La Fonda Hotel in Santa Fe, New Mexico, U.S.A.</summary>
+    <category term="astro-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2008-01-14T18:06:31Z</published>
+    <arxiv:comment>11 pages, no figures; Conference summary for First Stars III, which was held in Santa Fe, NM on July 15-20, 2007. To appear in "Proceedings of First Stars III," Eds. Brian W. O'Shea, Alexander Heger &amp; Tom Abel</arxiv:comment>
+    <arxiv:primary_category term="astro-ph"/>
+    <author>
+      <name>Brian W. O'Shea</name>
+    </author>
+    <author>
+      <name>Christopher F. McKee</name>
+    </author>
+    <author>
+      <name>Alexander Heger</name>
+    </author>
+    <author>
+      <name>Tom Abel</name>
+    </author>
+    <arxiv:doi>10.1063/1.2940787</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1063/1.2940787" title="doi"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/astro-ph/0005246v1</id>
+    <title>First Structure Formation and the First Stars</title>
+    <updated>2000-05-11T15:05:39Z</updated>
+    <link href="https://arxiv.org/abs/astro-ph/0005246v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/astro-ph/0005246v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  We discuss the results of recent 3D simulations of first structure formation in relationship to the formation of the first stars. On the basis of a new, high-resolution AMR simulation (spatial dynamic range = 30,000,000), we conclude that the first stars are likely to be massive.</summary>
+    <category term="astro-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2000-05-11T15:05:39Z</published>
+    <arxiv:comment>11 pages, 4 figures (see http://logy.harvard.edu/tabel/Homepage/trans.html for color postscripts of Fig. 3.) to appear in "The First Stars", Eds. A. Weiss, T. Abel &amp; V. Hill, Proceedings of the MPA/ESO Workshop, Garching, Germany 4-6 August 1999, (Springer Verlag, Heidelberg)</arxiv:comment>
+    <arxiv:primary_category term="astro-ph"/>
+    <author>
+      <name>Michael L. Norman</name>
+    </author>
+    <author>
+      <name>Tom Abel</name>
+    </author>
+    <author>
+      <name>Greg Bryan</name>
+    </author>
+    <arxiv:doi>10.1007/10719504_46</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1007/10719504_46" title="doi"/>
+  </entry>
+</feed>

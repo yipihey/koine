@@ -56,10 +56,13 @@ koine-store-query = { workspace = true }
 # Review and trust runtime providers (KM12).
 koine-providers = { workspace = true }
 # The source convention's verbs (docs/plan-source-convention.md S-D3): always
-# linked; the adapters are packages behind `sources` (the Crossref one brings
-# reqwest, which a `default-features = false` host leaves out, H-D10).
+# linked; the adapters are packages behind `sources` (Crossref, arXiv, ADS and
+# OpenAlex; they bring reqwest, which a `default-features = false` host leaves out, H-D10).
 source-service = { workspace = true }
 source-crossref = { workspace = true, optional = true }
+source-arxiv = { workspace = true, optional = true }
+source-ads = { workspace = true, optional = true }
+source-openalex = { workspace = true, optional = true }
 # The demo verbs the binary links (the library itself names no domain): the
 # `demo` feature.
 surface-demo-service = { workspace = true, optional = true }
@@ -88,7 +91,7 @@ demo = ["dep:surface-demo-service"]
 # The online-source adapters `source-service_explain` lists: Crossref today
 # (docs/plan-source-convention.md S-D9). Without it the six source verbs are
 # linked over an empty inventory.
-sources = ["dep:source-crossref"]
+sources = ["dep:source-crossref", "dep:source-arxiv", "dep:source-ads", "dep:source-openalex"]
 # A native `--window` (webkit2gtk on Linux); without it `--window` opens the browser.
 window-webview = ["koine-window/webview"]
 # The on-device Apple model as a provider. Off by default: it builds a Swift

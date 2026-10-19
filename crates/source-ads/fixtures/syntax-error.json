@@ -1,0 +1,17 @@
+{
+  "responseHeader":{
+    "status":400,
+    "QTime":0,
+    "params":{
+      "q":"author:(",
+      "fl":"id,publisher",
+      "start":"0",
+      "internal_logging_params":"X-Amzn-Trace-Id=Root=1-6ad688be-11f6b1f62999d4aa66486afd",
+      "rows":"1",
+      "wt":"json"}},
+  "error":{
+    "metadata":[
+      "error-class","org.apache.solr.common.SolrException",
+      "root-error-class","java.lang.Exception"],
+    "msg":"org.apache.solr.search.SyntaxError: INVALID_SYNTAX_CANNOT_PARSE: Syntax Error, cannot parse author:(: The parser reported a syntax error, antlrqueryparser hates errors! ",
+    "code":400}}
