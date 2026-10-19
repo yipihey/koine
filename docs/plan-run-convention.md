@@ -120,6 +120,27 @@ JSON Schema on request (`<code> --schema`, or `Code.schema()`), the way
 PETSc answers `-help` and FLASH generates `setup_params`. The emitted form is
 the contract; the declaration syntax is the code's business.
 
+**R-D2.0 Declared once, where it is read.** The declaration is the one place
+a parameter exists, and it stands where the code reads the value:
+
+```julia
+@param sink.tau::Float64 = 0.0  unit="s" group="sink" mutable=:never env="QS_SINK_TAU" \
+       doc="inner sink relaxation time; 0 = closed wall"
+```
+
+From that line and nothing else: the value the code reads (`params.sink.tau`),
+the emitted schema, the entry in `params.json` with its source, the
+environment variable that is read because the declaration names it, and —
+downstream, from the schema — the form, the MCP tool, the CLI flag and the
+App Intent. There is no table of parameters, no table of environment
+variables, no documentation page that lists them: each of those is a view of
+the registry, generated on request, and a person keeps nothing consistent
+by hand. The same holds for metrics (`@metric`, R-D6.4) and for the open
+group (R-D2.5), which the code's own tables generate.
+
+The one drift this leaves — a declaration that outlives the read it was
+written for — is caught at exit (R-D2.5, PETSc's `-options_left`).
+
 **R-D2.1 The form.** JSON Schema (draft 2020-12), one object whose
 properties are the parameters, with these vocabulary extensions under an
 `x-run` key where JSON Schema has no word for it:
@@ -303,11 +324,12 @@ line vrun's supervisor greps `LEVEL 10 POPULATED` for, and koine's
 `job::progress` (L-D3). It is throttled by the code (`io.every`, already a
 parameter in both codes) and costs nothing in the inner loop.
 
-**R-D6.4 Declared metrics.** The metric names a code emits are declared in
-the schema under `x-run.metrics` (name, unit, description), like its
-parameters. Vespa's `MHD_HISTORY_TSV` columns exist today with no
-declaration anywhere; koine's bound plot (L-D8) needs the names to draw
-them.
+**R-D6.4 Declared metrics.** The metric names a code emits are declared
+where they are emitted (`@metric mach unit="" doc="shock Mach number"`),
+the same way as parameters (R-D2.0), and appear in the emitted schema under
+`x-run.metrics` (name, unit, description). Vespa's `MHD_HISTORY_TSV`
+columns exist today with no declaration anywhere; koine's bound plot (L-D8)
+needs the names to draw them.
 
 **R-D6.5 A steered change is an event, with its source.** `changed` names
 the parameter, both values, the step, and who asked (`control:<request
