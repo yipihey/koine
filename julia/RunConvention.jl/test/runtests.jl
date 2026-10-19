@@ -356,6 +356,32 @@ touch_ck(dir, name, txt = "ck") = (p = joinpath(dir, name); write(p, txt); p)
         @test_throws ArgumentError resume(joinpath(mktempdir(), "y"); from = orphan)
     end
 
+    @testset "resume: a checkpoint rewritten in place belongs to the run that wrote it" begin
+        declare!()
+        pd = joinpath(mktempdir(), "parent")
+        run = mkrun(pd; argv = ["--grid.ncell=64"], name = "p")
+        ck = touch_ck(pd, "ckpt.jls", "state-100")
+        checkpoint!(run, ck; step = 100)
+        finish!(run; code = 110, label = "walltime", state = "suspended")
+        # A child resumes under the parent's directory and rewrites the same checkpoint file.
+        c1 = resume(joinpath(pd, "run-0002"); from = ck, argv = ["--run.zend=5.0"], env = Dict{String,String}())
+        write(ck, "state-200")
+        checkpoint!(c1, ck; step = 200)
+        finish!(c1; code = 110, label = "walltime", state = "suspended")
+        # The next resume names the child, not the parent, and takes the step from the child's event.
+        c2 = resume(joinpath(pd, "run-0003"); from = ck, argv = ["--run.zend=9.0"], env = Dict{String,String}())
+        lj = read_json(joinpath(pd, "run-0003", "run.json"))["lineage"]["parent"]
+        @test lj["run"] == c1.id && lj["checkpoint"]["sha256"] == sha256_file(ck) && lj["checkpoint"]["path"] == "../ckpt.jls"
+        ch = filter(e -> e["kind"] == "changed", read_events(joinpath(pd, "run-0003")))
+        @test [(e["param"], e["from"], e["to"], e["step"]) for e in ch] == [("run.zend", 5.0, 9.0, 200)]
+        @test c2.params["run.zend"] == 9.0 && c2.params["grid.ncell"] == 64
+        finish!(c2; code = 0, label = "ok")
+        # `parent=` overrides the search.
+        c3 = resume(joinpath(pd, "run-0004"); from = ck, parent = pd, argv = String[], env = Dict{String,String}())
+        @test read_json(joinpath(pd, "run-0004", "run.json"))["lineage"]["parent"]["run"] == run.id
+        finish!(c3; code = 0, label = "ok")
+    end
+
     @testset "run-check conformance (R1 checker)" begin
         bin = get(ENV, "RUN_CHECK", "/Users/tabel/Projects/koine/target/debug/run-check")
         if !isfile(bin)
