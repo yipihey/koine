@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 source-service = { workspace = true }
+koine-sources = { workspace = true }
 impress-service-core = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

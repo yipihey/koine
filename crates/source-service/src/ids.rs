@@ -76,18 +76,41 @@ pub fn parse(text: &str) -> Option<Identifier> {
     }
     let lower = t.to_ascii_lowercase();
     for (kind, prefixes) in [
-        ("doi", &["doi:", "https://doi.org/", "http://doi.org/", "https://dx.doi.org/", "http://dx.doi.org/", "doi.org/"][..]),
-        ("arxiv", &["arxiv:", "https://arxiv.org/abs/", "http://arxiv.org/abs/", "arxiv.org/abs/", "https://arxiv.org/pdf/"][..]),
+        (
+            "doi",
+            &[
+                "doi:",
+                "https://doi.org/",
+                "http://doi.org/",
+                "https://dx.doi.org/",
+                "http://dx.doi.org/",
+                "doi.org/",
+            ][..],
+        ),
+        (
+            "arxiv",
+            &[
+                "arxiv:",
+                "https://arxiv.org/abs/",
+                "http://arxiv.org/abs/",
+                "arxiv.org/abs/",
+                "https://arxiv.org/pdf/",
+            ][..],
+        ),
         ("pmid", &["pmid:", "https://pubmed.ncbi.nlm.nih.gov/"][..]),
         ("pmcid", &["pmcid:", "pmc:"][..]),
-        ("bibcode", &["bibcode:", "https://ui.adsabs.harvard.edu/abs/"][..]),
+        (
+            "bibcode",
+            &["bibcode:", "https://ui.adsabs.harvard.edu/abs/"][..],
+        ),
         ("openalex", &["openalex:", "https://openalex.org/"][..]),
         ("s2", &["s2:", "semanticscholar:"][..]),
         ("isbn", &["isbn:"][..]),
     ] {
         for p in prefixes {
             if let Some(rest) = lower.strip_prefix(p) {
-                let value = trim_trailing_punct(t[t.len() - rest.len()..].trim().trim_end_matches('/'));
+                let value =
+                    trim_trailing_punct(t[t.len() - rest.len()..].trim().trim_end_matches('/'));
                 if value.is_empty() {
                     return None;
                 }
@@ -107,7 +130,12 @@ pub fn parse(text: &str) -> Option<Identifier> {
     if is_arxiv_new(bare) || is_arxiv_old(bare) {
         return Some(Identifier::new("arxiv", bare));
     }
-    if bare.len() == 19 && bare.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '&') && bare[..4].chars().all(|c| c.is_ascii_digit()) {
+    if bare.len() == 19
+        && bare
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '&')
+        && bare[..4].chars().all(|c| c.is_ascii_digit())
+    {
         return Some(Identifier::new("bibcode", bare));
     }
     None
@@ -116,7 +144,9 @@ pub fn parse(text: &str) -> Option<Identifier> {
 /// Every identifier found in a reference string, in order of appearance.
 pub fn scan(text: &str) -> Vec<Identifier> {
     let mut out: Vec<Identifier> = Vec::new();
-    for token in text.split(|c: char| c.is_whitespace() || c == '(' || c == '[' || c == '<' || c == ',' || c == ';') {
+    for token in text.split(|c: char| {
+        c.is_whitespace() || c == '(' || c == '[' || c == '<' || c == ',' || c == ';'
+    }) {
         if let Some(id) = parse(token) {
             if !out.contains(&id) {
                 out.push(id);
@@ -152,7 +182,10 @@ mod tests {
         assert_eq!(parse("2101.00001").unwrap().value, "2101.00001");
         assert_eq!(parse("arXiv:2101.00001v2").unwrap().value, "2101.00001v2");
         assert_eq!(parse("astro-ph/0112088").unwrap().kind, "arxiv");
-        assert_eq!(parse("https://arxiv.org/abs/2101.00001").unwrap().kind, "arxiv");
+        assert_eq!(
+            parse("https://arxiv.org/abs/2101.00001").unwrap().kind,
+            "arxiv"
+        );
         assert_eq!(parse("2002Sci...295...93A").unwrap().kind, "bibcode");
     }
 

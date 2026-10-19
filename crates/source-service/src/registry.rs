@@ -37,7 +37,9 @@ impl Registry {
 
     /// The adapter for source `id`.
     pub fn get(&self, id: &str) -> Option<Arc<dyn Adapter>> {
-        self.adapters().into_iter().find(|a| a.explain().source == id)
+        self.adapters()
+            .into_iter()
+            .find(|a| a.explain().source == id)
     }
 
     /// The source ids, in registration order.

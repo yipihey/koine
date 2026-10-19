@@ -710,6 +710,11 @@ pub fn ensure_linked() {
     koine_memory::ensure_linked();
     koine_store_query::ensure_linked();
     koine_providers::ensure_linked();
+    // The source convention (docs/plan-source-convention.md): the six verbs
+    // always, the adapters as the `sources` feature links them.
+    source_service::ensure_linked();
+    #[cfg(feature = "sources")]
+    source_crossref::register();
 }
 
 #[cfg(test)]

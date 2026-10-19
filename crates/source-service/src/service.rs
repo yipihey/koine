@@ -1,6 +1,9 @@
 //! `SourceService`: the six fixed verbs (S-D3) over the registry of
-//! adapters. Every verb is `read_only` on the store and reaches the
-//! `network`; a search writes nothing, importing is imbib's own verb (S-D5).
+//! adapters. Every verb that reaches the `network` is `external` (the plan's
+//! "read-only, external": nothing is written to the store, and
+//! plan-koine-trust TR-D11 makes the reach the class); `explain` reads the
+//! linked inventory and reaches nothing, so it alone is `read_only`.
+//! Importing is imbib's own verb (S-D5).
 //!
 //! Federation here is the sequential first cut: sources are asked one after
 //! another, rows merged by identifier only (S-D7), every source's outcome
@@ -12,9 +15,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use impress_service_core::async_trait;
-use impress_service_macros::{impress_service, impress_service_impl};
 #[allow(unused_imports)]
 use impress_service_macros::impress_method;
+use impress_service_macros::{impress_service, impress_service_impl};
+
+use koine_sources::{Diagnostic, Query, Status, Work};
 
 use crate::adapter::{Adapter, ExportFormat, PageRequest, Relation};
 use crate::dto::{
@@ -22,8 +27,8 @@ use crate::dto::{
     MatchAnswer, MatchInput, MatchResult, RelatedResult, RowsAnswer, SearchResult,
 };
 use crate::ids;
+use crate::query::{all_done, is_empty, merge, merge_into, native_text, supports};
 use crate::registry::{self, Registry};
-use crate::types::{Diagnostic, DiagnosticStatus, Query, Work};
 
 /// `limit`'s default and ceiling, per source (S-D3).
 pub const DEFAULT_LIMIT: u32 = 10;
@@ -32,6 +37,24 @@ pub const MAX_LIMIT: u32 = 100;
 /// The source name on a diagnostic the service itself raises (an id no
 /// adapter claims), as against one a source answered.
 pub const SERVICE_SOURCE: &str = "source-service";
+
+/// How the closed status set (S-D7) is used for the two outcomes it does not
+/// name: a source that answered "no such record" is `done` with a detail
+/// (an answer is an answer), and a transport or parse failure is `refused`
+/// with the error as detail (the source did not take the call).
+pub fn not_found(source: &str, id: &str) -> Diagnostic {
+    Diagnostic::new(source, Status::Done, format!("no record for {id}"))
+}
+
+/// A transport, HTTP or parse failure at `source`.
+pub fn failed(source: &str, error: impl std::fmt::Display) -> Diagnostic {
+    Diagnostic::new(source, Status::Refused, error.to_string())
+}
+
+/// Whether a diagnostic is the "no record" answer of [`not_found`].
+fn is_miss(d: &Diagnostic) -> bool {
+    d.status == Status::Done && d.detail.starts_with("no record for ")
+}
 
 #[impress_service]
 pub trait SourceService: Send + Sync + 'static {
@@ -46,8 +69,8 @@ pub trait SourceService: Send + Sync + 'static {
     /// Search the sources with one canonical query (S-D2: `{index, relation,
     /// term}` clauses under `and`/`or`, or a `native` passthrough). Answers
     /// `{rows, next, diagnostics}`: at most `limit` rows per source (default
-    /// 10, at most 100), each a `bibliographic-work@1` with its `ids`,
-    /// `source` and `source_id`; `next` to page; a diagnostic per source
+    /// 10, at most 100), each a `bibliographic-work@1.0.0` with its `ids`
+    /// and `provenance` (source, `source_id`); `next` to page; a diagnostic per source
     /// naming its outcome, and `unsupported` with the index for every clause
     /// a source could not map — never a silent fallback. `sources` defaults
     /// to those whose explain record covers every clause.
@@ -84,8 +107,10 @@ pub trait SourceService: Send + Sync + 'static {
     /// the input is fetched and scores 1 (`via: "identifier"`, accepted);
     /// otherwise the fields become a search and the candidates come back
     /// unscored for a person or an agent to choose (the scorer is a later
-    /// package). Nothing auto-merges below threshold.
-    #[impress_method(aliases = ["source-service_match"])]
+    /// package). Nothing auto-merges below threshold. (The plan calls this
+    /// verb `match`; `match` is a Rust keyword, so the method is
+    /// `match_citation`.)
+    #[impress_method]
     #[impress_example(
         name = "nothing-to-match",
         args = r#"{"citation": {"text": "   "}}"#,
@@ -97,7 +122,7 @@ pub trait SourceService: Send + Sync + 'static {
         sources: Option<Vec<String>>,
     ) -> MatchResult;
 
-    /// Works related to `id` by `relation` (`cites`, `cited-by`, `similar`,
+    /// Works related to `id` by `relation` (`cites`, `cited_by`, `similar`,
     /// `coreads`), `{rows, next, diagnostics}`, from the sources that claim
     /// the id; a relation a source cannot walk is an `unsupported`
     /// diagnostic. Refuses text that is not an identifier.
@@ -174,7 +199,7 @@ impl DefaultSourceService {
         self.registry()
             .adapters()
             .into_iter()
-            .filter(|a| a.explain().supports(operation))
+            .filter(|a| supports(&a.explain(), operation))
             .collect()
     }
 
@@ -206,11 +231,13 @@ impl DefaultSourceService {
                 if sort == "relevance" || record.sortable.iter().any(|s| s == sort) {
                     sort_for = Some(sort.to_string());
                 } else {
-                    answer.diagnostics.push(
-                        Diagnostic::new(&source, DiagnosticStatus::Unsupported).with_message(
-                            format!("{source} cannot sort by `{sort}`; its sortable fields are {}", list(&record.sortable)),
+                    answer.diagnostics.push(Diagnostic::unsupported(
+                        &source,
+                        format!(
+                            "sort {sort}: the sortable fields are {}",
+                            list(&record.sortable)
                         ),
-                    );
+                    ));
                 }
             }
             let page = PageRequest {
@@ -220,9 +247,9 @@ impl DefaultSourceService {
             };
             match adapter.search(query, page).await {
                 Ok(page) => {
-                    let had_problem = page.diagnostics.iter().any(|d| d.status != DiagnosticStatus::Done);
+                    let clean = all_done(&page.diagnostics);
                     answer.diagnostics.extend(page.diagnostics);
-                    if !had_problem {
+                    if clean {
                         answer.diagnostics.push(Diagnostic::done(&source));
                     }
                     if let Some(cursor) = page.next {
@@ -240,7 +267,11 @@ impl DefaultSourceService {
     }
 
     /// Fetch `id` from every adapter in `adapters`, merged.
-    async fn run_fetch(&self, id: &str, adapters: &[Arc<dyn Adapter>]) -> (Option<Work>, Vec<Diagnostic>) {
+    async fn run_fetch(
+        &self,
+        id: &str,
+        adapters: &[Arc<dyn Adapter>],
+    ) -> (Option<Work>, Vec<Diagnostic>) {
         let mut merged: Option<Work> = None;
         let mut diagnostics = Vec::new();
         for adapter in adapters {
@@ -249,11 +280,11 @@ impl DefaultSourceService {
                 Ok(Some(work)) => {
                     diagnostics.push(Diagnostic::done(&source));
                     match merged.as_mut() {
-                        Some(m) => m.merge(work),
+                        Some(m) => merge(m, work),
                         None => merged = Some(work),
                     }
                 }
-                Ok(None) => diagnostics.push(Diagnostic::not_found(&source, id)),
+                Ok(None) => diagnostics.push(not_found(&source, id)),
                 Err(d) => diagnostics.push(d),
             }
         }
@@ -261,20 +292,18 @@ impl DefaultSourceService {
     }
 }
 
+fn status_word(status: Status) -> String {
+    serde_json::to_value(status)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
 fn list(items: &[String]) -> String {
     if items.is_empty() {
         "none".into()
     } else {
         items.join(", ")
-    }
-}
-
-/// Add `row` to `rows`, folding it into an existing row that shares an id.
-fn merge_into(rows: &mut Vec<Work>, row: Work) {
-    if let Some(existing) = rows.iter_mut().find(|r| r.shares_id(&row)) {
-        existing.merge(row);
-    } else {
-        rows.push(row);
     }
 }
 
@@ -288,7 +317,10 @@ fn encode_cursors(next: &BTreeMap<String, String>) -> Option<String> {
     }
 }
 
-fn decode_cursors(cursor: Option<&str>, sources: &[Arc<dyn Adapter>]) -> Result<BTreeMap<String, String>, String> {
+fn decode_cursors(
+    cursor: Option<&str>,
+    sources: &[Arc<dyn Adapter>],
+) -> Result<BTreeMap<String, String>, String> {
     let Some(cursor) = cursor.map(str::trim).filter(|c| !c.is_empty()) else {
         return Ok(BTreeMap::new());
     };
@@ -305,7 +337,9 @@ fn check_limit(limit: Option<u32>) -> Result<u32, String> {
     match limit {
         None => Ok(DEFAULT_LIMIT),
         Some(0) => Err("`limit` must be at least 1".into()),
-        Some(n) if n > MAX_LIMIT => Err(format!("`limit` is at most {MAX_LIMIT} per source, got {n}")),
+        Some(n) if n > MAX_LIMIT => Err(format!(
+            "`limit` is at most {MAX_LIMIT} per source, got {n}"
+        )),
         Some(n) => Ok(n),
     }
 }
@@ -313,26 +347,45 @@ fn check_limit(limit: Option<u32>) -> Result<u32, String> {
 /// The structured query `match` builds from a reference's fields.
 fn match_query(citation: &MatchInput) -> Option<Query> {
     let mut parts = Vec::new();
-    if let Some(title) = citation.title.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+    if let Some(title) = citation
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
         parts.push(Query::clause("title", "any", title));
     }
-    if let Some(first) = citation.authors.first().map(|a| a.trim()).filter(|a| !a.is_empty()) {
+    if let Some(first) = citation
+        .authors
+        .first()
+        .map(|a| a.trim())
+        .filter(|a| !a.is_empty())
+    {
         parts.push(Query::clause("author", "any", first));
     }
     if let Some(year) = citation.year {
-        parts.push(Query::clause("year", "=", &year.to_string()));
+        parts.push(Query::clause("year", "=", year.to_string()));
     }
-    if let Some(container) = citation.container.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+    if let Some(container) = citation
+        .container
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
         parts.push(Query::clause("container", "any", container));
     }
     if parts.is_empty() {
-        let text = citation.text.as_deref().map(str::trim).filter(|t| !t.is_empty())?;
+        let text = citation
+            .text
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())?;
         return Some(Query::clause("any", "any", text));
     }
     Some(if parts.len() == 1 {
         parts.pop().expect("one part")
     } else {
-        Query::all(parts)
+        Query::And { and: parts }
     })
 }
 
@@ -353,7 +406,10 @@ impl SourceService for DefaultSourceService {
                 }),
                 None => ExplainResult::refused(
                     "not-found",
-                    format!("no source `{name}`; the linked sources are {}", list(&registry.sources())),
+                    format!(
+                        "no source `{name}`; the linked sources are {}",
+                        list(&registry.sources())
+                    ),
                 ),
             },
         }
@@ -369,6 +425,9 @@ impl SourceService for DefaultSourceService {
     ) -> SearchResult {
         if let Err(message) = query.validate() {
             return SearchResult::refused("invalid-argument", message);
+        }
+        if is_empty(&query) {
+            return SearchResult::refused("invalid-argument", "the query has no clause: give `{index, relation, term}`, `and`/`or` of those, or `native`");
         }
         let limit = match check_limit(limit) {
             Ok(n) => n,
@@ -391,20 +450,14 @@ impl SourceService for DefaultSourceService {
                 let mut covering = Vec::new();
                 for adapter in self.supporting("search") {
                     let record = adapter.explain();
-                    let missing = if let Some(native) = query.native_text() {
-                        record.native.is_none().then(|| format!("native:{}", native.chars().take(20).collect::<String>()))
+                    let mut missing = query.covered_by(&record);
+                    if missing.is_empty() {
+                        covering.push(adapter);
                     } else {
-                        query
-                            .clauses()
-                            .into_iter()
-                            .find(|c| !record.covers(c.index, Some(c.relation)))
-                            .map(|c| c.index.to_string())
-                    };
-                    match missing {
-                        None => covering.push(adapter),
-                        Some(index) => answer.diagnostics.push(Diagnostic::unsupported(&record.source, &index)),
+                        answer.diagnostics.push(missing.remove(0));
                     }
                 }
+                let _ = native_text(&query);
                 covering
             }
         };
@@ -412,7 +465,9 @@ impl SourceService for DefaultSourceService {
             Ok(c) => c,
             Err(message) => return SearchResult::refused("invalid-argument", message),
         };
-        let ran = self.run_search(&query, &adapters, limit, &cursors, sort.as_deref()).await;
+        let ran = self
+            .run_search(&query, &adapters, limit, &cursors, sort.as_deref())
+            .await;
         answer.rows = ran.rows;
         answer.next = ran.next;
         answer.diagnostics.extend(ran.diagnostics);
@@ -437,7 +492,10 @@ impl SourceService for DefaultSourceService {
         if adapters.is_empty() {
             return FetchResult::refused(
                 "not-found",
-                format!("no linked source claims {canonical}; the sources are {}", list(&self.registry().sources())),
+                format!(
+                    "no linked source claims {canonical}; the sources are {}",
+                    list(&self.registry().sources())
+                ),
             );
         }
         let (work, diagnostics) = self.run_fetch(&canonical, &adapters).await;
@@ -449,7 +507,20 @@ impl SourceService for DefaultSourceService {
                     "{canonical}: {}",
                     diagnostics
                         .iter()
-                        .map(|d| format!("{} {}{}", d.source, serde_json::to_value(d.status).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default(), d.message.as_deref().map(|m| format!(" ({m})")).unwrap_or_default()))
+                        .map(|d| format!(
+                            "{} {}{}",
+                            d.source,
+                            if is_miss(d) {
+                                "not-found".to_string()
+                            } else {
+                                status_word(d.status)
+                            },
+                            if d.detail.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" ({})", d.detail)
+                            }
+                        ))
                         .collect::<Vec<_>>()
                         .join("; ")
                 ),
@@ -457,7 +528,11 @@ impl SourceService for DefaultSourceService {
         }
     }
 
-    async fn match_citation(&self, citation: MatchInput, sources: Option<Vec<String>>) -> MatchResult {
+    async fn match_citation(
+        &self,
+        citation: MatchInput,
+        sources: Option<Vec<String>>,
+    ) -> MatchResult {
         let named = match &sources {
             Some(names) => match self.named(names) {
                 Ok(a) => Some(a),
@@ -518,25 +593,32 @@ impl SourceService for DefaultSourceService {
             None => self
                 .supporting("match")
                 .into_iter()
-                .filter(|a| {
-                    let record = a.explain();
-                    query.clauses().iter().all(|c| record.covers(c.index, Some(c.relation)))
-                })
+                .filter(|a| query.covered_by(&a.explain()).is_empty())
                 .collect(),
         };
-        let ran = self.run_search(&query, &adapters, 5, &BTreeMap::new(), None).await;
+        let ran = self
+            .run_search(&query, &adapters, 5, &BTreeMap::new(), None)
+            .await;
         answer.diagnostics.extend(ran.diagnostics);
-        answer.candidates.extend(ran.rows.into_iter().map(|work| Candidate {
-            work,
-            score: None,
-            evidence: BTreeMap::new(),
-            via: "search".into(),
-        }));
+        answer
+            .candidates
+            .extend(ran.rows.into_iter().map(|work| Candidate {
+                work,
+                score: None,
+                evidence: BTreeMap::new(),
+                via: "search".into(),
+            }));
         answer.accepted = false;
         MatchResult::answer(answer)
     }
 
-    async fn related(&self, id: String, relation: Relation, limit: Option<u32>, cursor: Option<String>) -> RelatedResult {
+    async fn related(
+        &self,
+        id: String,
+        relation: Relation,
+        limit: Option<u32>,
+        cursor: Option<String>,
+    ) -> RelatedResult {
         let Some(identifier) = ids::parse(&id) else {
             return RelatedResult::refused(
                 "invalid-argument",
@@ -552,7 +634,10 @@ impl SourceService for DefaultSourceService {
         if adapters.is_empty() {
             return RelatedResult::refused(
                 "not-found",
-                format!("no linked source walks relations of {canonical}; the sources are {}", list(&self.registry().sources())),
+                format!(
+                    "no linked source walks relations of {canonical}; the sources are {}",
+                    list(&self.registry().sources())
+                ),
             );
         }
         let cursors = match decode_cursors(cursor.as_deref(), &adapters) {
@@ -588,7 +673,10 @@ impl SourceService for DefaultSourceService {
 
     async fn export(&self, ids: Vec<String>, format: ExportFormat) -> ExportResult {
         if ids.is_empty() {
-            return ExportResult::refused("invalid-argument", "`ids` is empty; name at least one identifier");
+            return ExportResult::refused(
+                "invalid-argument",
+                "`ids` is empty; name at least one identifier",
+            );
         }
         let mut answer = ExportAnswer {
             format,
@@ -598,19 +686,30 @@ impl SourceService for DefaultSourceService {
         let mut by_adapter: Vec<(Arc<dyn Adapter>, Vec<String>)> = Vec::new();
         for raw in &ids {
             let Some(identifier) = ids::parse(raw) else {
-                answer.diagnostics.push(Diagnostic::new(SERVICE_SOURCE, DiagnosticStatus::NotFound).with_message(format!("`{raw}` is not a canonical identifier")));
+                answer.diagnostics.push(Diagnostic::new(
+                    SERVICE_SOURCE,
+                    Status::Unsupported,
+                    format!("`{raw}` is not a canonical identifier"),
+                ));
                 continue;
             };
             let canonical = identifier.canonical();
             match self.claiming(&canonical, "export").into_iter().next() {
                 Some(adapter) => {
                     let source = adapter.explain().source;
-                    match by_adapter.iter_mut().find(|(a, _)| a.explain().source == source) {
+                    match by_adapter
+                        .iter_mut()
+                        .find(|(a, _)| a.explain().source == source)
+                    {
                         Some((_, list)) => list.push(canonical),
                         None => by_adapter.push((adapter, vec![canonical])),
                     }
                 }
-                None => answer.diagnostics.push(Diagnostic::new(SERVICE_SOURCE, DiagnosticStatus::NotFound).with_message(format!("no linked source exports {canonical}"))),
+                None => answer.diagnostics.push(Diagnostic::new(
+                    SERVICE_SOURCE,
+                    Status::Unsupported,
+                    format!("no linked source exports {canonical}"),
+                )),
             }
         }
         let mut pieces: Vec<String> = Vec::new();
@@ -621,17 +720,21 @@ impl SourceService for DefaultSourceService {
                 Ok(text) => {
                     answer.diagnostics.push(Diagnostic::done(&source));
                     match format {
-                        ExportFormat::CslJson => match serde_json::from_str::<serde_json::Value>(&text) {
-                            Ok(serde_json::Value::Array(items)) => {
-                                answer.count += items.len() as u32;
-                                csl.extend(items);
+                        ExportFormat::CslJson => {
+                            match serde_json::from_str::<serde_json::Value>(&text) {
+                                Ok(serde_json::Value::Array(items)) => {
+                                    answer.count += items.len() as u32;
+                                    csl.extend(items);
+                                }
+                                Ok(one) => {
+                                    answer.count += 1;
+                                    csl.push(one);
+                                }
+                                Err(e) => answer
+                                    .diagnostics
+                                    .push(failed(&source, format!("csl-json did not parse: {e}"))),
                             }
-                            Ok(one) => {
-                                answer.count += 1;
-                                csl.push(one);
-                            }
-                            Err(e) => answer.diagnostics.push(Diagnostic::error(&source, format!("csl-json did not parse: {e}"))),
-                        },
+                        }
                         _ => {
                             answer.count += list.len() as u32;
                             pieces.push(text.trim().to_string());
@@ -642,7 +745,9 @@ impl SourceService for DefaultSourceService {
             }
         }
         answer.text = match format {
-            ExportFormat::CslJson => serde_json::to_string_pretty(&csl).unwrap_or_else(|_| "[]".into()),
+            ExportFormat::CslJson => {
+                serde_json::to_string_pretty(&csl).unwrap_or_else(|_| "[]".into())
+            }
             _ => pieces.join("\n\n"),
         };
         ExportResult::answer(answer)
@@ -651,7 +756,7 @@ impl SourceService for DefaultSourceService {
 
 impress_service_impl! {
     service = SourceService,
-    safety = read_only,
+    safety = external,
     since = "0.1.0",
     effects = { reads: [], writes: [], reach: [network] },
     impl = DefaultSourceService,
@@ -693,7 +798,7 @@ impress_service_impl! {
         related(
             /// A canonical identifier.
             id: String,
-            /// `cites`, `cited-by`, `similar` or `coreads`.
+            /// `cites`, `cited_by`, `similar` or `coreads`.
             relation: Relation,
             /// Rows per source: default 10, at most 100.
             limit: Option<u32>,

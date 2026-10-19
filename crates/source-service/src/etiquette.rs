@@ -5,7 +5,7 @@
 //! and nothing is retried.
 
 use std::collections::BTreeMap;
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 /// The environment variable a host or a bare CLI sets the contact in.
@@ -28,11 +28,7 @@ pub fn set_contact(contact: impl Into<String>) {
 /// The contact: what [`set_contact`] installed, else [`CONTACT_ENV`], else
 /// none (the adapter then calls without one and says so in its diagnostics).
 pub fn contact() -> Option<String> {
-    if let Some(c) = CONTACT
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
-    {
+    if let Some(c) = CONTACT.read().unwrap_or_else(|e| e.into_inner()).clone() {
         return Some(c);
     }
     std::env::var(CONTACT_ENV)
@@ -134,7 +130,9 @@ impl Limiter {
         let Some(limit) = limit.and_then(|l| l.trim().parse::<u32>().ok()) else {
             return;
         };
-        let interval = interval.and_then(parse_interval).unwrap_or(DEFAULT_INTERVAL);
+        let interval = interval
+            .and_then(parse_interval)
+            .unwrap_or(DEFAULT_INTERVAL);
         self.set_limit(source, limit, interval);
     }
 
@@ -144,8 +142,7 @@ impl Limiter {
         let entry = map
             .entry(source.to_string())
             .or_insert_with(|| Bucket::new(DEFAULT_LIMIT, DEFAULT_INTERVAL));
-        entry.backoff_until =
-            Some(Instant::now() + retry_after.unwrap_or(Duration::from_secs(10)));
+        entry.backoff_until = Some(Instant::now() + retry_after.unwrap_or(Duration::from_secs(10)));
     }
 
     /// How long until `source` may be asked again; zero when it may be asked now.
@@ -209,7 +206,11 @@ pub fn parse_interval(text: &str) -> Option<Duration> {
         return ms.trim().parse::<u64>().ok().map(Duration::from_millis);
     }
     if let Some(m) = text.strip_suffix('m') {
-        return m.trim().parse::<u64>().ok().map(|m| Duration::from_secs(m * 60));
+        return m
+            .trim()
+            .parse::<u64>()
+            .ok()
+            .map(|m| Duration::from_secs(m * 60));
     }
     let secs = text.strip_suffix('s').unwrap_or(text).trim();
     secs.parse::<f64>()
@@ -218,11 +219,13 @@ pub fn parse_interval(text: &str) -> Option<Duration> {
         .map(Duration::from_secs_f64)
 }
 
-static LIMITER: OnceLock<Limiter> = OnceLock::new();
+static LIMITER: OnceLock<Arc<Limiter>> = OnceLock::new();
 
-/// The process-wide limiter every adapter goes through.
-pub fn limiter() -> &'static Limiter {
-    LIMITER.get_or_init(Limiter::new)
+/// The process-wide limiter every adapter goes through by default; a test
+/// gives its adapter a `Limiter::new()` of its own so a recorded 429 backs
+/// off nothing but that test.
+pub fn limiter() -> Arc<Limiter> {
+    LIMITER.get_or_init(|| Arc::new(Limiter::new())).clone()
 }
 
 #[cfg(test)]

@@ -6,10 +6,9 @@
 
 use std::collections::BTreeMap;
 
+use koine_sources::kind::{Author, Counted, Issued, Location, Metrics, Provenance, Version};
+use koine_sources::{Query, Work};
 use serde_json::Value;
-use source_service::types::{
-    Author, DateParts, Location, Metrics, Provenance, Query, Work,
-};
 
 use crate::SOURCE;
 
@@ -30,11 +29,11 @@ fn csl_type(crossref: &str) -> &str {
 }
 
 /// DRIVER's version from Crossref's `content-version`.
-pub fn version_of(content_version: Option<&str>) -> &'static str {
+pub fn version_of(content_version: Option<&str>) -> Version {
     match content_version {
-        Some("vor") => "published",
-        Some("am") => "accepted",
-        _ => "submitted",
+        Some("vor") => Version::Published,
+        Some("am") => Version::Accepted,
+        _ => Version::Submitted,
     }
 }
 
@@ -46,7 +45,7 @@ fn first_string(v: Option<&Value>) -> Option<String> {
     }
 }
 
-fn date_parts(v: Option<&Value>) -> Option<DateParts> {
+fn date_parts(v: Option<&Value>) -> Option<Issued> {
     let parts = v?.get("date-parts")?.as_array()?;
     let date_parts: Vec<Vec<i32>> = parts
         .iter()
@@ -59,7 +58,7 @@ fn date_parts(v: Option<&Value>) -> Option<DateParts> {
             (!inner.is_empty()).then_some(inner)
         })
         .collect();
-    (!date_parts.is_empty()).then_some(DateParts { date_parts })
+    (!date_parts.is_empty()).then_some(Issued { date_parts })
 }
 
 /// Strip JATS tags from an abstract (`<jats:p>…</jats:p>`), keeping the text.
@@ -101,7 +100,11 @@ pub fn work(item: &Value, fetched_at: &str, query: Option<&Query>) -> Option<Wor
         .map(|list| {
             list.iter()
                 .map(|a| Author {
-                    family: a.get("family").and_then(Value::as_str).map(str::to_string).or_else(|| a.get("name").and_then(Value::as_str).map(str::to_string)),
+                    family: a
+                        .get("family")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                        .or_else(|| a.get("name").and_then(Value::as_str).map(str::to_string)),
                     given: a.get("given").and_then(Value::as_str).map(str::to_string),
                     orcid: a
                         .get("ORCID")
@@ -122,23 +125,31 @@ pub fn work(item: &Value, fetched_at: &str, query: Option<&Query>) -> Option<Wor
     let mut locations = vec![Location {
         source: SOURCE.into(),
         source_id: doi.clone(),
-        version: "published".into(),
+        version: Version::Published,
         url: landing.clone(),
         pdf: None,
         license: license.clone(),
         oa_status: None,
         primary: true,
     }];
-    for link in item.get("link").and_then(Value::as_array).into_iter().flatten() {
+    for link in item
+        .get("link")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         let Some(url) = link.get("URL").and_then(Value::as_str) else {
             continue;
         };
         let version = version_of(link.get("content-version").and_then(Value::as_str));
-        let content_type = link.get("content-type").and_then(Value::as_str).unwrap_or("");
+        let content_type = link
+            .get("content-type")
+            .and_then(Value::as_str)
+            .unwrap_or("");
         let is_pdf = content_type == "application/pdf" || url.to_ascii_lowercase().contains("pdf");
         // The landing page's own location gets the pdf; another version is
         // a location of its own.
-        if version == "published" {
+        if version == Version::Published {
             if is_pdf && locations[0].pdf.is_none() {
                 locations[0].pdf = Some(url.to_string());
             }
@@ -150,7 +161,7 @@ pub fn work(item: &Value, fetched_at: &str, query: Option<&Query>) -> Option<Wor
         locations.push(Location {
             source: SOURCE.into(),
             source_id: doi.clone(),
-            version: version.into(),
+            version,
             url: Some(url.to_string()),
             pdf: is_pdf.then(|| url.to_string()),
             license: license.clone(),
@@ -162,31 +173,48 @@ pub fn work(item: &Value, fetched_at: &str, query: Option<&Query>) -> Option<Wor
         .or_else(|| date_parts(item.get("published")))
         .or_else(|| date_parts(item.get("created")));
     Some(Work {
-        id: format!("doi:{doi}"),
-        source: SOURCE.into(),
-        source_id: doi.clone(),
-        r#type: item.get("type").and_then(Value::as_str).map(|t| csl_type(t).to_string()),
+        ty: item
+            .get("type")
+            .and_then(Value::as_str)
+            .map(|t| csl_type(t).to_string())
+            .unwrap_or_else(|| "article".into()),
         title: first_string(item.get("title")),
         author,
         issued,
         container_title: first_string(item.get("container-title")),
-        volume: item.get("volume").and_then(Value::as_str).map(str::to_string),
-        issue: item.get("issue").and_then(Value::as_str).map(str::to_string),
+        volume: item
+            .get("volume")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        issue: item
+            .get("issue")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         page: item.get("page").and_then(Value::as_str).map(str::to_string),
-        r#abstract: item.get("abstract").and_then(Value::as_str).map(strip_tags),
-        language: item.get("language").and_then(Value::as_str).map(str::to_string),
+        abstract_: item.get("abstract").and_then(Value::as_str).map(strip_tags),
+        language: item
+            .get("language")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        doi: Some(doi.clone()),
+        url: landing,
         ids,
         locations,
         provenance: Some(Provenance {
             fetched_at: fetched_at.into(),
             source: SOURCE.into(),
             source_id: doi,
-            query: query.cloned(),
+            query: query.and_then(|q| serde_json::to_string(q).ok()),
         }),
-        metrics: item.get("is-referenced-by-count").and_then(Value::as_u64).map(|n| Metrics {
-            cited_by: Some(n),
-            source: Some(SOURCE.into()),
-        }),
+        metrics: item
+            .get("is-referenced-by-count")
+            .and_then(Value::as_u64)
+            .map(|n| Metrics {
+                cited_by: Some(Counted {
+                    value: n,
+                    source: SOURCE.into(),
+                }),
+            }),
     })
 }
 
@@ -194,11 +222,12 @@ pub fn work(item: &Value, fetched_at: &str, query: Option<&Query>) -> Option<Wor
 /// the DOI when Crossref matched one, else what the citing record wrote.
 pub fn reference(entry: &Value, fetched_at: &str) -> Option<Work> {
     let doi = entry.get("DOI").and_then(Value::as_str)?.to_string();
-    let year = entry.get("year").and_then(Value::as_str).and_then(|y| y.parse::<i32>().ok());
+    let year = entry
+        .get("year")
+        .and_then(Value::as_str)
+        .and_then(|y| y.parse::<i32>().ok());
     Some(Work {
-        id: format!("doi:{doi}"),
-        source: SOURCE.into(),
-        source_id: doi.clone(),
+        ty: "article-journal".into(),
         title: entry
             .get("article-title")
             .or_else(|| entry.get("volume-title"))
@@ -208,20 +237,40 @@ pub fn reference(entry: &Value, fetched_at: &str) -> Option<Work> {
         author: entry
             .get("author")
             .and_then(Value::as_str)
-            .map(|a| vec![Author { family: Some(a.to_string()), ..Default::default() }])
+            .map(|a| {
+                vec![Author {
+                    family: Some(a.to_string()),
+                    ..Default::default()
+                }]
+            })
             .unwrap_or_default(),
-        issued: year.map(|y| DateParts { date_parts: vec![vec![y]] }),
-        container_title: entry.get("journal-title").and_then(Value::as_str).map(str::to_string),
-        volume: entry.get("volume").and_then(Value::as_str).map(str::to_string),
-        page: entry.get("first-page").and_then(Value::as_str).map(str::to_string),
+        issued: year.map(|y| Issued {
+            date_parts: vec![vec![y]],
+        }),
+        container_title: entry
+            .get("journal-title")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        volume: entry
+            .get("volume")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        page: entry
+            .get("first-page")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        doi: Some(doi.clone()),
+        url: Some(format!("https://doi.org/{doi}")),
         ids: BTreeMap::from([("doi".to_string(), doi.clone())]),
         locations: vec![Location {
             source: SOURCE.into(),
             source_id: doi.clone(),
-            version: "published".into(),
+            version: Version::Published,
             url: Some(format!("https://doi.org/{doi}")),
+            pdf: None,
+            license: None,
+            oa_status: None,
             primary: true,
-            ..Default::default()
         }],
         provenance: Some(Provenance {
             fetched_at: fetched_at.into(),

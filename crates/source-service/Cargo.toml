@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+# The vocabulary (S1): the kind, the explain record, the query, the diagnostics.
+koine-sources = { workspace = true }
 impress-service-core = { workspace = true }
 impress-service-macros = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

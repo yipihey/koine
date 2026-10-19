@@ -14,3 +14,14 @@ reaches api.crossref.org.
 | `fetch.json` / `fetch.headers` | `GET /works/10.1126/science.1063991` — a single `work` (Abel, Bryan & Norman 2002) |
 | `export.bib` / `export-bibtex.headers` | `GET /works/10.1126/science.1063991/transform` with `Accept: application/x-bibtex` |
 | `rate-limited-429.json` / `.headers` | **Hand-written**, not recorded: Crossref does not hand out a 429 on request. The headers are the documented shape (`retry-after`, `x-rate-limit-limit`, `x-rate-limit-interval`); the body is a plausible `status: error` document. |
+
+## A fact the fixtures do not show
+
+With `cursor=*` Crossref returns rows in an order that is not relevance
+unless `sort=relevance&order=desc` is explicit: on 2026-10-19 the query
+`query.author=Abel&query.bibliographic=first star universe` answered Abel,
+Bryan & Norman 2002 first (score 30.1) without a cursor and with
+`cursor=*&sort=relevance`, and a 1978 immunology paper (score 12.8) first
+with `cursor=*` alone. The adapter therefore always sends a sort; the
+search fixture above was recorded without one and its three rows happen
+to be the same either way (13 results in all).

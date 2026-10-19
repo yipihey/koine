@@ -5,7 +5,8 @@
 //! A clause the explain record does not cover is an `unsupported`
 //! diagnostic and the clause is dropped, visibly.
 
-use source_service::types::{Diagnostic, Query};
+use koine_sources::{Diagnostic, Query};
+use source_service::query::clauses;
 
 use crate::SOURCE;
 
@@ -57,7 +58,7 @@ fn year_filter(relation: &str, term: &str) -> Option<Vec<String>> {
 /// Map `query`. A query that is one `doi =` clause is a lookup; everything
 /// else is a list request. `None` when nothing at all could be mapped.
 pub fn map(query: &Query) -> Mapped {
-    let clauses = query.clauses();
+    let clauses = clauses(query);
     if let [one] = clauses.as_slice() {
         if one.index == "doi" && one.relation == "=" {
             return Mapped::Lookup(one.term.trim().to_string());
@@ -86,12 +87,13 @@ pub fn map(query: &Query) -> Mapped {
                     true
                 }
                 None => {
-                    diagnostics.push(
-                        Diagnostic::unsupported(SOURCE, "year").with_message(format!(
-                            "year {rel} `{}` is not a year (or two, for within)",
+                    diagnostics.push(Diagnostic::unsupported(
+                        SOURCE,
+                        format!(
+                            "bib.year {rel} `{}`: not a year (or two, for within)",
                             clause.term
-                        )),
-                    );
+                        ),
+                    ));
                     continue;
                 }
             },
@@ -111,12 +113,10 @@ pub fn map(query: &Query) -> Mapped {
             _ => false,
         };
         if !supported {
-            diagnostics.push(
-                Diagnostic::unsupported(SOURCE, clause.index).with_message(format!(
-                    "crossref has no `{}` index with relation `{}`",
-                    clause.index, clause.relation
-                )),
-            );
+            diagnostics.push(Diagnostic::unsupported(
+                SOURCE,
+                format!("bib.{} {}", clause.index, clause.relation),
+            ));
         }
     }
     if !filters.is_empty() {
@@ -154,7 +154,11 @@ mod tests {
             ]}"#,
         )
         .unwrap();
-        let Mapped::List { params, diagnostics } = map(&q) else {
+        let Mapped::List {
+            params,
+            diagnostics,
+        } = map(&q)
+        else {
             panic!("a list")
         };
         assert!(diagnostics.is_empty());
@@ -162,7 +166,10 @@ mod tests {
             params,
             vec![
                 ("query.author".to_string(), "Abel".to_string()),
-                ("query.bibliographic".to_string(), "reionization".to_string()),
+                (
+                    "query.bibliographic".to_string(),
+                    "reionization".to_string()
+                ),
                 ("query".to_string(), "21cm".to_string()),
                 (
                     "filter".to_string(),
@@ -170,7 +177,10 @@ mod tests {
                 ),
             ]
         );
-        assert!(!params.iter().any(|(k, _)| k == "query.title"), "deprecated");
+        assert!(
+            !params.iter().any(|(k, _)| k == "query.title"),
+            "deprecated"
+        );
     }
 
     #[test]
@@ -179,30 +189,48 @@ mod tests {
             map(&Query::clause("doi", "=", " 10.1126/science.1063991 ")),
             Mapped::Lookup("10.1126/science.1063991".into())
         );
-        let q = Query::all(vec![
-            Query::clause("first_author", "any", "Abel"),
-            Query::clause("container", "any", "Science"),
-            Query::clause("year", "=", "2002"),
-            Query::clause("year", ">", "two thousand"),
-        ]);
-        let Mapped::List { params, diagnostics } = map(&q) else {
+        let q = Query::And {
+            and: vec![
+                Query::clause("first_author", "any", "Abel"),
+                Query::clause("container", "any", "Science"),
+                Query::clause("year", "=", "2002"),
+                Query::clause("year", ">", "two thousand"),
+            ],
+        };
+        let Mapped::List {
+            params,
+            diagnostics,
+        } = map(&q)
+        else {
             panic!("a list")
         };
         assert_eq!(params[0], ("query.bibliographic".into(), "Science".into()));
         assert_eq!(
             params[1],
-            ("filter".into(), "from-pub-date:2002-01-01,until-pub-date:2002-12-31".into())
+            (
+                "filter".into(),
+                "from-pub-date:2002-01-01,until-pub-date:2002-12-31".into()
+            )
         );
         assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].unsupported.as_deref(), Some("bib.first_author"));
-        assert_eq!(diagnostics[1].unsupported.as_deref(), Some("bib.year"));
+        assert_eq!(diagnostics[0].detail, "bib.first_author any");
+        assert!(diagnostics[1].detail.starts_with("bib.year >"));
     }
 
     #[test]
     fn year_relations() {
-        assert_eq!(year_filter("<", "2000"), Some(vec!["until-pub-date:1999-12-31".into()]));
-        assert_eq!(year_filter(">", "2000"), Some(vec!["from-pub-date:2001-01-01".into()]));
-        assert_eq!(year_filter("within", "2024-2020").unwrap()[0], "from-pub-date:2020-01-01");
+        assert_eq!(
+            year_filter("<", "2000"),
+            Some(vec!["until-pub-date:1999-12-31".into()])
+        );
+        assert_eq!(
+            year_filter(">", "2000"),
+            Some(vec!["from-pub-date:2001-01-01".into()])
+        );
+        assert_eq!(
+            year_filter("within", "2024-2020").unwrap()[0],
+            "from-pub-date:2020-01-01"
+        );
         assert_eq!(year_filter("within", "2020"), None);
     }
 }

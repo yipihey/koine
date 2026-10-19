@@ -8,8 +8,9 @@ use std::collections::BTreeMap;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use koine_sources::{Diagnostic, ExplainRecord, Work};
+
 use crate::adapter::ExportFormat;
-use crate::types::{Diagnostic, ExplainRecord, Work};
 
 /// `ok`, and when refused `code` and `message`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -90,13 +91,14 @@ refusable!(
 /// The L-D5 envelope with diagnostics (S-D3, S-D7).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct RowsAnswer {
-    /// Canonical records, each with its `source` and `source_id`.
+    /// Canonical records (`bibliographic-work@1.0.0`), each with its `ids`
+    /// and a `provenance` naming the source and `source_id` it came from.
     pub rows: Vec<Work>,
     /// Pass back as `cursor` for the next page; null at the end.
     #[serde(default)]
     pub next: Option<String>,
-    /// Every source's outcome: `done`, `refused`, `timed-out`, `unsupported`
-    /// (with the index), `rate-limited`, `not-found`, `error`.
+    /// Every source's outcome: `done`, `refused`, `timed_out`, `unsupported`
+    /// (with the index in `detail`), `rate_limited`.
     #[serde(default)]
     pub diagnostics: Vec<Diagnostic>,
 }

@@ -1,19 +1,18 @@
 //! The adapter: one online database, reachable through one implementation
 //! of [`Adapter`] (S-D1, S-D9). An adapter emits its explain record, maps a
-//! canonical [`Query`] to its native syntax (or answers a diagnostic for a
+//! canonical `Query` to its native syntax (or answers a diagnostic for a
 //! clause it does not cover), parses its responses into
-//! `bibliographic-work@1` rows, and claims the identifiers and URLs it can
-//! resolve (`detect`, Zotero's `detectWeb`).
+//! `bibliographic-work@1.0.0` rows, and claims the identifiers and URLs it
+//! can resolve (`detect`, Zotero's `detectWeb`).
 
 use async_trait::async_trait;
+use koine_sources::{Diagnostic, ExplainRecord, Query, Work};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{Diagnostic, ExplainRecord, Query, Work};
-
 /// A relation `related` walks (S-D3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "snake_case")]
 pub enum Relation {
     /// The works this one cites (its references).
     Cites,
@@ -29,7 +28,7 @@ impl Relation {
     pub fn as_str(&self) -> &'static str {
         match self {
             Relation::Cites => "cites",
-            Relation::CitedBy => "cited-by",
+            Relation::CitedBy => "cited_by",
             Relation::Similar => "similar",
             Relation::Coreads => "coreads",
         }
@@ -84,15 +83,15 @@ pub trait Adapter: Send + Sync + 'static {
     /// The declaration (S-D1): the facts, all of them.
     fn explain(&self) -> ExplainRecord;
 
-    /// Whether this adapter claims `id_or_url` (`10.1126/…`, `doi:…`,
-    /// `https://doi.org/…`, `arxiv:…`): the id grammar it can look up.
-    fn detect(&self, id_or_url: &str) -> bool;
+    /// Whether this adapter claims the canonical id `kind:value`
+    /// (`doi:10.1126/…`, `arxiv:2101.00001`): the id grammar it can look up.
+    fn detect(&self, id: &str) -> bool;
 
     /// Search: every clause the explain record covers is mapped; the others
     /// are `unsupported` diagnostics on the page.
     async fn search(&self, query: &Query, page: PageRequest) -> Result<Page, Diagnostic>;
 
-    /// One record by an identifier this adapter `detect`s; `Ok(None)` when
+    /// One record by a canonical id this adapter `detect`s; `Ok(None)` when
     /// the source has no such record.
     async fn fetch(&self, id: &str) -> Result<Option<Work>, Diagnostic>;
 
