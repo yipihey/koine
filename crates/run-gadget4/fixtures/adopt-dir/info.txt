@@ -1,0 +1,66 @@
+
+Sync-Point 0, Time: 0.1, Redshift: 9, Systemstep: 0, Dloga: 0, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 1, Time: 0.100298, Redshift: 8.97026, Systemstep: 0.000298288, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 2, Time: 0.100597, Redshift: 8.94061, Systemstep: 0.000299178, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 3, Time: 0.100898, Redshift: 8.91104, Systemstep: 0.00030007, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 4, Time: 0.101199, Redshift: 8.88157, Systemstep: 0.000300966, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 5, Time: 0.1015, Redshift: 8.85218, Systemstep: 0.000301863, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 6, Time: 0.101803, Redshift: 8.82288, Systemstep: 0.000302764, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 7, Time: 0.102107, Redshift: 8.79367, Systemstep: 0.000303667, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 8, Time: 0.102411, Redshift: 8.76454, Systemstep: 0.000304573, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 9, Time: 0.102717, Redshift: 8.7355, Systemstep: 0.000305481, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 10, Time: 0.103023, Redshift: 8.70655, Systemstep: 0.000306392, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 11, Time: 0.103331, Redshift: 8.67768, Systemstep: 0.000307306, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 12, Time: 0.103639, Redshift: 8.6489, Systemstep: 0.000308223, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 13, Time: 0.103948, Redshift: 8.6202, Systemstep: 0.000309142, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 14, Time: 0.104258, Redshift: 8.59159, Systemstep: 0.000310064, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 15, Time: 0.104569, Redshift: 8.56307, Systemstep: 0.000310989, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 16, Time: 0.104881, Redshift: 8.53463, Systemstep: 0.000311917, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 17, Time: 0.105194, Redshift: 8.50627, Systemstep: 0.000312847, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 18, Time: 0.105508, Redshift: 8.478, Systemstep: 0.000313781, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 19, Time: 0.105822, Redshift: 8.44981, Systemstep: 0.000314717, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 20, Time: 0.106138, Redshift: 8.42171, Systemstep: 0.000315655, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 21, Time: 0.106454, Redshift: 8.39369, Systemstep: 0.000316597, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 22, Time: 0.106772, Redshift: 8.36575, Systemstep: 0.000317541, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 23, Time: 0.107091, Redshift: 8.3379, Systemstep: 0.000318488, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 24, Time: 0.10741, Redshift: 8.31012, Systemstep: 0.000319438, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 25, Time: 0.10773, Redshift: 8.28244, Systemstep: 0.000320391, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 26, Time: 0.108052, Redshift: 8.25483, Systemstep: 0.000321347, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 27, Time: 0.108374, Redshift: 8.22731, Systemstep: 0.000322306, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 28, Time: 0.108697, Redshift: 8.19986, Systemstep: 0.000323267, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 29, Time: 0.109021, Redshift: 8.1725, Systemstep: 0.000324231, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 30, Time: 0.109347, Redshift: 8.14522, Systemstep: 0.000325198, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 31, Time: 0.109673, Redshift: 8.11803, Systemstep: 0.000326168, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0
+
+Sync-Point 32, Time: 0.11, Redshift: 8.09091, Systemstep: 0.000327141, Dloga: 0.00297844, Nsync-grv:       4096, Nsync-hyd:          0

@@ -1,0 +1,726 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "GADGET-4 runtime parameters, harvested from startup-echo.txt. Every tag is required exactly once (GADGET-4 refuses a run that misses or repeats one) and an unknown tag is an error. Names are `group.Tag`; the group is dropped when rendering param.txt. Mutability is GADGET-4's own PARAM_FIXED (never) / PARAM_CHANGEABLE (restart) flag; GADGET-4 has no live set, so nothing is `always`. Units: code_length = units.UnitLength_in_cm cm, code_mass = units.UnitMass_in_g g, code_velocity = units.UnitVelocity_in_cm_per_s cm/s, code_time = code_length/code_velocity (the scale factor in comoving runs).",
+  "properties": {
+    "cooling_sf.MinEgySpec": {
+      "default": 0.0,
+      "description": "Minimum specific internal energy of gas",
+      "type": "number",
+      "x-run": {
+        "group": "cooling_sf",
+        "mutable": "restart",
+        "unit": "code_velocity^2"
+      }
+    },
+    "cosmology.Hubble": {
+      "default": 100.0,
+      "description": "Hubble constant in code units (100 when length is Mpc/h and velocity km/s)",
+      "type": "number",
+      "x-run": {
+        "group": "cosmology",
+        "mutable": "never"
+      }
+    },
+    "cosmology.HubbleParam": {
+      "default": 0.678,
+      "description": "Dimensionless Hubble parameter h; only enters through unit conversions",
+      "type": "number",
+      "x-run": {
+        "group": "cosmology",
+        "mutable": "never"
+      }
+    },
+    "cosmology.Omega0": {
+      "default": 0.308,
+      "description": "Total matter density in units of the critical density at z=0",
+      "type": "number",
+      "x-run": {
+        "group": "cosmology",
+        "mutable": "never"
+      }
+    },
+    "cosmology.OmegaBaryon": {
+      "default": 0.0482,
+      "description": "Baryon density in units of the critical density at z=0",
+      "type": "number",
+      "x-run": {
+        "group": "cosmology",
+        "mutable": "never"
+      }
+    },
+    "cosmology.OmegaLambda": {
+      "default": 0.692,
+      "description": "Vacuum energy density in units of the critical density at z=0",
+      "type": "number",
+      "x-run": {
+        "group": "cosmology",
+        "mutable": "never"
+      }
+    },
+    "domain.ActivePartFracForNewDomainDecomp": {
+      "default": 0.01,
+      "description": "Active-particle fraction below which no new domain decomposition is done",
+      "type": "number",
+      "x-run": {
+        "group": "domain",
+        "mutable": "restart"
+      }
+    },
+    "domain.TopNodeFactor": {
+      "default": 3.0,
+      "description": "Number of top-level tree nodes per MPI rank",
+      "type": "number",
+      "x-run": {
+        "group": "domain",
+        "mutable": "restart"
+      }
+    },
+    "gravity.ActivePartFracForPMinsteadOfEwald": {
+      "default": 0.05,
+      "description": "Active fraction above which PM replaces the Ewald correction",
+      "type": "number",
+      "x-run": {
+        "group": "gravity",
+        "mutable": "restart"
+      }
+    },
+    "gravity.ErrTolForceAcc": {
+      "default": 0.002,
+      "description": "Force accuracy of the relative tree opening criterion",
+      "type": "number",
+      "x-run": {
+        "group": "gravity",
+        "mutable": "restart"
+      }
+    },
+    "gravity.ErrTolTheta": {
+      "default": 0.75,
+      "description": "Tree opening angle of the geometric criterion",
+      "type": "number",
+      "x-run": {
+        "group": "gravity",
+        "mutable": "restart"
+      }
+    },
+    "gravity.ErrTolThetaMax": {
+      "default": 1.0,
+      "description": "Maximum opening angle for the relative criterion",
+      "type": "number",
+      "x-run": {
+        "group": "gravity",
+        "mutable": "restart"
+      }
+    },
+    "gravity.TypeOfOpeningCriterion": {
+      "default": 1,
+      "description": "Tree opening criterion: 0 geometric (angle theta), 1 relative (force error)",
+      "type": "integer",
+      "x-run": {
+        "group": "gravity",
+        "mutable": "never"
+      }
+    },
+    "integration.CourantFac": {
+      "default": 0.3,
+      "description": "Courant factor of the hydrodynamic time-step criterion",
+      "type": "number",
+      "x-run": {
+        "group": "integration",
+        "mutable": "restart"
+      }
+    },
+    "integration.ErrTolIntAccuracy": {
+      "default": 0.01,
+      "description": "Accuracy of the gravitational time-step criterion",
+      "type": "number",
+      "x-run": {
+        "group": "integration",
+        "mutable": "restart"
+      }
+    },
+    "integration.MaxSizeTimestep": {
+      "default": 0.005,
+      "description": "Largest allowed time step (ln a for comoving runs)",
+      "type": "number",
+      "x-run": {
+        "group": "integration",
+        "mutable": "restart",
+        "unit": "code_time"
+      }
+    },
+    "integration.MinSizeTimestep": {
+      "default": 0.0,
+      "description": "Smallest allowed time step",
+      "type": "number",
+      "x-run": {
+        "group": "integration",
+        "mutable": "restart",
+        "unit": "code_time"
+      }
+    },
+    "io.ICFormat": {
+      "default": 3,
+      "description": "Initial-conditions file format; same choices as SnapFormat",
+      "type": "integer",
+      "x-run": {
+        "group": "io",
+        "mutable": "restart"
+      }
+    },
+    "io.InitCondFile": {
+      "default": "./dummy.dat",
+      "description": "Initial-conditions file (without .hdf5 extension for snapshot formats); unused by NGenIC-created ICs",
+      "format": "file",
+      "type": "string",
+      "x-run": {
+        "group": "io",
+        "mutable": "never"
+      }
+    },
+    "io.MaxFilesWithConcurrentIO": {
+      "default": 1,
+      "description": "Number of snapshot files written or read concurrently",
+      "type": "integer",
+      "x-run": {
+        "group": "io",
+        "mutable": "restart"
+      }
+    },
+    "io.NumFilesPerSnapshot": {
+      "default": 1,
+      "description": "Number of files each snapshot is split into",
+      "type": "integer",
+      "x-run": {
+        "group": "io",
+        "mutable": "restart"
+      }
+    },
+    "io.OutputDir": {
+      "default": "./output",
+      "description": "Directory for snapshots, restart files and diagnostics. The adapter requires it to stay inside the run directory",
+      "format": "directory",
+      "type": "string",
+      "x-run": {
+        "group": "io",
+        "mutable": "restart"
+      }
+    },
+    "io.SnapFormat": {
+      "default": 3,
+      "description": "Snapshot file format (1, 2 binary; 3 HDF5)",
+      "type": "integer",
+      "x-run": {
+        "group": "io",
+        "mutable": "restart"
+      }
+    },
+    "io.SnapshotFileBase": {
+      "default": "snapshot",
+      "description": "Snapshot file base name; files are <base>_NNN.hdf5",
+      "type": "string",
+      "x-run": {
+        "group": "io",
+        "mutable": "restart"
+      }
+    },
+    "memory.MaxMemSize": {
+      "default": 1800,
+      "description": "Memory the code may allocate per MPI rank",
+      "type": "integer",
+      "x-run": {
+        "group": "memory",
+        "mutable": "restart",
+        "unit": "MBy"
+      }
+    },
+    "ngenic.GridSize": {
+      "default": 16,
+      "description": "NGenIC: particle load grid size per dimension (CREATE_GRID)",
+      "type": "integer",
+      "x-run": {
+        "group": "ngenic",
+        "mutable": "never"
+      }
+    },
+    "ngenic.InputSpectrum_UnitLength_in_cm": {
+      "default": 3.08568e+21,
+      "description": "NGenIC: length unit of the tabulated spectrum",
+      "type": "number",
+      "x-run": {
+        "group": "ngenic",
+        "mutable": "never",
+        "unit": "cm"
+      }
+    },
+    "ngenic.NSample": {
+      "default": 16,
+      "description": "NGenIC: k-space sampling grid size per dimension",
+      "type": "integer",
+      "x-run": {
+        "group": "ngenic",
+        "mutable": "never"
+      }
+    },
+    "ngenic.PowerSpectrumFile": {
+      "default": "powerspec",
+      "description": "NGenIC: tabulated power-spectrum file",
+      "format": "file",
+      "type": "string",
+      "x-run": {
+        "group": "ngenic",
+        "mutable": "never"
+      }
+    },
+    "ngenic.PowerSpectrumType": {
+      "default": 0,
+      "description": "NGenIC: linear-spectrum parameterization (1 Eisenstein and Hu, 2 tabulated in PowerSpectrumFile, other Efstathiou)",
+      "type": "integer",
+      "x-run": {
+        "group": "ngenic",
+        "mutable": "never"
+      }
+    },
+    "ngenic.PrimordialIndex": {
+      "default": 1.0,
+      "description": "NGenIC: primordial spectral index n_s",
+      "type": "number",
+      "x-run": {
+        "group": "ngenic",
+        "mutable": "never"
+      }
+    },
+    "ngenic.ReNormalizeInputSpectrum": {
+      "default": 1,
+      "description": "NGenIC: 1 rescales the input spectrum to Sigma8",
+      "type": "integer",
+      "x-run": {
+        "group": "ngenic",
+        "mutable": "never"
+      }
+    },
+    "ngenic.Seed": {
+      "default": 181170,
+      "description": "NGenIC: random seed of the white-noise field",
+      "type": "integer",
+      "x-run": {
+        "group": "ngenic",
+        "mutable": "never"
+      }
+    },
+    "ngenic.ShapeGamma": {
+      "default": 0.21,
+      "description": "NGenIC: shape parameter for the Efstathiou power-spectrum fit",
+      "type": "number",
+      "x-run": {
+        "group": "ngenic",
+        "mutable": "never"
+      }
+    },
+    "ngenic.Sigma8": {
+      "default": 0.9,
+      "description": "NGenIC: target rms density fluctuation on 8 Mpc/h at z=0",
+      "type": "number",
+      "x-run": {
+        "group": "ngenic",
+        "mutable": "never"
+      }
+    },
+    "ngenic.SphereMode": {
+      "default": 1,
+      "description": "NGenIC: 1 uses modes with |k| below Nyquist (a sphere), 0 a cube in k-space",
+      "type": "integer",
+      "x-run": {
+        "group": "ngenic",
+        "mutable": "never"
+      }
+    },
+    "output.OutputListFilename": {
+      "default": "outputs.txt",
+      "description": "File listing the output times (scale factors or times) when OutputListOn is 1",
+      "format": "file",
+      "type": "string",
+      "x-run": {
+        "group": "output",
+        "mutable": "restart"
+      }
+    },
+    "output.OutputListOn": {
+      "default": 1,
+      "description": "1: output times come from OutputListFilename; 0: from TimeOfFirstSnapshot/TimeBetSnapshot",
+      "enum": [
+        0,
+        1
+      ],
+      "type": "integer",
+      "x-run": {
+        "group": "output",
+        "mutable": "restart"
+      }
+    },
+    "output.TimeBetSnapshot": {
+      "default": 0.0,
+      "description": "Snapshot spacing when OutputListOn is 0 (a multiplicative factor in comoving runs)",
+      "type": "number",
+      "x-run": {
+        "group": "output",
+        "mutable": "restart",
+        "unit": "code_time"
+      }
+    },
+    "output.TimeBetStatistics": {
+      "default": 0.01,
+      "description": "Interval between writes of the energy/statistics diagnostic",
+      "type": "number",
+      "x-run": {
+        "group": "output",
+        "mutable": "restart",
+        "unit": "code_time"
+      }
+    },
+    "output.TimeOfFirstSnapshot": {
+      "default": 0.0,
+      "description": "Time (or scale factor) of the first snapshot when OutputListOn is 0",
+      "type": "number",
+      "x-run": {
+        "group": "output",
+        "mutable": "restart",
+        "unit": "code_time"
+      }
+    },
+    "restart.CpuTimeBetRestartFile": {
+      "default": 7200.0,
+      "description": "CPU time between regular restart-file writes",
+      "type": "number",
+      "x-run": {
+        "group": "restart",
+        "mutable": "restart",
+        "unit": "s"
+      }
+    },
+    "restart.TimeLimitCPU": {
+      "default": 86400.0,
+      "description": "CPU-time limit; the code stops with restart files at 85 percent of it",
+      "type": "number",
+      "x-run": {
+        "group": "restart",
+        "mutable": "restart",
+        "unit": "s"
+      }
+    },
+    "softening.SofteningClassOfPartType0": {
+      "default": 0,
+      "description": "Softening class used by particle type 0",
+      "type": "integer",
+      "x-run": {
+        "group": "softening",
+        "mutable": "never"
+      }
+    },
+    "softening.SofteningClassOfPartType1": {
+      "default": 0,
+      "description": "Softening class used by particle type 1",
+      "type": "integer",
+      "x-run": {
+        "group": "softening",
+        "mutable": "never"
+      }
+    },
+    "softening.SofteningComovingClass0": {
+      "default": 0.05,
+      "description": "Comoving gravitational softening length of softening class 0",
+      "type": "number",
+      "x-run": {
+        "group": "softening",
+        "mutable": "never",
+        "unit": "code_length"
+      }
+    },
+    "softening.SofteningMaxPhysClass0": {
+      "default": 0.05,
+      "description": "Maximum physical softening length of softening class 0",
+      "type": "number",
+      "x-run": {
+        "group": "softening",
+        "mutable": "never",
+        "unit": "code_length"
+      }
+    },
+    "sph.ArtBulkViscConst": {
+      "default": 1.0,
+      "description": "Artificial bulk viscosity strength",
+      "type": "number",
+      "x-run": {
+        "group": "sph",
+        "mutable": "restart"
+      }
+    },
+    "sph.DesNumNgb": {
+      "default": 64,
+      "description": "Desired SPH neighbour number",
+      "type": "integer",
+      "x-run": {
+        "group": "sph",
+        "mutable": "restart"
+      }
+    },
+    "sph.InitGasTemp": {
+      "default": 0.0,
+      "description": "Initial gas temperature; 0 takes it from the ICs",
+      "type": "number",
+      "x-run": {
+        "group": "sph",
+        "mutable": "never",
+        "unit": "K"
+      }
+    },
+    "sph.MaxNumNgbDeviation": {
+      "default": 1.0,
+      "description": "Allowed deviation from DesNumNgb",
+      "type": "number",
+      "x-run": {
+        "group": "sph",
+        "mutable": "restart"
+      }
+    },
+    "subfind.DesLinkNgb": {
+      "default": 20,
+      "description": "Neighbour number used by the SUBFIND density estimate",
+      "type": "integer",
+      "x-run": {
+        "group": "subfind",
+        "mutable": "restart"
+      }
+    },
+    "time.BoxSize": {
+      "default": 50.0,
+      "description": "Periodic box side length",
+      "type": "number",
+      "x-run": {
+        "group": "time",
+        "mutable": "never",
+        "unit": "code_length"
+      }
+    },
+    "time.ComovingIntegrationOn": {
+      "default": 1,
+      "description": "1: cosmological comoving integration; 0: physical coordinates",
+      "enum": [
+        0,
+        1
+      ],
+      "type": "integer",
+      "x-run": {
+        "group": "time",
+        "mutable": "never"
+      }
+    },
+    "time.TimeBegin": {
+      "default": 0.1,
+      "description": "Start time (scale factor a for comoving runs)",
+      "type": "number",
+      "x-run": {
+        "group": "time",
+        "mutable": "never",
+        "unit": "code_time"
+      }
+    },
+    "time.TimeMax": {
+      "default": 0.11,
+      "description": "End time (scale factor a for comoving runs); restart files can be extended past it",
+      "type": "number",
+      "x-run": {
+        "group": "time",
+        "mutable": "restart",
+        "unit": "code_time"
+      }
+    },
+    "units.GravityConstantInternal": {
+      "default": 0.0,
+      "description": "Value of G in internal units; 0 derives it from the unit parameters",
+      "type": "number",
+      "x-run": {
+        "group": "units",
+        "mutable": "never"
+      }
+    },
+    "units.UnitLength_in_cm": {
+      "default": 3.08568e+24,
+      "description": "Internal length unit",
+      "type": "number",
+      "x-run": {
+        "group": "units",
+        "mutable": "never",
+        "unit": "cm"
+      }
+    },
+    "units.UnitMass_in_g": {
+      "default": 1.989e+43,
+      "description": "Internal mass unit",
+      "type": "number",
+      "x-run": {
+        "group": "units",
+        "mutable": "never",
+        "unit": "g"
+      }
+    },
+    "units.UnitVelocity_in_cm_per_s": {
+      "default": 100000.0,
+      "description": "Internal velocity unit",
+      "type": "number",
+      "x-run": {
+        "group": "units",
+        "mutable": "never",
+        "unit": "cm/s"
+      }
+    }
+  },
+  "required": [
+    "io.InitCondFile",
+    "io.OutputDir",
+    "io.SnapshotFileBase",
+    "output.OutputListFilename",
+    "output.OutputListOn",
+    "cosmology.Omega0",
+    "cosmology.OmegaBaryon",
+    "cosmology.OmegaLambda",
+    "cosmology.Hubble",
+    "cosmology.HubbleParam",
+    "time.BoxSize",
+    "memory.MaxMemSize",
+    "output.TimeOfFirstSnapshot",
+    "restart.CpuTimeBetRestartFile",
+    "output.TimeBetStatistics",
+    "time.TimeBegin",
+    "time.TimeMax",
+    "output.TimeBetSnapshot",
+    "units.UnitVelocity_in_cm_per_s",
+    "units.UnitLength_in_cm",
+    "units.UnitMass_in_g",
+    "units.GravityConstantInternal",
+    "integration.ErrTolIntAccuracy",
+    "gravity.ErrTolTheta",
+    "gravity.ErrTolThetaMax",
+    "gravity.ErrTolForceAcc",
+    "integration.MaxSizeTimestep",
+    "integration.MinSizeTimestep",
+    "sph.ArtBulkViscConst",
+    "integration.CourantFac",
+    "sph.DesNumNgb",
+    "domain.TopNodeFactor",
+    "domain.ActivePartFracForNewDomainDecomp",
+    "sph.MaxNumNgbDeviation",
+    "time.ComovingIntegrationOn",
+    "io.ICFormat",
+    "io.SnapFormat",
+    "io.NumFilesPerSnapshot",
+    "io.MaxFilesWithConcurrentIO",
+    "gravity.TypeOfOpeningCriterion",
+    "restart.TimeLimitCPU",
+    "sph.InitGasTemp",
+    "cooling_sf.MinEgySpec",
+    "gravity.ActivePartFracForPMinsteadOfEwald",
+    "subfind.DesLinkNgb",
+    "ngenic.NSample",
+    "ngenic.SphereMode",
+    "ngenic.PowerSpectrumType",
+    "ngenic.ReNormalizeInputSpectrum",
+    "ngenic.PrimordialIndex",
+    "ngenic.ShapeGamma",
+    "ngenic.Sigma8",
+    "ngenic.PowerSpectrumFile",
+    "ngenic.InputSpectrum_UnitLength_in_cm",
+    "ngenic.Seed",
+    "ngenic.GridSize",
+    "softening.SofteningComovingClass0",
+    "softening.SofteningMaxPhysClass0",
+    "softening.SofteningClassOfPartType0",
+    "softening.SofteningClassOfPartType1"
+  ],
+  "title": "GADGET-4 run parameters",
+  "type": "object",
+  "x-gadget4": {
+    "config": [
+      "ASMTH=2.0",
+      "CREATE_GRID",
+      "DOUBLEPRECISION=1",
+      "FOF",
+      "GADGET2_HEADER",
+      "IDS_32BIT",
+      "NGENIC=256",
+      "NGENIC_2LPT",
+      "NSOFTCLASSES=1",
+      "NTYPES=2",
+      "PERIODIC",
+      "PMGRID=256",
+      "RANDOMIZE_DOMAINCENTER",
+      "SELFGRAVITY",
+      "SUBFIND",
+      "TREEPM_NOTIMESPLIT"
+    ],
+    "git_commit": "6e4f1128ac696260d3f2aff68cb6fa7b335e4c1c",
+    "harvested_from": "startup-echo.txt",
+    "version": "4.0"
+  },
+  "x-run": {
+    "groups": {
+      "cooling_sf": {
+        "description": "Cooling and star formation"
+      },
+      "cosmology": {
+        "description": "Cosmological parameters"
+      },
+      "domain": {
+        "description": "Domain decomposition"
+      },
+      "gravity": {
+        "description": "Gravitational force accuracy (tree and PM)"
+      },
+      "integration": {
+        "description": "Time-integration accuracy"
+      },
+      "io": {
+        "description": "Files, formats and the output directory"
+      },
+      "memory": {
+        "description": "Memory allocation"
+      },
+      "ngenic": {
+        "description": "Initial-conditions generation (NGenIC)"
+      },
+      "output": {
+        "description": "Snapshot output times and statistics"
+      },
+      "restart": {
+        "description": "CPU-time limit and restart-file cadence"
+      },
+      "softening": {
+        "description": "Gravitational softening"
+      },
+      "sph": {
+        "description": "SPH parameters"
+      },
+      "subfind": {
+        "description": "SUBFIND"
+      },
+      "time": {
+        "description": "Simulated time span and spatial extent"
+      },
+      "units": {
+        "description": "System of units"
+      }
+    },
+    "metrics": [
+      {
+        "description": "wall-clock seconds since the adapter started the code",
+        "name": "wall_s",
+        "unit": "s"
+      },
+      {
+        "description": "largest single allocation reported in output/memory.txt",
+        "name": "memory_largest_mb",
+        "unit": "MBy"
+      }
+    ]
+  }
+}

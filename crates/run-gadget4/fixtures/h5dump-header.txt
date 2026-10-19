@@ -1,0 +1,77 @@
+HDF5 "adopt-dir/snapshot_000.hdf5" {
+GROUP "/Header" {
+   ATTRIBUTE "BoxSize" {
+      DATATYPE  H5T_IEEE_F64LE
+      DATASPACE  SCALAR
+      DATA {
+      (0): 50
+      }
+   }
+   ATTRIBUTE "Git_commit" {
+      DATATYPE  H5T_STRING {
+         STRSIZE 40;
+         STRPAD H5T_STR_NULLTERM;
+         CSET H5T_CSET_ASCII;
+         CTYPE H5T_C_S1;
+      }
+      DATASPACE  SCALAR
+      DATA {
+      (0): "6e4f1128ac696260d3f2aff68cb6fa7b335e4c1c"
+      }
+   }
+   ATTRIBUTE "Git_date" {
+      DATATYPE  H5T_STRING {
+         STRSIZE 30;
+         STRPAD H5T_STR_NULLTERM;
+         CSET H5T_CSET_ASCII;
+         CTYPE H5T_C_S1;
+      }
+      DATASPACE  SCALAR
+      DATA {
+      (0): "Tue May 20 19:00:00 2025 +0200"
+      }
+   }
+   ATTRIBUTE "MassTable" {
+      DATATYPE  H5T_IEEE_F64LE
+      DATASPACE  SIMPLE { ( 2 ) / ( 2 ) }
+      DATA {
+      (0): 0, 260.81
+      }
+   }
+   ATTRIBUTE "NumFilesPerSnapshot" {
+      DATATYPE  H5T_STD_I32LE
+      DATASPACE  SCALAR
+      DATA {
+      (0): 1
+      }
+   }
+   ATTRIBUTE "NumPart_ThisFile" {
+      DATATYPE  H5T_STD_U32LE
+      DATASPACE  SIMPLE { ( 2 ) / ( 2 ) }
+      DATA {
+      (0): 0, 4096
+      }
+   }
+   ATTRIBUTE "NumPart_Total" {
+      DATATYPE  H5T_STD_U64LE
+      DATASPACE  SIMPLE { ( 2 ) / ( 2 ) }
+      DATA {
+      (0): 0, 4096
+      }
+   }
+   ATTRIBUTE "Redshift" {
+      DATATYPE  H5T_IEEE_F64LE
+      DATASPACE  SCALAR
+      DATA {
+      (0): 8.53463
+      }
+   }
+   ATTRIBUTE "Time" {
+      DATATYPE  H5T_IEEE_F64LE
+      DATASPACE  SCALAR
+      DATA {
+      (0): 0.104881
+      }
+   }
+}
+}

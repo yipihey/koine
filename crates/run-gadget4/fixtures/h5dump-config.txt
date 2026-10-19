@@ -1,0 +1,166 @@
+HDF5 "adopt-dir/snapshot_000.hdf5" {
+GROUP "/Config" {
+   ATTRIBUTE "ASMTH" {
+      DATATYPE  H5T_IEEE_F64LE
+      DATASPACE  SCALAR
+      DATA {
+      (0): 2
+      }
+   }
+   ATTRIBUTE "CREATE_GRID" {
+      DATATYPE  H5T_STRING {
+         STRSIZE 1;
+         STRPAD H5T_STR_NULLTERM;
+         CSET H5T_CSET_ASCII;
+         CTYPE H5T_C_S1;
+      }
+      DATASPACE  SCALAR
+      DATA {
+      (0): ""
+      }
+   }
+   ATTRIBUTE "DOUBLEPRECISION" {
+      DATATYPE  H5T_IEEE_F64LE
+      DATASPACE  SCALAR
+      DATA {
+      (0): 1
+      }
+   }
+   ATTRIBUTE "FOF" {
+      DATATYPE  H5T_STRING {
+         STRSIZE 1;
+         STRPAD H5T_STR_NULLTERM;
+         CSET H5T_CSET_ASCII;
+         CTYPE H5T_C_S1;
+      }
+      DATASPACE  SCALAR
+      DATA {
+      (0): ""
+      }
+   }
+   ATTRIBUTE "GADGET2_HEADER" {
+      DATATYPE  H5T_STRING {
+         STRSIZE 1;
+         STRPAD H5T_STR_NULLTERM;
+         CSET H5T_CSET_ASCII;
+         CTYPE H5T_C_S1;
+      }
+      DATASPACE  SCALAR
+      DATA {
+      (0): ""
+      }
+   }
+   ATTRIBUTE "IDS_32BIT" {
+      DATATYPE  H5T_STRING {
+         STRSIZE 1;
+         STRPAD H5T_STR_NULLTERM;
+         CSET H5T_CSET_ASCII;
+         CTYPE H5T_C_S1;
+      }
+      DATASPACE  SCALAR
+      DATA {
+      (0): ""
+      }
+   }
+   ATTRIBUTE "NGENIC" {
+      DATATYPE  H5T_IEEE_F64LE
+      DATASPACE  SCALAR
+      DATA {
+      (0): 256
+      }
+   }
+   ATTRIBUTE "NGENIC_2LPT" {
+      DATATYPE  H5T_STRING {
+         STRSIZE 1;
+         STRPAD H5T_STR_NULLTERM;
+         CSET H5T_CSET_ASCII;
+         CTYPE H5T_C_S1;
+      }
+      DATASPACE  SCALAR
+      DATA {
+      (0): ""
+      }
+   }
+   ATTRIBUTE "NSOFTCLASSES" {
+      DATATYPE  H5T_IEEE_F64LE
+      DATASPACE  SCALAR
+      DATA {
+      (0): 1
+      }
+   }
+   ATTRIBUTE "NTYPES" {
+      DATATYPE  H5T_IEEE_F64LE
+      DATASPACE  SCALAR
+      DATA {
+      (0): 2
+      }
+   }
+   ATTRIBUTE "PERIODIC" {
+      DATATYPE  H5T_STRING {
+         STRSIZE 1;
+         STRPAD H5T_STR_NULLTERM;
+         CSET H5T_CSET_ASCII;
+         CTYPE H5T_C_S1;
+      }
+      DATASPACE  SCALAR
+      DATA {
+      (0): ""
+      }
+   }
+   ATTRIBUTE "PMGRID" {
+      DATATYPE  H5T_IEEE_F64LE
+      DATASPACE  SCALAR
+      DATA {
+      (0): 256
+      }
+   }
+   ATTRIBUTE "RANDOMIZE_DOMAINCENTER" {
+      DATATYPE  H5T_STRING {
+         STRSIZE 1;
+         STRPAD H5T_STR_NULLTERM;
+         CSET H5T_CSET_ASCII;
+         CTYPE H5T_C_S1;
+      }
+      DATASPACE  SCALAR
+      DATA {
+      (0): ""
+      }
+   }
+   ATTRIBUTE "SELFGRAVITY" {
+      DATATYPE  H5T_STRING {
+         STRSIZE 1;
+         STRPAD H5T_STR_NULLTERM;
+         CSET H5T_CSET_ASCII;
+         CTYPE H5T_C_S1;
+      }
+      DATASPACE  SCALAR
+      DATA {
+      (0): ""
+      }
+   }
+   ATTRIBUTE "SUBFIND" {
+      DATATYPE  H5T_STRING {
+         STRSIZE 1;
+         STRPAD H5T_STR_NULLTERM;
+         CSET H5T_CSET_ASCII;
+         CTYPE H5T_C_S1;
+      }
+      DATASPACE  SCALAR
+      DATA {
+      (0): ""
+      }
+   }
+   ATTRIBUTE "TREEPM_NOTIMESPLIT" {
+      DATATYPE  H5T_STRING {
+         STRSIZE 1;
+         STRPAD H5T_STR_NULLTERM;
+         CSET H5T_CSET_ASCII;
+         CTYPE H5T_C_S1;
+      }
+      DATASPACE  SCALAR
+      DATA {
+      (0): ""
+      }
+   }
+}
+}

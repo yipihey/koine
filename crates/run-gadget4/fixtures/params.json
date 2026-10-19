@@ -1,0 +1,242 @@
+{
+ "io.InitCondFile": {
+  "value": "./dummy.dat",
+  "source": "file:param.txt"
+ },
+ "io.OutputDir": {
+  "value": "./output",
+  "source": "file:param.txt"
+ },
+ "io.SnapshotFileBase": {
+  "value": "snapshot",
+  "source": "file:param.txt"
+ },
+ "output.OutputListFilename": {
+  "value": "outputs.txt",
+  "source": "file:param.txt"
+ },
+ "io.ICFormat": {
+  "value": 3,
+  "source": "file:param.txt"
+ },
+ "io.SnapFormat": {
+  "value": 3,
+  "source": "file:param.txt"
+ },
+ "restart.TimeLimitCPU": {
+  "value": 86400.0,
+  "source": "file:param.txt"
+ },
+ "restart.CpuTimeBetRestartFile": {
+  "value": 7200.0,
+  "source": "file:param.txt"
+ },
+ "memory.MaxMemSize": {
+  "value": 1800,
+  "source": "file:param.txt"
+ },
+ "time.TimeBegin": {
+  "value": 0.1,
+  "source": "file:param.txt"
+ },
+ "time.TimeMax": {
+  "value": 0.11,
+  "source": "file:param.txt"
+ },
+ "time.ComovingIntegrationOn": {
+  "value": 1,
+  "source": "file:param.txt"
+ },
+ "cosmology.Omega0": {
+  "value": 0.308,
+  "source": "file:param.txt"
+ },
+ "cosmology.OmegaLambda": {
+  "value": 0.692,
+  "source": "file:param.txt"
+ },
+ "cosmology.OmegaBaryon": {
+  "value": 0.0482,
+  "source": "file:param.txt"
+ },
+ "cosmology.HubbleParam": {
+  "value": 0.678,
+  "source": "file:param.txt"
+ },
+ "cosmology.Hubble": {
+  "value": 100.0,
+  "source": "file:param.txt"
+ },
+ "time.BoxSize": {
+  "value": 50.0,
+  "source": "file:param.txt"
+ },
+ "output.OutputListOn": {
+  "value": 1,
+  "source": "file:param.txt"
+ },
+ "output.TimeBetSnapshot": {
+  "value": 0.0,
+  "source": "file:param.txt"
+ },
+ "output.TimeOfFirstSnapshot": {
+  "value": 0.0,
+  "source": "file:param.txt"
+ },
+ "output.TimeBetStatistics": {
+  "value": 0.01,
+  "source": "file:param.txt"
+ },
+ "io.NumFilesPerSnapshot": {
+  "value": 1,
+  "source": "file:param.txt"
+ },
+ "io.MaxFilesWithConcurrentIO": {
+  "value": 1,
+  "source": "file:param.txt"
+ },
+ "integration.ErrTolIntAccuracy": {
+  "value": 0.01,
+  "source": "file:param.txt"
+ },
+ "integration.CourantFac": {
+  "value": 0.3,
+  "source": "file:param.txt"
+ },
+ "integration.MaxSizeTimestep": {
+  "value": 0.005,
+  "source": "file:param.txt"
+ },
+ "integration.MinSizeTimestep": {
+  "value": 0.0,
+  "source": "file:param.txt"
+ },
+ "gravity.TypeOfOpeningCriterion": {
+  "value": 1,
+  "source": "file:param.txt"
+ },
+ "gravity.ErrTolTheta": {
+  "value": 0.75,
+  "source": "file:param.txt"
+ },
+ "gravity.ErrTolThetaMax": {
+  "value": 1.0,
+  "source": "file:param.txt"
+ },
+ "gravity.ErrTolForceAcc": {
+  "value": 0.002,
+  "source": "file:param.txt"
+ },
+ "domain.TopNodeFactor": {
+  "value": 3.0,
+  "source": "file:param.txt"
+ },
+ "domain.ActivePartFracForNewDomainDecomp": {
+  "value": 0.01,
+  "source": "file:param.txt"
+ },
+ "gravity.ActivePartFracForPMinsteadOfEwald": {
+  "value": 0.05,
+  "source": "file:param.txt"
+ },
+ "sph.DesNumNgb": {
+  "value": 64,
+  "source": "file:param.txt"
+ },
+ "sph.MaxNumNgbDeviation": {
+  "value": 1.0,
+  "source": "file:param.txt"
+ },
+ "units.UnitLength_in_cm": {
+  "value": 3.085678e+24,
+  "source": "file:param.txt"
+ },
+ "units.UnitMass_in_g": {
+  "value": 1.989e+43,
+  "source": "file:param.txt"
+ },
+ "units.UnitVelocity_in_cm_per_s": {
+  "value": 100000.0,
+  "source": "file:param.txt"
+ },
+ "units.GravityConstantInternal": {
+  "value": 0.0,
+  "source": "file:param.txt"
+ },
+ "softening.SofteningComovingClass0": {
+  "value": 0.05,
+  "source": "file:param.txt"
+ },
+ "softening.SofteningMaxPhysClass0": {
+  "value": 0.05,
+  "source": "file:param.txt"
+ },
+ "softening.SofteningClassOfPartType0": {
+  "value": 0,
+  "source": "file:param.txt"
+ },
+ "softening.SofteningClassOfPartType1": {
+  "value": 0,
+  "source": "file:param.txt"
+ },
+ "sph.ArtBulkViscConst": {
+  "value": 1.0,
+  "source": "file:param.txt"
+ },
+ "cooling_sf.MinEgySpec": {
+  "value": 0.0,
+  "source": "file:param.txt"
+ },
+ "sph.InitGasTemp": {
+  "value": 0.0,
+  "source": "file:param.txt"
+ },
+ "ngenic.NSample": {
+  "value": 16,
+  "source": "file:param.txt"
+ },
+ "ngenic.GridSize": {
+  "value": 16,
+  "source": "file:param.txt"
+ },
+ "ngenic.Seed": {
+  "value": 181170,
+  "source": "file:param.txt"
+ },
+ "ngenic.SphereMode": {
+  "value": 1,
+  "source": "file:param.txt"
+ },
+ "ngenic.PowerSpectrumType": {
+  "value": 0,
+  "source": "file:param.txt"
+ },
+ "ngenic.ReNormalizeInputSpectrum": {
+  "value": 1,
+  "source": "file:param.txt"
+ },
+ "ngenic.PrimordialIndex": {
+  "value": 1.0,
+  "source": "file:param.txt"
+ },
+ "ngenic.ShapeGamma": {
+  "value": 0.21,
+  "source": "file:param.txt"
+ },
+ "ngenic.Sigma8": {
+  "value": 0.9,
+  "source": "file:param.txt"
+ },
+ "ngenic.PowerSpectrumFile": {
+  "value": "powerspec",
+  "source": "file:param.txt"
+ },
+ "ngenic.InputSpectrum_UnitLength_in_cm": {
+  "value": 3.085678e+21,
+  "source": "file:param.txt"
+ },
+ "subfind.DesLinkNgb": {
+  "value": 20,
+  "source": "file:param.txt"
+ }
+}

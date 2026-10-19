@@ -62,6 +62,7 @@ members = [
     "crates/koine-py",
     "crates/koine-demo-mobile",
     "crates/run-convention",
+    "crates/run-gadget4",
     "crates/koine-sources",
     "crates/source-service",
     "crates/source-crossref",

@@ -1,0 +1,25 @@
+[package]
+name = "run-gadget4"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GADGET-4 adapter for the run convention (docs/plan-run-convention.md, R-D9.1): schema harvest, param.txt renderer, launcher, adopter"
+
+[dependencies]
+run-convention = { path = "../run-convention" }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[bin]]
+name = "gadget4-adapt"
+path = "src/bin/gadget4-adapt.rs"
+
+[lints]
+workspace = true
