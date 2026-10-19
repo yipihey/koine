@@ -1,0 +1,7 @@
+HTTP/2 429 
+date: Mon, 19 Oct 2026 20:30:00 GMT
+content-type: application/json
+retry-after: 2
+x-rate-limit-limit: 3
+x-rate-limit-interval: 1s
+x-api-pool: polite-array

@@ -1,0 +1,27 @@
+[package]
+name = "source-crossref"
+description = "The Crossref adapter of the source convention (docs/plan-source-convention.md S-D9): explain record, query mapping, parser into bibliographic-work@1, polite-pool etiquette"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+source-service = { workspace = true }
+koine-sources = { workspace = true }
+impress-service-core = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+reqwest = { workspace = true }
+urlencoding = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+mockito = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,28 @@
+[package]
+name = "source-service"
+description = "The source convention's verbs (docs/plan-source-convention.md S-D3): explain, search, fetch, match, related and export over a registry of adapters, one per online database"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The vocabulary (S1): the kind, the explain record, the query, the diagnostics.
+koine-sources = { workspace = true }
+impress-service-core = { workspace = true }
+impress-service-macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+# The token bucket sleeps until a slot is free (S-D8).
+tokio = { workspace = true, features = ["time", "rt", "sync"] }
+koine-workspace-hack.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

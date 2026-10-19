@@ -63,6 +63,8 @@ members = [
     "crates/koine-demo-mobile",
     "crates/run-convention",
     "crates/koine-sources",
+    "crates/source-service",
+    "crates/source-crossref",
     "crates/koine-workspace-hack",
 ]
 
@@ -208,6 +210,9 @@ koine-plot-typst = { path = "crates/koine-plot-typst" }
 koine-plot-matplotlib = { path = "crates/koine-plot-matplotlib" }
 koine-plot-veusz = { path = "crates/koine-plot-veusz" }
 koine-py = { path = "crates/koine-py" }
+# The source convention (docs/plan-source-convention.md): the verbs and the adapters.
+source-service = { path = "crates/source-service" }
+source-crossref = { path = "crates/source-crossref" }
 
 # implore crates
 

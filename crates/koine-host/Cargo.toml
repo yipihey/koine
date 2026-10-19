@@ -55,6 +55,11 @@ koine-memory = { workspace = true, features = ["package"] }
 koine-store-query = { workspace = true }
 # Review and trust runtime providers (KM12).
 koine-providers = { workspace = true }
+# The source convention's verbs (docs/plan-source-convention.md S-D3): always
+# linked; the adapters are packages behind `sources` (the Crossref one brings
+# reqwest, which a `default-features = false` host leaves out, H-D10).
+source-service = { workspace = true }
+source-crossref = { workspace = true, optional = true }
 # The demo verbs the binary links (the library itself names no domain): the
 # `demo` feature.
 surface-demo-service = { workspace = true, optional = true }
@@ -68,7 +73,7 @@ koine-workspace-hack.workspace = true
 # What an app links beyond the core and the research kit (docs/plan-koine-host.md
 # H-D10). The defaults are the demo host's; an app writes
 # `default-features = false` and names what it needs (scripts/new-app.sh --with).
-default = ["ai", "tasks", "http-registries", "tier-b", "demo"]
+default = ["ai", "tasks", "http-registries", "tier-b", "demo", "sources"]
 # The task scheduler and the task-service verbs (`--tasks`).
 tasks = ["dep:koine-tasks"]
 # The model executors, the desk agent and the impress-ai-service verbs (`--ai`).
@@ -80,6 +85,10 @@ http-registries = ["koine-packages/http"]
 tier-b = ["impress-layout-service/tier-b", "impress-surface-service/tier-b"]
 # The demo verbs and the tour, for the koine-host binary.
 demo = ["dep:surface-demo-service"]
+# The online-source adapters `source-service_explain` lists: Crossref today
+# (docs/plan-source-convention.md S-D9). Without it the six source verbs are
+# linked over an empty inventory.
+sources = ["dep:source-crossref"]
 # A native `--window` (webkit2gtk on Linux); without it `--window` opens the browser.
 window-webview = ["koine-window/webview"]
 # The on-device Apple model as a provider. Off by default: it builds a Swift

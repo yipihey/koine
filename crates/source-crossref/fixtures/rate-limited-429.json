@@ -1,0 +1,1 @@
+{"status":"error","message-type":"rate-limited","message-version":"1.0.0","message":"Too many requests: the polite pool allows 3 requests per 1s; retry after 2s"}
