@@ -4,6 +4,7 @@
 
 mod canonical;
 mod check;
+pub mod import;
 
 pub use canonical::{canonical_json, key_of, values_of};
 pub use check::{check_dir, check_parameter_schema, Finding, Report};

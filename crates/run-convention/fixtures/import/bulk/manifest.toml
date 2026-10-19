@@ -1,0 +1,45 @@
+[run]
+id = "20260706T192428-bamr-bamr16m5smoke-cbe7a91"
+code = "bamr"
+date_utc = "2026-07-06T19:24:28Z"
+tag = "bamr16m5smoke"
+status = "ok"
+wall_sec = 29
+
+[provenance]
+host = "host-a"
+vespa_sha = "cbe7a91"
+vespa_dirty = true
+launch_config = "run_bamr_m5_smoke.sh"
+julia_ver = "1.12.6"
+gpu = "metal"
+
+[config.env]
+BACKEND = "metal"
+BAM_B = "16"
+BAM_CHEM_REDUCED_H2 = "1"
+BAM_CKPT = "0"
+BAM_DTHRESH = "3.0"
+BAM_H2_COOLING = "1"
+BAM_H2_COOL_TFLOOR = "10.0"
+BAM_LDM = "0"
+BAM_LFAC = "3.0"
+BAM_LMAX = "0"
+BAM_NGRID = "16"
+BAM_NSWEEP = "1"
+BAM_REGRID = "1"
+BAM_SCHEME = "ctu"
+BAM_STOPLEVEL = "0"
+CIC_BOX = "0.016"
+CIC_COMPTON_DRAG = "1"
+CIC_MAXEXP = "0.001"
+CIC_TAG = "_bamr16m5smoke"
+CIC_VBC = "30.0"
+CIC_ZEND = "999.0"
+CIC_ZSTART = "1000.0"
+
+[outputs]
+scratch_dir = "/home/user/Projects/vespa-bulk/20260706T192428-bamr-bamr16m5smoke-cbe7a91"
+archive_dir = ""
+bulk_bytes = 372736
+synced = ["manifest.toml", "fields.toml"]

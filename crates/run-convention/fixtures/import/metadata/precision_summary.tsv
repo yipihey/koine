@@ -1,0 +1,3 @@
+kind	tag	machine	ngrid	mode	density_store	dens_scale	z	delta_b_rms	growth	x_hii	temp_k	wall_s	cycles	mcells_s	mass_drift	gravity_label	gravity_solve_s	box_mpc_h	hydro_problem	hydro_solver	hydro_l1_rho
+cicass	cicass128_f16	host-a	128	f16	f16	256	nan	nan	nan	nan	nan																/home/user/Projects/vespa-runs/runs/20260705T083045Z-cicass-f16-precision-matrix-m5/cicass/cicass128_f16/cicass
+cicass	cicass128_f32density	host-a	128	f32density	f32	256	nan	nan	nan	nan	nan																/home/user/Projects/vespa-runs/runs/20260705T083045Z-cicass-f16-precision-matrix-m5/cicass/cicass

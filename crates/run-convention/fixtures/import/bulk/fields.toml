@@ -1,0 +1,9 @@
+[[field]]
+file = "bamr_cellcmp_bamr16m5smoke_z999.bin"
+kind = "bamr_cellcmp"
+columns = ["rho", "xHII", "fH2", "fHD", "T"]
+dtypes = ["Float64", "Float64", "Float64", "Float64", "Float64"]
+order = "F"
+has_header = true
+ndim = 3
+n = 16

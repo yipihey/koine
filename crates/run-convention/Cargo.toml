@@ -10,6 +10,8 @@ description = "The run convention (docs/plan-run-convention.md): JSON Schemas fo
 jsonschema = { version = "0.33", default-features = false }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+uuid = { workspace = true, features = ["v5"] }
+chrono = { workspace = true }
 koine-workspace-hack.workspace = true
 
 [dev-dependencies]
@@ -18,6 +20,10 @@ tempfile = { workspace = true }
 [[bin]]
 name = "run-check"
 path = "src/bin/run-check.rs"
+
+[[bin]]
+name = "run-import"
+path = "src/bin/run-import.rs"
 
 [lints]
 workspace = true

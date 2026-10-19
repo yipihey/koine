@@ -1,0 +1,12 @@
+MEASURED cycles=4 subcycles=4 cells=0.033M total=0.0442 s throughput=3.0 macro-Mcell/s substep=3.0 Mcell/s last_dt=6.232e-01
+EVOLVED measured_time=2.675538e+00
+COSMO final_z=2500.000000 final_a=3.99840064e-04 cycles=4
+PHASE s/cycle: cfl 0.0013 | mhd 0.0051 | glm_project 0.0000 | drag 0.0000 | chem 0.0024 | deposit 0.0003 | assemble 0.0005 | fft 0.0010 | push 0.0005 | total 0.
+SHARES: cfl 12% | mhd 46% | glm_project 0% | drag 0% | chem 22% | deposit 3% | assemble 4% | fft 9% | push 5%
+GLM: ch_fac=2 cr=1 project_every=0 projections=0
+TERMINAL measured_cycles=4 s/terminal-cycle: force 0.000468 | pressure_fft 0.001450 | finalize 0.000517 | induction 0.002590 | projection 0.000000
+MEMORY device_live_gib=0.004 allocated_gib=0.005 freed_gib=0.001 (Metal allocator; use vmmap physical footprint for MPS/driver memory)
+DIAG: Brms 7.972e-02 -> 7.971e-02 | divB*dx/Brms 5.608e-07 | delta_b_rms 2.681e-05 | delta_dm_rms 0.000e+00
+DRAG: mode=hybrid regime=terminal boost=1024.000 boosted_steps=5 subcycles_total=5 last_nsub=1 last_explicit_dt=4.044e-03 last_dt=6.232e-01 last_f=0.00002617 la
+GRAVITY: source=total weights=(gas 0.17037, dm 0.82963) fixed_subcycles=1 dt_boost=0.000 particle_max_disp=1 last_particle_vmax=1.325905e-10 last_particle_gmax=
+CHEM: xHII mean/min/max 1.000000e+00 9.999998e-01 1.000000e+00 | fH2 mean/min/max 1.811281e-10 1.811007e-10 1.811569e-10

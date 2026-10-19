@@ -1,0 +1,2 @@
+timestamp	backend	N	recon	riemann	glm_ch_fac	glm_cr	chem	chem_rate_tables	chem_itcap	chem_dtfrac	hubble_h	omega_m	omega_l	omega_r	pmf_kcut	pmf_kmax	pmf_hard_cutoff	pmf_mode_lock_n	pmf_min_cells_per_wa
+2026-07-13T11:03:56	metal	32	ppm	hlld	2.0	1.0	mixing	true	16	0.1	0.674	0.315	0.685	9.13541547429e-5	25.132741228718345	25.132741228718345	true	32	8.0	0	0	true	hybrid	1024.0	5	5	1	2.6174073870442194e-5
