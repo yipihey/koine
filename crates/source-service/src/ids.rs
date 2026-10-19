@@ -64,6 +64,13 @@ fn is_arxiv_old(s: &str) -> bool {
         && num.chars().all(|c| c.is_ascii_digit())
 }
 
+/// `WOS:000175157300021`: the prefix and 15 alphanumerics.
+fn is_wos_ut(s: &str) -> bool {
+    s.len() == 19
+        && s[..4].eq_ignore_ascii_case("WOS:")
+        && s[4..].chars().all(|c| c.is_ascii_alphanumeric())
+}
+
 fn trim_trailing_punct(s: &str) -> &str {
     s.trim_end_matches(['.', ',', ';', ')', ']', '>', '"', '\''])
 }
@@ -103,6 +110,7 @@ pub fn parse(text: &str) -> Option<Identifier> {
             "bibcode",
             &["bibcode:", "https://ui.adsabs.harvard.edu/abs/"][..],
         ),
+        ("wos", &["wos:"][..]),
         ("openalex", &["openalex:", "https://openalex.org/"][..]),
         ("s2", &["s2:", "semanticscholar:"][..]),
         ("isbn", &["isbn:"][..]),
@@ -117,6 +125,19 @@ pub fn parse(text: &str) -> Option<Identifier> {
                 let value = match kind {
                     "arxiv" => value.trim_end_matches(".pdf").to_string(),
                     "pmcid" => format!("PMC{}", value.trim_start_matches("PMC")),
+                    // A Web of Science UT is `WOS:` + 15 characters; the
+                    // canonical value always carries the `WOS:` prefix.
+                    "wos" => {
+                        let ut = if value.len() > 4 && value[..4].eq_ignore_ascii_case("WOS:") {
+                            &value[4..]
+                        } else {
+                            value
+                        };
+                        if ut.len() != 15 || !ut.chars().all(|c| c.is_ascii_alphanumeric()) {
+                            return None;
+                        }
+                        format!("WOS:{ut}")
+                    }
                     _ => value.to_string(),
                 };
                 return Some(Identifier::new(kind, &value));
@@ -124,6 +145,9 @@ pub fn parse(text: &str) -> Option<Identifier> {
         }
     }
     let bare = trim_trailing_punct(t);
+    if is_wos_ut(bare) {
+        return Some(Identifier::new("wos", bare));
+    }
     if is_doi(bare) {
         return Some(Identifier::new("doi", bare));
     }
@@ -187,6 +211,24 @@ mod tests {
             "arxiv"
         );
         assert_eq!(parse("2002Sci...295...93A").unwrap().kind, "bibcode");
+    }
+
+    #[test]
+    fn web_of_science_uts() {
+        let id = parse("WOS:000175157300021").unwrap();
+        assert_eq!(
+            (id.kind.as_str(), id.value.as_str()),
+            ("wos", "WOS:000175157300021")
+        );
+        assert_eq!(
+            parse("wos:000175157300021").unwrap().canonical(),
+            "wos:WOS:000175157300021"
+        );
+        assert_eq!(
+            parse("wos:WOS:000175157300021").unwrap().canonical(),
+            "wos:WOS:000175157300021"
+        );
+        assert_eq!(parse("WOS:123"), None);
     }
 
     #[test]

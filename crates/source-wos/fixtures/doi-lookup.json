@@ -1,0 +1,74 @@
+{
+ "metadata": {
+  "total": 1,
+  "page": 1,
+  "limit": 1
+ },
+ "hits": [
+  {
+   "uid": "WOS:000000000000001",
+   "title": "The formation of the first star in the universe",
+   "types": [
+    "Article"
+   ],
+   "sourceTypes": [
+    "Article"
+   ],
+   "source": {
+    "sourceTitle": "SCIENCE",
+    "publishYear": 2002,
+    "publishMonth": "JAN",
+    "volume": "295",
+    "issue": "5552",
+    "pages": {
+     "range": "93-98",
+     "begin": "93",
+     "end": "98",
+     "count": 0
+    }
+   },
+   "names": {
+    "authors": [
+     {
+      "displayName": "Abel, T",
+      "wosStandard": "Abel, T",
+      "researcherId": "A-1000-2008"
+     },
+     {
+      "displayName": "Bryan, GL",
+      "wosStandard": "Bryan, GL",
+      "researcherId": ""
+     },
+     {
+      "displayName": "Norman, ML",
+      "wosStandard": "Norman, ML",
+      "researcherId": ""
+     }
+    ]
+   },
+   "links": {
+    "record": "https://www.webofscience.com/api/gateway?GWVersion=2&SrcApp=starter&SrcAuth=starter&KeyUT=WOS:000000000000001&DestLinkType=FullRecord&DestApp=WOS_CPL",
+    "citingArticles": "https://www.webofscience.com/api/gateway?GWVersion=2&SrcApp=starter&SrcAuth=starter&KeyUT=WOS:000000000000001&DestLinkType=CitingArticles&DestApp=WOS_CPL",
+    "references": "https://www.webofscience.com/api/gateway?GWVersion=2&SrcApp=starter&SrcAuth=starter&KeyUT=WOS:000000000000001&DestLinkType=References&DestApp=WOS_CPL",
+    "related": "https://www.webofscience.com/api/gateway?GWVersion=2&SrcApp=starter&SrcAuth=starter&KeyUT=WOS:000000000000001&DestLinkType=RelatedRecords&DestApp=WOS_CPL"
+   },
+   "citations": [
+    {
+     "db": "WOS",
+     "count": 1000
+    }
+   ],
+   "identifiers": {
+    "doi": "10.1126/science.1063991",
+    "issn": "0036-8075",
+    "pmid": "11711636"
+   },
+   "keywords": {
+    "authorKeywords": [
+     "cosmology",
+     "first stars"
+    ]
+   }
+  }
+ ]
+}

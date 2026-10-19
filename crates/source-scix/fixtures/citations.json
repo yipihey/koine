@@ -1,0 +1,100 @@
+{
+ "responseHeader": {
+  "status": 0,
+  "QTime": 12,
+  "params": {
+   "q": "citations(bibcode:2002Sci...295...93A)",
+   "start": "0",
+   "rows": "2"
+  }
+ },
+ "response": {
+  "numFound": 5,
+  "start": 0,
+  "docs": [
+   {
+    "bibcode": "2002ApJ...564...23B",
+    "title": [
+     "The Formation of the First Stars. I. The Primordial Star-forming Cloud"
+    ],
+    "author": [
+     "Bromm, Volker",
+     "Coppi, Paolo S.",
+     "Larson, Richard B."
+    ],
+    "year": "2002",
+    "pubdate": "2002-02-00",
+    "pub": "The Astrophysical Journal",
+    "volume": "564",
+    "page": [
+     "23"
+    ],
+    "doi": [
+     "10.1086/323947"
+    ],
+    "identifier": [
+     "2002ApJ...564...23B",
+     "arXiv:astro-ph/0102503",
+     "10.1086/323947"
+    ],
+    "citation_count": 900,
+    "esources": [
+     "EPRINT_HTML",
+     "EPRINT_PDF",
+     "PUB_HTML"
+    ],
+    "property": [
+     "ARTICLE",
+     "REFEREED",
+     "EPRINT_OPENACCESS"
+    ],
+    "doctype": "article",
+    "lang": [
+     "English"
+    ],
+    "orcid_pub": [
+     "-",
+     "-",
+     "-"
+    ],
+    "issue": "1"
+   },
+   {
+    "bibcode": "2021arXiv210100001X",
+    "title": [
+     "An arXiv-only example preprint"
+    ],
+    "author": [
+     "Doe, Jane"
+    ],
+    "year": "2021",
+    "pubdate": "2021-01-00",
+    "pub": "arXiv e-prints",
+    "volume": "abs",
+    "page": [
+     "arXiv:2101.00001"
+    ],
+    "identifier": [
+     "2021arXiv210100001X",
+     "arXiv:2101.00001"
+    ],
+    "citation_count": 3,
+    "esources": [
+     "EPRINT_HTML",
+     "EPRINT_PDF"
+    ],
+    "property": [
+     "EPRINT_OPENACCESS",
+     "NOT_REFEREED"
+    ],
+    "doctype": "eprint",
+    "lang": [
+     "English"
+    ],
+    "orcid_pub": [
+     "-"
+    ]
+   }
+  ]
+ }
+}

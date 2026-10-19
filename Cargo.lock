@@ -4222,7 +4222,10 @@ dependencies = [
  "serde",
  "serde_json",
  "source-crossref",
+ "source-pubmed",
+ "source-scix",
  "source-service",
+ "source-wos",
  "surface-demo-service",
  "tempfile",
  "thiserror 2.0.21",
@@ -7508,6 +7511,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "source-pubmed"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-service-core",
+ "koine-sources",
+ "koine-workspace-hack",
+ "mockito",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "source-service",
+ "tokio",
+ "tracing",
+ "urlencoding",
+]
+
+[[package]]
+name = "source-scix"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-service-core",
+ "koine-sources",
+ "koine-workspace-hack",
+ "mockito",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "source-service",
+ "tokio",
+ "tracing",
+ "urlencoding",
+]
+
+[[package]]
 name = "source-service"
 version = "0.1.0"
 dependencies = [
@@ -7522,6 +7563,25 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "source-wos"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "impress-service-core",
+ "koine-sources",
+ "koine-workspace-hack",
+ "mockito",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "source-service",
+ "tokio",
+ "tracing",
+ "urlencoding",
 ]
 
 [[package]]

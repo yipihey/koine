@@ -1,0 +1,6 @@
+{
+ "error": {
+  "title": "Too Many Requests",
+  "details": "Rate limit exceeded; retry after the window resets"
+ }
+}

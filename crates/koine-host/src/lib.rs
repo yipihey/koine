@@ -714,7 +714,12 @@ pub fn ensure_linked() {
     // always, the adapters as the `sources` feature links them.
     source_service::ensure_linked();
     #[cfg(feature = "sources")]
-    source_crossref::register();
+    {
+        source_crossref::register();
+        source_pubmed::register();
+        source_wos::register();
+        source_scix::register();
+    }
 }
 
 #[cfg(test)]

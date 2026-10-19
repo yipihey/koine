@@ -1,0 +1,6 @@
+{
+ "error": {
+  "msg": "Unable to parse syntax: unbalanced parentheses",
+  "code": 400
+ }
+}
