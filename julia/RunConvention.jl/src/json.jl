@@ -89,12 +89,16 @@ function emit_json(io::IO, x, canonical::Bool, indent::Int, level::Int)
     elseif x isa Integer
         print(io, x)
     elseif x isa AbstractFloat
-        if canonical
-            print(io, es_number(x))
-        elseif isnan(x)
+        # A non-finite float is the JSON string "Infinity" / "-Infinity" / "NaN" in
+        # every file, the canonical (hashed) form included (R-D4.3): JSON has no
+        # such number, and production configs pass Inf (Vespa R4). A typed reader
+        # turns the string back into the float (`coerce_value`).
+        if isnan(x)
             print(io, "\"NaN\"")
         elseif isinf(x)
             print(io, x > 0 ? "\"Infinity\"" : "\"-Infinity\"")
+        elseif canonical
+            print(io, es_number(x))
         else
             print(io, repr(Float64(x)))
         end

@@ -30,8 +30,9 @@ finish!(run; code=0, label="ok")                      # reports declared-but-unr
 warns instead. `mutable=:never` parameters cannot differ on `resume`; `:restart` and `:always` can;
 only `:always` can be set through the control inbox. The key is
 `sha256(RFC 8785 canonical JSON of {"problem": …, "params": values})`.
-A value must be representable in JSON: `Inf`, `NaN` and `missing` are refused, so "no
-limit" is a sentinel the code chooses (`0.0`, `-1`) and documents in `doc=`. A parameter at
+A non-finite float is written as the JSON string `"Infinity"`, `"-Infinity"` or `"NaN"` in
+every file, the hashed canonical form included, and a `Float64` parameter reads it back
+(JSON has no such number; R-D4.3). A parameter at
 its declared default requires nothing (`requires=` is checked only on a value that differs),
 whatever source the value came from — a resume reads the parent's file.
 

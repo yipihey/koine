@@ -9,7 +9,7 @@
     "type": "object",
     "required": ["value", "source"],
     "properties": {
-      "value": {},
+      "value": { "description": "Any JSON value. A non-finite float is the string \"Infinity\", \"-Infinity\" or \"NaN\" (R-D4.3); the key hashes that string." },
       "source": { "type": "string", "pattern": "^(default|cli|[a-z]+:.+|restart)$" }
     },
     "additionalProperties": false

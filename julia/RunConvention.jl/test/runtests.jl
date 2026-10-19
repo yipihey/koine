@@ -30,7 +30,7 @@ touch_ck(dir, name, txt = "ck") = (p = joinpath(dir, name); write(p, txt); p)
         @test es_number(123456789012345680000.0) == "123456789012345680000"
         @test canonical_json(Dict("b" => 1, "a" => [true, nothing, "x\ty"], "€" => 1)) ==
               "{\"a\":[true,null,\"x\\ty\"],\"b\":1,\"€\":1}"
-        @test_throws ArgumentError canonical_json(NaN)
+        @test canonical_json(NaN) == "\"NaN\"" && canonical_json(Inf) == "\"Infinity\""   # R-D4.3
     end
 
     @testset "declaration, schema" begin
@@ -186,6 +186,20 @@ touch_ck(dir, name, txt = "ck") = (p = joinpath(dir, name); write(p, txt); p)
         r = mkrun(joinpath(mktempdir(), "m"))
         mh = get(read_json(joinpath(r.dir, "run.json"))["code"], "lock_sha256", nothing)
         @test mh === (isfile(mp) ? sha256_file(mp) : nothing) || mh isa String
+    end
+
+    @testset "non-finite floats are strings, in the key too (R-D4.3)" begin
+        empty!(REGISTRY)
+        @param lim.max_dt::Float64 = Inf
+        @param lim.gap::Float64 = 0.5
+        vals = Dict("lim.max_dt" => Inf, "lim.gap" => NaN)
+        @test canonical_json(vals) == """{"lim.gap":"NaN","lim.max_dt":"Infinity"}"""
+        @test canonical_json(Dict("x" => -Inf)) == """{"x":"-Infinity"}"""
+        f = joinpath(mktempdir(), "p.json")
+        write(f, """{"lim.max_dt": "Infinity", "lim.gap": "NaN"}""")
+        p = params(; argv = String[], env = Dict{String,String}(), file = f)
+        @test p["lim.max_dt"] === Inf && isnan(p["lim.gap"])
+        @test params(; argv = ["--lim.max_dt=Inf"], env = Dict{String,String}())["lim.max_dt"] === Inf
     end
 
     @testset "params.json round-trip reproduces the key" begin

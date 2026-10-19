@@ -272,6 +272,11 @@ not sources. The canonical form is what `params.json` holds, so `key ==
 sha256(canonical(params))` is a self-check any tool can run (signac's
 `calc_id(manifest) == dirname`, which powers its `repair()`). Floats are not
 rounded: the key is exact. A readable, rounded `name` is for people.
+JSON has no non-finite number, and real configs pass `Inf` ("no limit",
+Vespa's `MHD_SOURCE_MAX_DT_FACTOR`), so a non-finite float is the JSON
+**string** `"Infinity"`, `"-Infinity"` or `"NaN"` in `params.json` and in the
+canonical form alike, and a reader of a numeric parameter accepts those
+three strings back. Settled when R3 and R4 both hit it (2026-10-19).
 
 **R-D4.4 States.** `created → running → {done, failed, cancelled}`, plus
 `suspended` (checkpointed and stopped on purpose, resumable). A terminal
