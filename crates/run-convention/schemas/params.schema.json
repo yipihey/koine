@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://koine.dev/run@1/params.schema.json",
+  "title": "params.json",
+  "description": "R-D3: the complete resolved parameter set, one entry per declared parameter, each {value, source}. Written before the first step and never rewritten. Names are namespaced `component.name` (R-D2.2): at least one dot. `source` is `default`, `cli`, or `<scheme>:<detail>` (env:QS_SINK_TAU, file:qstar.toml, control:7f3a, agent:name, restart); the plan gives examples only, so any lowercase scheme is accepted. The key hashes the values only, never the sources.",
+  "type": "object",
+  "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z0-9_]+)+$" },
+  "additionalProperties": {
+    "type": "object",
+    "required": ["value", "source"],
+    "properties": {
+      "value": {},
+      "source": { "type": "string", "pattern": "^(default|cli|[a-z]+:.+|restart)$" }
+    },
+    "additionalProperties": false
+  }
+}

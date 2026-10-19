@@ -34,6 +34,8 @@ jobs:
           cargo check -p koine-plot -p koine-dioxus -p koine-web --target wasm32-unknown-unknown
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: "run-check: the run convention fixture conforms"
+        run: cargo run -q -p run-convention --bin run-check -- crates/run-convention/fixtures/good
       # An app links only what it names (docs/plan-koine-host.md H-D10): the
       # host without its optional parts, and with each alone, still builds and
       # its unit tests pass.

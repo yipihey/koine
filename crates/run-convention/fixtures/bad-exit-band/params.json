@@ -1,0 +1,6 @@
+{
+  "sink.tau": {"value": 3.0e6, "source": "env:QS_SINK_TAU"},
+  "sink.m0": {"value": 1.2e34, "source": "default"},
+  "grid.ncell": {"value": 400, "source": "file:qstar.toml"},
+  "io.every": {"value": 100, "source": "default"}
+}
