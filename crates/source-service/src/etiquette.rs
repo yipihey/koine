@@ -108,7 +108,10 @@ pub const DEFAULT_LIMIT: u32 = 10;
 pub const DEFAULT_INTERVAL: Duration = Duration::from_secs(1);
 
 /// The longest a caller waits for a token before giving up with
-/// `rate-limited` instead of queueing.
+/// `rate-limited` instead of queueing — at least this, and for a slow
+/// source three of its intervals (`max_wait`): arXiv's one-per-3-s bucket
+/// made the third of a burst of feed refreshes give up at 5 s and answer
+/// no rows, where the old limiter would have queued it (imbib S6b).
 pub const MAX_WAIT: Duration = Duration::from_secs(5);
 
 impl Limiter {
@@ -128,6 +131,15 @@ impl Limiter {
             *entry = Bucket::new(limit, interval);
             entry.backoff_until = backoff;
         }
+    }
+
+    /// How long `acquire` will queue for `source`: [`MAX_WAIT`], or three of
+    /// the source's declared intervals when that is longer.
+    pub fn max_wait(&self, source: &str) -> Duration {
+        self.limit_of(source)
+            .map(|(_, interval)| interval * 3)
+            .unwrap_or(Duration::ZERO)
+            .max(MAX_WAIT)
     }
 
     /// The limit a source currently has, `(limit, interval)`.
@@ -191,18 +203,19 @@ impl Limiter {
         }
     }
 
-    /// Wait for a token (bounded by [`MAX_WAIT`]). `Err` carries how long the
-    /// source is still backed off, or [`MAX_WAIT`] when the bucket is empty
-    /// for longer than we will queue.
+    /// Wait for a token (bounded by [`Limiter::max_wait`]). `Err` carries how
+    /// long the source is still backed off, or the bound when the bucket is
+    /// empty for longer than we will queue.
     pub async fn acquire(&self, source: &str) -> Result<(), Duration> {
         let started = Instant::now();
+        let bound = self.max_wait(source);
         loop {
             match self.check(source) {
                 Admission::Now => return Ok(()),
                 Admission::BackedOff(left) => return Err(left),
                 Admission::After(wait) => {
-                    if started.elapsed() + wait > MAX_WAIT {
-                        return Err(MAX_WAIT);
+                    if started.elapsed() + wait > bound {
+                        return Err(bound);
                     }
                     tokio::time::sleep(wait).await;
                 }
@@ -461,6 +474,22 @@ mod tests {
         assert!(t.elapsed() >= Duration::from_millis(20));
         l.back_off("y", Some(Duration::from_secs(5)));
         assert!(l.acquire("y").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_slow_source_queues_three_of_its_intervals_not_five_seconds() {
+        let l = Limiter::new();
+        l.set_limit("arxiv-like", 1, Duration::from_secs(3));
+        assert_eq!(l.max_wait("arxiv-like"), Duration::from_secs(9));
+        assert_eq!(l.max_wait("unseen"), MAX_WAIT);
+        assert!(l.acquire("arxiv-like").await.is_ok());
+        assert!(l.acquire("arxiv-like").await.is_ok(), "second queues ~3 s");
+        let t = Instant::now();
+        assert!(
+            l.acquire("arxiv-like").await.is_ok(),
+            "third queues ~3 s more, past the old 5 s"
+        );
+        assert!(t.elapsed() >= Duration::from_millis(2500));
     }
 
     fn record(source: &str, contact: Option<&str>, per_day: Option<u64>) -> ExplainRecord {
