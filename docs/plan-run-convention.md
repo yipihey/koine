@@ -1,6 +1,6 @@
 # The run convention: how a scientific code declares itself
 
-**Status:** design, 2026-10-19; R1, R2, R5 and R6 built (see R-D6.5a, R-D13.1). **Builds on:** plan-koine-store.md
+**Status:** design, 2026-10-19; R1–R7 built, titan and Vespa adopting, GADGET-4 driven live (2026-10-20; see R-D6.5a, R-D13.1). The common pattern is lifted in plan-domain-conventions.md. **Builds on:** plan-koine-store.md
 (the directory store's layout and its port), plan-koine-notebook.md (runs and the
 call log), plan-koine-ai-tasks.md (jobs, events, workflows), plan-koine-trust.md
 (TR-D12 kind evolution, TR-D13 keeping the unknown), plan-koine-live.md (L-D3

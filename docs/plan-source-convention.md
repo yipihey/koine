@@ -1,6 +1,6 @@
 # The source convention: how an online database declares itself
 
-**Status:** design, 2026-10-19. Nothing is built. **Builds on:**
+**Status:** design, 2026-10-19; S1–S7 built, imbib adopting (2026-10-20). The common pattern is lifted in plan-domain-conventions.md. **Builds on:**
 plan-run-convention.md (the first domain convention; this is the second, and
 the two are written to the same pattern so the common part can be lifted
 once both exist), plan-koine-trust.md (TR-D12 kinds, TR-D13 keeping the
