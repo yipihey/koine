@@ -13,7 +13,7 @@ use mockito::{Matcher, Server, ServerGuard};
 use serde_json::{json, Value};
 use source_service::adapter::{Adapter, ExportFormat, PageRequest, Relation};
 use source_service::etiquette::Limiter;
-use source_service::service::{DefaultSourceService, SourceService};
+use source_service::service::{BibSourceService, DefaultBibSourceService};
 use source_service::Registry;
 
 use crate::{Dblp, SOURCE};
@@ -446,7 +446,7 @@ async fn the_service_runs_the_adapter_end_to_end_including_dblp_ids() {
         .await;
     let registry = Registry::new();
     registry.register(Arc::new(dblp));
-    let service = DefaultSourceService::with_registry(registry);
+    let service = DefaultBibSourceService::with_registry(registry);
     let explain = service.explain(None).await.answer.unwrap();
     assert_eq!(explain.sources[0].source, "dblp");
     let answer = service

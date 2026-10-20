@@ -22,7 +22,7 @@ use crate::adapter::{Adapter, ExportFormat, Page, PageRequest, Relation};
 use crate::dto::MatchInput;
 use crate::etiquette::{Gate, Limiter};
 use crate::registry::Registry;
-use crate::service::{DefaultSourceService, SourceService};
+use crate::service::{BibSourceService, DefaultBibSourceService};
 
 /// A source that answers from memory: `author` and `title` indexes, DOIs of
 /// the form `10.5555/*`, one page of `n` rows then a cursor.
@@ -175,11 +175,11 @@ impl Adapter for Stub {
     }
 }
 
-fn service() -> (DefaultSourceService, Arc<Stub>) {
+fn service() -> (DefaultBibSourceService, Arc<Stub>) {
     let stub = Stub::new("stub");
     let registry = Registry::new();
     registry.register(stub.clone());
-    (DefaultSourceService::with_registry(registry), stub)
+    (DefaultBibSourceService::with_registry(registry), stub)
 }
 
 fn contains(haystack: &Value, needle: &Value) -> bool {
@@ -197,19 +197,19 @@ fn contains(haystack: &Value, needle: &Value) -> bool {
 #[test]
 fn every_verb_is_documented_has_an_example_and_the_example_answers_offline() {
     let verbs: Vec<VerbHandle> = call::descriptors()
-        .filter(|v| v.service() == "source-service")
+        .filter(|v| v.service() == "bib-source-service")
         .collect();
     let mut names: Vec<&str> = verbs.iter().map(|v| v.name()).collect();
     names.sort_unstable();
     assert_eq!(
         names,
         [
-            "source-service_explain",
-            "source-service_export",
-            "source-service_fetch",
-            "source-service_match-citation",
-            "source-service_related",
-            "source-service_search",
+            "bib-source-service_explain",
+            "bib-source-service_export",
+            "bib-source-service_fetch",
+            "bib-source-service_match-citation",
+            "bib-source-service_related",
+            "bib-source-service_search",
         ]
     );
     for verb in &verbs {
@@ -241,17 +241,17 @@ fn every_verb_is_documented_has_an_example_and_the_example_answers_offline() {
 
 #[test]
 fn a_misspelt_argument_is_refused_before_the_handler() {
-    let result = call::call("source-service_search", json!({"querry": {}})).unwrap();
+    let result = call::call("bib-source-service_search", json!({"querry": {}})).unwrap();
     assert_eq!(result["code"], json!("invalid-argument"), "{result}");
 }
 
 #[test]
 fn a_refused_search_carries_only_the_outcome() {
-    let result = call::call("source-service_search", json!({"query": {"and": []}})).unwrap();
+    let result = call::call("bib-source-service_search", json!({"query": {"and": []}})).unwrap();
     assert_eq!(result["ok"], json!(false), "{result}");
     assert!(result.get("rows").is_none(), "{result}");
     let result = call::call(
-        "source-service_search",
+        "bib-source-service_search",
         json!({"query": {"index": "title", "relation": "any", "term": "x"}, "limit": 101}),
     )
     .unwrap();
@@ -382,7 +382,7 @@ async fn fetch_merges_the_sources_that_claim_the_id() {
     let registry = Registry::new();
     registry.register(a);
     registry.register(b);
-    let service = DefaultSourceService::with_registry(registry);
+    let service = DefaultBibSourceService::with_registry(registry);
     let r = service
         .fetch("https://doi.org/10.5555/1".into(), None, None)
         .await;
@@ -489,7 +489,7 @@ async fn export_routes_each_id_to_the_source_that_claims_it() {
         answer
             .diagnostics
             .iter()
-            .filter(|d| d.source == "source-service" && d.status == Status::Unsupported)
+            .filter(|d| d.source == "bib-source-service" && d.status == Status::Unsupported)
             .count(),
         2
     );
@@ -658,12 +658,12 @@ impl Adapter for Scripted {
     }
 }
 
-fn federated(adapters: Vec<Arc<Scripted>>, gate: Gate) -> DefaultSourceService {
+fn federated(adapters: Vec<Arc<Scripted>>, gate: Gate) -> DefaultBibSourceService {
     let registry = Registry::new();
     for a in adapters {
         registry.register(a);
     }
-    DefaultSourceService::with_registry(registry).with_gate(Arc::new(gate))
+    DefaultBibSourceService::with_registry(registry).with_gate(Arc::new(gate))
 }
 
 fn any_query() -> Query {

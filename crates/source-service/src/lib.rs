@@ -14,7 +14,7 @@
 //!   the daily budgets, enforced once at the [`etiquette::Gate`] (S-D8).
 //! - [`federation`] — the concurrent fan-out with per-source timeouts and
 //!   the identifier-only merge (S-D7).
-//! - [`service`] — the six verbs (S-D3): `source-service_{explain, search,
+//! - [`service`] — the six verbs (S-D3): `bib-source-service_{explain, search,
 //!   fetch, match-citation (alias match), related, export}`.
 //!
 //! A host links an adapter by registering it once at start:
@@ -37,12 +37,12 @@ mod selftest;
 pub use adapter::{Adapter, ExportFormat, Page, PageRequest, Relation};
 pub use koine_sources::{Diagnostic, ExplainRecord, Query, Status, Work};
 pub use registry::Registry;
-pub use service::{DefaultSourceService, SourceService};
+pub use service::{BibSourceService, DefaultBibSourceService};
 
 /// Keep the verbs' inventory registrations in a host that names nothing
 /// else of this crate.
 pub fn ensure_linked() {
-    std::hint::black_box(DefaultSourceService::new as *const ());
+    std::hint::black_box(DefaultBibSourceService::new as *const ());
     // The kind the rows are (`bibliographic-work@1.0.0`), registered once.
     koine_sources::ensure_registered();
 }

@@ -11,7 +11,7 @@ use mockito::{Matcher, Server, ServerGuard};
 use serde_json::{json, Value};
 use source_service::adapter::{Adapter, ExportFormat, PageRequest, Relation};
 use source_service::etiquette::Limiter;
-use source_service::service::{DefaultSourceService, SourceService};
+use source_service::service::{BibSourceService, DefaultBibSourceService};
 use source_service::Registry;
 
 use crate::{Crossref, SOURCE};
@@ -474,7 +474,7 @@ async fn the_service_runs_the_adapter_end_to_end() {
         .await;
     let registry = Registry::new();
     registry.register(Arc::new(crossref));
-    let service = DefaultSourceService::with_registry(registry);
+    let service = DefaultBibSourceService::with_registry(registry);
 
     let explain = service.explain(None).await;
     assert_eq!(explain.answer.unwrap().sources[0].source, "crossref");
