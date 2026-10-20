@@ -180,12 +180,12 @@ One `source-service` over every adapter, not a service per source:
 
 | Verb | Arguments | Answer | Safety |
 |---|---|---|---|
-| `source-service_explain` | `source?` | the explain records (all, or one) | read-only |
-| `source-service_search` | `query` (S-D2), `sources?` (default: those whose explain covers the query), `limit` (default 10, max 100 per source), `cursor?`, `sort?`, `timeout_ms?` (per source, default 8000; S-D7) | `{rows, next, diagnostics}` — the L-D5 envelope; each row a canonical record (S-D4) with its `source` and `source_id` | read-only, external |
-| `source-service_fetch` | `id` (any canonical identifier, S-D4), `sources?`, `timeout_ms?` | the merged record, or `not-found` | read-only, external |
-| `source-service_match` | `citation` (a free string, or the structured fields of a reference), `sources?` | candidates each with a `score` and `evidence`, the best marked when it clears the threshold | read-only, external |
-| `source-service_related` | `id`, `relation` (`cites`, `cited_by`, `similar`, `coreads`), `limit`, `cursor?`, `timeout_ms?` | `{rows, next}` | read-only, external |
-| `source-service_export` | `ids`, `format` (`bibtex`, `ris`, `csl-json`) | the text | read-only, external |
+| `bib-source-service_explain` | `source?` | the explain records (all, or one) | read-only |
+| `bib-source-service_search` | `query` (S-D2), `sources?` (default: those whose explain covers the query), `limit` (default 10, max 100 per source), `cursor?`, `sort?`, `timeout_ms?` (per source, default 8000; S-D7) | `{rows, next, diagnostics}` — the L-D5 envelope; each row a canonical record (S-D4) with its `source` and `source_id` | read-only, external |
+| `bib-source-service_fetch` | `id` (any canonical identifier, S-D4), `sources?`, `timeout_ms?` | the merged record, or `not-found` | read-only, external |
+| `bib-source-service_match` | `citation` (a free string, or the structured fields of a reference), `sources?` | candidates each with a `score` and `evidence`, the best marked when it clears the threshold | read-only, external |
+| `bib-source-service_related` | `id`, `relation` (`cites`, `cited_by`, `similar`, `coreads`), `limit`, `cursor?`, `timeout_ms?` | `{rows, next}` | read-only, external |
+| `bib-source-service_export` | `ids`, `format` (`bibtex`, `ris`, `csl-json`) | the text | read-only, external |
 
 Every verb is `external` (it leaves the process, ADR-0036's class) and
 `read-only` on the store: a search writes nothing. **Importing** a result
@@ -248,7 +248,7 @@ favour of this one.
 
 ### S-D6. Resolution is one scored cascade, in Rust, with its scorer declared
 
-`source-service_match` is `AutomationService.resolveStructuredCitation`
+`bib-source-service_match` is `AutomationService.resolveStructuredCitation`
 moved into Rust and made honest:
 
 1. **Identifier first.** Any canonical id in the input (or scanned from its
@@ -313,7 +313,7 @@ one place: a per-source token bucket seeded from the declaration and
 a 429 answered by backing off that source and emitting `rate-limited`, not
 by retrying in the caller; a secret read through F-D1's slot, never passed.
 The daily budgets (ADS 5,000 per endpoint, Unpaywall 100,000) are in the
-declaration and the remaining count is a `source-service_explain` field, so
+declaration and the remaining count is a `bib-source-service_explain` field, so
 a person can see that today's ADS quota is nearly spent before a sweep
 spends it.
 
@@ -325,7 +325,7 @@ fixtures (recorded responses), and a `detect` rule — Zotero's `detectWeb`:
 a URL or an identifier pattern the adapter claims (`arxiv.org/abs/…`,
 `10.\d+/…`), so "add from this URL" fans out to the adapters that claim it.
 Installing a package adds a source to every host that links
-`source-service`; `source-service_explain` is the inventory. The seven
+`source-service`; `bib-source-service_explain` is the inventory. The seven
 imbib sources are the first seven packages, ported from
 `crates/impress-sources` (four live) and the Swift plugins (three more);
 Semantic Scholar, DBLP and INSPIRE are the next three and need no change

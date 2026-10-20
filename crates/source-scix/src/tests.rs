@@ -12,7 +12,7 @@ use koine_sources::{Query, Status};
 use mockito::{Matcher, Server, ServerGuard};
 use source_service::adapter::{Adapter, ExportFormat, PageRequest, Relation};
 use source_service::etiquette::Limiter;
-use source_service::service::{DefaultSourceService, SourceService};
+use source_service::service::{BibSourceService, DefaultBibSourceService};
 use source_service::Registry;
 
 use crate::{Scix, SOURCE};
@@ -516,7 +516,7 @@ async fn the_service_runs_the_adapter_end_to_end_and_reports_refused_without_a_t
         .await;
     let registry = Registry::new();
     registry.register(Arc::new(scix));
-    let service = DefaultSourceService::with_registry(registry);
+    let service = DefaultBibSourceService::with_registry(registry);
     assert_eq!(
         service.explain(None).await.answer.unwrap().sources[0].source,
         "scix"

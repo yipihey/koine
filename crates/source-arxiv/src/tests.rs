@@ -10,7 +10,7 @@ use koine_sources::{Query, Status};
 use mockito::{Matcher, Server, ServerGuard};
 use source_service::adapter::{Adapter, ExportFormat, PageRequest, Relation};
 use source_service::etiquette::{Admission, Limiter};
-use source_service::service::{DefaultSourceService, SourceService};
+use source_service::service::{BibSourceService, DefaultBibSourceService};
 use source_service::Registry;
 
 use crate::{Arxiv, SOURCE};
@@ -414,7 +414,7 @@ async fn the_service_runs_the_adapter_end_to_end() {
         .await;
     let registry = Registry::new();
     registry.register(Arc::new(arxiv));
-    let service = DefaultSourceService::with_registry(registry);
+    let service = DefaultBibSourceService::with_registry(registry);
     let r = service
         .search(
             Query::clause("title", "any", "first star"),

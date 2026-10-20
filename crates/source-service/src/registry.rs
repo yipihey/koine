@@ -1,5 +1,5 @@
 //! The adapters a host links (S-D9): a process-wide registry, one entry per
-//! source id. `source-service_explain` is its inventory. A host registers
+//! source id. `bib-source-service_explain` is its inventory. A host registers
 //! each adapter package once at start (`source_crossref::register()`); a
 //! test builds its own [`Registry`] and hands it to the service.
 

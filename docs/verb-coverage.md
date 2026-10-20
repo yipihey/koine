@@ -38,7 +38,7 @@ There is no second list.
 | `memory-service` | koine-memory | 7 |
 | `store-query-service` | koine-store-query | 4 |
 | `provider-service` | koine-providers | 2 |
-| `source-service` | source-service | 6 |
+| `bib-source-service` | source-service | 6 |
 | `run-service` | run-service | 13 |
 <!-- verb-coverage:end -->
 

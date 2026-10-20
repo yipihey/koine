@@ -1,4 +1,4 @@
-//! `SourceService`: the six fixed verbs (S-D3) over the registry of
+//! `BibSourceService`: the six fixed verbs (S-D3) over the registry of
 //! adapters. Every verb that reaches the `network` is `external` (the plan's
 //! "read-only, external": nothing is written to the store, and
 //! plan-koine-trust TR-D11 makes the reach the class); `explain` reads the
@@ -41,7 +41,7 @@ pub const MAX_LIMIT: u32 = 100;
 
 /// The source name on a diagnostic the service itself raises (an id no
 /// adapter claims), as against one a source answered.
-pub const SERVICE_SOURCE: &str = "source-service";
+pub const SERVICE_SOURCE: &str = "bib-source-service";
 
 /// The source answered and has no record for `id` (`not_found`), which is
 /// not an answer: fetch-across-sources keeps asking.
@@ -60,7 +60,7 @@ fn is_miss(d: &Diagnostic) -> bool {
 }
 
 #[impress_service]
-pub trait SourceService: Send + Sync + 'static {
+pub trait BibSourceService: Send + Sync + 'static {
     /// The inventory (S-D9): every linked source's explain record — what it
     /// can search (`indexes` and their relations), sort by, look up
     /// (`identifiers`), fill, how it pages and what etiquette it needs — or
@@ -168,21 +168,21 @@ pub trait SourceService: Send + Sync + 'static {
 }
 
 /// The service over a registry and an etiquette gate: the process-wide
-/// ones by default, a test's own with [`DefaultSourceService::with_registry`]
-/// and [`DefaultSourceService::with_gate`].
+/// ones by default, a test's own with [`DefaultBibSourceService::with_registry`]
+/// and [`DefaultBibSourceService::with_gate`].
 #[derive(Clone, Default)]
-pub struct DefaultSourceService {
+pub struct DefaultBibSourceService {
     registry: Option<Registry>,
     gate: Option<Arc<Gate>>,
 }
 
-impl DefaultSourceService {
+impl DefaultBibSourceService {
     pub fn new() -> Self {
         Self::default()
     }
 
     pub fn with_registry(registry: Registry) -> Self {
-        DefaultSourceService {
+        DefaultBibSourceService {
             registry: Some(registry),
             gate: None,
         }
@@ -480,7 +480,7 @@ fn match_query(citation: &MatchInput) -> Option<Query> {
 }
 
 #[async_trait::async_trait]
-impl SourceService for DefaultSourceService {
+impl BibSourceService for DefaultBibSourceService {
     async fn explain(&self, source: Option<String>) -> ExplainResult {
         let registry = self.registry();
         let contact = crate::etiquette::contact();
@@ -864,12 +864,12 @@ impl SourceService for DefaultSourceService {
 }
 
 impress_service_impl! {
-    service = SourceService,
+    service = BibSourceService,
     safety = external,
     since = "0.1.0",
     effects = { reads: [], writes: [], reach: [network] },
-    impl = DefaultSourceService,
-    instance = DefaultSourceService::new,
+    impl = DefaultBibSourceService,
+    instance = DefaultBibSourceService::new,
     methods = [
         /// The explain records of every linked source, or of one.
         explain(

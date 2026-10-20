@@ -98,7 +98,7 @@ http-registries = ["koine-packages/http"]
 tier-b = ["impress-layout-service/tier-b", "impress-surface-service/tier-b"]
 # The demo verbs and the tour, for the koine-host binary.
 demo = ["dep:surface-demo-service"]
-# The online-source adapters `source-service_explain` lists: Crossref, arXiv,
+# The online-source adapters `bib-source-service_explain` lists: Crossref, arXiv,
 # ADS, OpenAlex, PubMed, Web of Science, SciX, Semantic Scholar, DBLP and
 # INSPIRE-HEP
 # (docs/plan-source-convention.md S-D9). Without it the six source verbs are
