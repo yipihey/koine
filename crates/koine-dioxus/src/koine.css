@@ -459,6 +459,12 @@
 
 /* Hover only where there is something to hover with; a finger has the
    pressed state. */
+/* A phone stacks a grid's columns: the panes an app lays side by side on a
+   wide window read top to bottom on a narrow one. */
+@media (max-width: 700px) {
+  .koine-grid { grid-template-columns: minmax(0, 1fr) !important; }
+}
+
 @media (hover: hover) {
   .koine-list > li:hover,
   .koine-tree-node:hover,

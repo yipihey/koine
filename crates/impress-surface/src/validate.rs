@@ -695,14 +695,20 @@ fn check_node(node: &Node, at: &str, scope: &Scope, problems: &mut Vec<Problem>)
                 ));
             }
             if let FieldKind::Select(v) = f {
-                let non_empty = v
-                    .get("options")
+                // A literal list, or a template the page fills from a source
+                // (a library picker's choices are a verb's answer); `resolve`
+                // templates a field's options like any other value.
+                let options = v.get("options");
+                let non_empty = options
                     .and_then(Value::as_array)
                     .is_some_and(|a| !a.is_empty());
-                if !non_empty {
+                let templated = options.and_then(Value::as_str).is_some_and(|t| {
+                    t.trim_start().starts_with("{{") && t.trim_end().ends_with("}}")
+                });
+                if !non_empty && !templated {
                     problems.push(Problem::error(
                         format!("{at}/field/select/options"),
-                        "a select field's options must be a non-empty array",
+                        "a select field's options must be a non-empty array, or a `{{…}}` template naming one",
                     ));
                 }
             }
@@ -1175,6 +1181,25 @@ mod tests {
         .with_bind("state.x");
         let problems = validate(&minimal(node));
         assert!(problems.is_empty(), "{problems:?}");
+    }
+
+    #[test]
+    fn select_options_from_a_source_are_fine_and_plain_text_is_not() {
+        let from_source = Node::leaf(NodeKind::Field(FieldKind::Select(serde_json::json!({
+            "options": "{{source.choices}}"
+        }))))
+        .with_id("pick")
+        .with_bind("state.x");
+        let problems = validate(&minimal(from_source));
+        assert!(problems.is_empty(), "{problems:?}");
+        let text = Node::leaf(NodeKind::Field(FieldKind::Select(serde_json::json!({
+            "options": "a, b"
+        }))))
+        .with_id("pick")
+        .with_bind("state.x");
+        assert!(validate(&minimal(text))
+            .iter()
+            .any(|p| p.path.ends_with("/field/select/options")));
     }
 
     #[test]

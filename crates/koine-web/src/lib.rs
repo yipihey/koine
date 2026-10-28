@@ -56,6 +56,7 @@ body { margin: 0; min-height: 100vh;
   padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left); }
 a { color: var(--koine-color-accent); text-decoration: none; }
 .kw-main { max-width: 980px; margin: 0 auto; padding: 8px 20px 32px; box-sizing: border-box; }
+.kw-main.kw-wide { max-width: none; }
 .kw-main h1 { margin: 10px 0 12px; font-size: 22px; font-weight: 700; letter-spacing: -0.26px; line-height: 1.2; }
 .kw-main h2 { margin: 20px 0 6px; padding: 0 16px; font-size: 13px; font-weight: 400; line-height: 1.3;
   color: var(--koine-color-secondary); text-transform: uppercase; letter-spacing: -0.08px; }
@@ -330,10 +331,17 @@ fn App() -> Element {
 /// The frame of every page: the navigation, the refusal banner, the page.
 #[component]
 fn Shell() -> Element {
+    // A surface is an app's page (imbib's library is three panes side by
+    // side), so it takes the window's width; the lists, the host and the
+    // style editor stay a readable column.
+    let class = match use_route::<Route>() {
+        Route::SurfacePage { .. } => "kw-main kw-wide",
+        _ => "kw-main",
+    };
     rsx! {
         Nav {}
         RefusalBanner {}
-        main { class: "kw-main", Outlet::<Route> {} }
+        main { class: class, Outlet::<Route> {} }
     }
 }
 
