@@ -916,6 +916,8 @@ mod audit_schema_tests {
     #[test]
     fn real_dispatch_schema_does_not_capture_untyped_table_row_ids() {
         let raw = dispatch_with(RenderKind::Table {
+            action_keys: Default::default(),
+            follow: Default::default(),
             rows: serde_json::json!([{"id": "private-row"}]),
             columns: vec!["title".into()],
             id_field: None,

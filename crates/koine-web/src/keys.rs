@@ -81,6 +81,11 @@ pub fn decide(
     shift: bool,
     layout_keys: bool,
 ) -> KeyAction {
+    // A row key the focused widget declares (`MenuAction::key`) wins over
+    // the renderer's key of the same letter.
+    if let Some(event) = cursor.row_key(tree, name) {
+        return KeyAction::Event(event);
+    }
     let key = if name == "Tab" && shift {
         Some(Key::Prev)
     } else {

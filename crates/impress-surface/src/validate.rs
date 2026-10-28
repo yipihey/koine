@@ -727,7 +727,9 @@ fn check_node(node: &Node, at: &str, scope: &Scope, problems: &mut Vec<Problem>)
 
 /// `actions` and `count_field` of a `tree`, `table` or `list`
 /// (plan-koine-outline O-D5, O-D6): a label is non-empty and unique within
-/// the node, and `count_field` is a literal property name. The handlers
+/// the node, a `key` is one character that is not a navigation key or a
+/// digit and is unique within the node, and `count_field` is a literal
+/// property name. The handlers
 /// inside are checked with every other action list ([`handler_pointers`]).
 fn check_row_menu(
     kind: &str,
@@ -737,7 +739,36 @@ fn check_row_menu(
     problems: &mut Vec<Problem>,
 ) {
     let mut seen = BTreeSet::new();
+    let mut keys = BTreeSet::new();
     for (i, action) in actions.iter().enumerate() {
+        if let Some(key) = &action.key {
+            let path = format!("{at}/{kind}/actions/{i}/key");
+            let mut chars = key.chars();
+            let one = match (chars.next(), chars.next()) {
+                (Some(c), None) => Some(c),
+                _ => None,
+            };
+            match one {
+                None => problems.push(Problem::error(
+                    path,
+                    format!("{kind}.actions[{i}].key must be one character, not '{key}'"),
+                )),
+                Some(c) if c.is_whitespace() || c.is_ascii_digit() || "jkhl".contains(c) => {
+                    problems.push(Problem::error(
+                        path,
+                        format!(
+                            "{kind}.actions[{i}].key '{key}' is taken: j, k, h, l and Space move \
+                             the cursor, and digits pick an open menu's entry"
+                        ),
+                    ))
+                }
+                Some(_) if !keys.insert(key.as_str()) => problems.push(Problem::error(
+                    path,
+                    format!("{kind}.actions key '{key}' is used twice"),
+                )),
+                Some(_) => {}
+            }
+        }
         let path = format!("{at}/{kind}/actions/{i}/label");
         if action.label.trim().is_empty() {
             problems.push(Problem::error(
@@ -1394,6 +1425,7 @@ mod tests {
     fn table_with_id_field(id_field: Option<&str>) -> SurfaceSpec {
         minimal(
             Node::leaf(NodeKind::Table(crate::spec::Table {
+                follow: Default::default(),
                 rows: serde_json::json!([]),
                 columns: vec!["bibcode".to_string()],
                 id_field: id_field.map(str::to_string),

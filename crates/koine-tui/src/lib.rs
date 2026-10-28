@@ -409,6 +409,20 @@ impl TextFrontend {
         }
     }
 
+    /// A typed character: the pending prompt's, if one waits; else a row key
+    /// the focused widget declares (`MenuAction::key`), which wins over the
+    /// renderer's key of that letter; else [`Key::from_name`]'s key.
+    pub fn char_key(&mut self, tree: &RenderTree, c: char) -> Option<Event> {
+        if self.type_char(c) {
+            return None;
+        }
+        let name = c.to_string();
+        if let Some(event) = self.cursor.row_key(tree, &name) {
+            return Some(event);
+        }
+        Key::from_name(&name).and_then(|key| self.key(tree, key))
+    }
+
     /// Delete the last typed character of the pending prompt.
     pub fn backspace(&mut self) {
         if let Some(Prompt::Rename { text, .. } | Prompt::Menu { text, .. }) = &mut self.pending {
@@ -920,6 +934,8 @@ mod tests {
             }
         };
         let mut tree = node_tree(RenderKind::Tree {
+            action_keys: Default::default(),
+            follow: Default::default(),
             nodes: vec![
                 node(serde_json::json!("a"), "src", 0, true, true),
                 node(serde_json::json!("b"), "main.rs", 1, false, false),
@@ -964,6 +980,8 @@ mod tests {
 
         let mut empty = outline();
         empty.root.node = RenderKind::Tree {
+            action_keys: Default::default(),
+            follow: Default::default(),
             nodes: vec![],
             bind: None,
             expanded: vec![],
@@ -1283,6 +1301,8 @@ mod tests {
         assert!(frontend.key(&tree, Key::PasteBeside).is_none());
         // A list: a menu yes (when it has actions), a rename no.
         let list = node_tree(RenderKind::List {
+            action_keys: Default::default(),
+            follow: Default::default(),
             rows: serde_json::json!(["alpha", "beta"]),
             actions: vec!["Pin".into()],
             count_field: None,

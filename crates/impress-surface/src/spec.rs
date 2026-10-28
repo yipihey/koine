@@ -453,11 +453,20 @@ pub struct Tab {
 /// sends a `menu` event whose value is `{"id": <row id>, "action": <label>}`,
 /// and the reducer runs `on_click` with that as `{{event.value}}`. A node's
 /// labels are unique.
+///
+/// `key` is one character that runs the entry on the active row while the
+/// widget has focus — `d` to dismiss, `s` to star — without opening the
+/// menu. It wins over a renderer's own row key of that letter (`d`, `o`,
+/// `r`, …) on this widget; the navigation keys (`j`, `k`, `h`, `l`, Space)
+/// and digits (which pick an open menu's entries) cannot be taken. A node's
+/// keys are unique.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "schema", schemars(deny_unknown_fields))]
 pub struct MenuAction {
     pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     #[serde(default)]
     pub on_click: Vec<Action>,
 }
@@ -483,6 +492,12 @@ pub struct Table {
     /// one entry by label. Absent from the wire when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<MenuAction>,
+    /// The selection follows the cursor: `j`/`k` (and the arrows) select the
+    /// row they land on, sending `select` as a click would, so a detail pane
+    /// bound to the selection follows the keyboard. Absent (false) from the
+    /// wire by default: the cursor only marks the row, and Enter selects.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub follow: bool,
     /// A row field drawn after the label (plan-koine-outline O-D6): a literal
     /// property name, never a template. Absent or null in a row draws
     /// nothing. Absent from the wire when `None`.
@@ -501,6 +516,12 @@ pub struct ListWidget {
     /// one entry by label. Absent from the wire when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<MenuAction>,
+    /// The selection follows the cursor: `j`/`k` (and the arrows) select the
+    /// row they land on, sending `select` as a click would, so a detail pane
+    /// bound to the selection follows the keyboard. Absent (false) from the
+    /// wire by default: the cursor only marks the row, and Enter selects.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub follow: bool,
     /// A row field drawn after the label (plan-koine-outline O-D6): a literal
     /// property name, never a template. Absent or null in a row draws
     /// nothing. Absent from the wire when `None`.
@@ -556,6 +577,12 @@ pub struct Tree {
     /// one entry by label. Absent from the wire when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<MenuAction>,
+    /// The selection follows the cursor: `j`/`k` (and the arrows) select the
+    /// row they land on, sending `select` as a click would, so a detail pane
+    /// bound to the selection follows the keyboard. Absent (false) from the
+    /// wire by default: the cursor only marks the row, and Enter selects.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub follow: bool,
     /// A row field drawn after the label (plan-koine-outline O-D6): a literal
     /// property name, never a template. Absent or null in a row draws
     /// nothing. Absent from the wire when `None`.

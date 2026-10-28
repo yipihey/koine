@@ -591,3 +591,47 @@ fn a_misspelt_key_in_a_menu_entry_is_reported_by_validate_json() {
         "{problems:?}"
     );
 }
+
+#[test]
+fn a_row_key_must_be_one_free_character_unique_in_its_widget() {
+    let table = |actions: Value| {
+        spec_of(json!({
+            "id": "t",
+            "table": {"rows": "{{state.rows}}", "columns": ["label"], "follow": true, "actions": actions}
+        }))
+    };
+    let ok = table(json!([
+        {"label": "Dismiss", "key": "d", "on_click": handler("x")},
+        {"label": "Star", "key": "s", "on_click": handler("y")}
+    ]));
+    assert!(errors_of(&ok).is_empty(), "{:?}", errors_of(&ok));
+    let RenderKind::Table {
+        action_keys,
+        follow,
+        ..
+    } = rendered(&ok, &json!({"rows": rows()}))
+    else {
+        panic!("a table")
+    };
+    assert_eq!(action_keys.get("d").map(String::as_str), Some("Dismiss"));
+    assert!(follow);
+
+    for (key, why) in [
+        ("dd", "one character"),
+        ("j", "is taken"),
+        ("3", "is taken"),
+        (" ", "is taken"),
+    ] {
+        let bad = table(json!([{"label": "A", "key": key, "on_click": handler("x")}]));
+        assert!(
+            errors_of(&bad).iter().any(|e| e.contains(why)),
+            "{key:?}: {:?}",
+            errors_of(&bad)
+        );
+    }
+    let twice = table(json!([
+        {"label": "A", "key": "d", "on_click": handler("x")},
+        {"label": "B", "key": "d", "on_click": handler("y")}
+    ]));
+    assert!(errors_of(&twice).iter().any(|e| e.contains("used twice")));
+}

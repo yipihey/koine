@@ -226,6 +226,15 @@ impl Cursor {
                             (Some(i), _) => i.saturating_sub(1),
                         };
                         self.active.insert(w.id.clone(), ids[to].clone());
+                        // `follow`: the row the cursor lands on is selected,
+                        // as a click on it would select it.
+                        if follows(w) && active != Some(to) {
+                            return sends(
+                                w,
+                                EventKind::Select,
+                                Value::Array(vec![ids[to].clone()]),
+                            );
+                        }
                     }
                     Some(_) => {}
                     None => self.step(tree, key == Key::Down),
@@ -328,6 +337,29 @@ impl Cursor {
 
     /// The id of the active row of `widget`, when that row is still in the
     /// widget in `tree`. A row that a re-render removed answers `None`.
+    /// The `menu` event a row key sends (`MenuAction::key`): `name` (a
+    /// `KeyboardEvent.key`, one character) is one of the focused row
+    /// widget's keys and the widget has an active row. A frontend asks this
+    /// before [`Cursor::reply_for`], because a widget's own key wins over the
+    /// renderer's row key of the same letter.
+    pub fn row_key(&self, tree: &RenderTree, name: &str) -> Option<Event> {
+        let widget = self.focused_id(tree)?;
+        let node = find(&tree.root, widget)?;
+        let keys = match &node.node {
+            RenderKind::Table { action_keys, .. }
+            | RenderKind::List { action_keys, .. }
+            | RenderKind::Tree { action_keys, .. } => action_keys,
+            _ => return None,
+        };
+        let label = keys.get(name)?;
+        let row = self.active_row(tree, widget)?;
+        Some(Event {
+            widget: widget.to_string(),
+            kind: EventKind::Menu,
+            value: serde_json::json!({ "id": row, "action": label }),
+        })
+    }
+
     pub fn active_row<'a>(&'a self, tree: &RenderTree, widget: &str) -> Option<&'a Value> {
         let ids = row_ids(find(&tree.root, widget)?)?;
         let id = self.active.get(widget)?;
@@ -431,6 +463,16 @@ fn find<'a>(node: &'a RenderNode, id: &str) -> Option<&'a RenderNode> {
 /// list's rows are the array (or the `{rows}` envelope around it); a row's id
 /// is, for an object, the table's `id_field` then `id`, and for anything else
 /// (or an object with neither) its index as a number.
+/// Whether a row widget's selection follows the cursor (`follow`).
+fn follows(node: &RenderNode) -> bool {
+    matches!(
+        &node.node,
+        RenderKind::Table { follow: true, .. }
+            | RenderKind::List { follow: true, .. }
+            | RenderKind::Tree { follow: true, .. }
+    )
+}
+
 fn row_ids(node: &RenderNode) -> Option<Vec<Value>> {
     let (rows, id_field) = match &node.node {
         RenderKind::Tree { nodes, .. } => {
@@ -657,6 +699,8 @@ mod tests {
         page(vec![widget(
             "tree",
             K::Tree {
+                action_keys: Default::default(),
+                follow: Default::default(),
                 nodes: vec![
                     tnode(json!(1), 0, true, true),
                     tnode(json!(2), 1, true, true),
@@ -729,6 +773,8 @@ mod tests {
                     widget(
                         "list",
                         K::List {
+                            action_keys: Default::default(),
+                            follow: Default::default(),
                             rows: json!(["x", "y"]),
                             actions: Vec::new(),
                             count_field: None,
@@ -796,6 +842,8 @@ mod tests {
         let tree = page(vec![widget(
             "t",
             K::Table {
+                action_keys: Default::default(),
+                follow: Default::default(),
                 rows: json!([{"k": "a"}, {"k": "b"}]),
                 columns: vec!["k".into()],
                 id_field: Some("k".into()),
@@ -814,6 +862,67 @@ mod tests {
                 value: json!(["b"]),
             })
         );
+    }
+
+    fn keyed_table(follow: bool) -> RenderTree {
+        page(vec![widget(
+            "t",
+            K::Table {
+                action_keys: [("d".to_string(), "Dismiss".to_string())].into(),
+                follow,
+                rows: json!([{"k": "a"}, {"k": "b"}]),
+                columns: vec!["k".into()],
+                id_field: Some("k".into()),
+                actions: vec!["Dismiss".into()],
+                count_field: None,
+            },
+        )])
+    }
+
+    #[test]
+    fn a_row_key_sends_its_menu_entry_for_the_active_row_only() {
+        let tree = keyed_table(false);
+        let mut cursor = Cursor::new();
+        assert_eq!(cursor.row_key(&tree, "d"), None, "no active row yet");
+        cursor.event_for(&tree, Key::Down);
+        assert_eq!(
+            cursor.row_key(&tree, "d"),
+            Some(Event {
+                widget: "t".into(),
+                kind: EventKind::Menu,
+                value: json!({"id": "a", "action": "Dismiss"}),
+            })
+        );
+        assert_eq!(
+            cursor.row_key(&tree, "s"),
+            None,
+            "an undeclared key is not the widget's"
+        );
+    }
+
+    #[test]
+    fn with_follow_j_and_k_select_the_row_they_land_on() {
+        let tree = keyed_table(true);
+        let mut cursor = Cursor::new();
+        let select = |id: &str| {
+            Some(Event {
+                widget: "t".into(),
+                kind: EventKind::Select,
+                value: json!([id]),
+            })
+        };
+        assert_eq!(cursor.event_for(&tree, Key::Down), select("a"));
+        assert_eq!(cursor.event_for(&tree, Key::Down), select("b"));
+        assert_eq!(
+            cursor.event_for(&tree, Key::Down),
+            None,
+            "clamped: nothing new to select"
+        );
+        assert_eq!(cursor.event_for(&tree, Key::Up), select("a"));
+        // Without `follow` the cursor only marks the row.
+        let plain = keyed_table(false);
+        let mut cursor = Cursor::new();
+        assert_eq!(cursor.event_for(&plain, Key::Down), None);
     }
 
     #[test]
@@ -860,6 +969,8 @@ mod tests {
         let tree = page(vec![widget(
             "tree",
             K::Tree {
+                action_keys: Default::default(),
+                follow: Default::default(),
                 nodes: vec![tnode(json!("r"), 0, true, false)],
                 bind: None,
                 expanded: Vec::new(),
@@ -880,6 +991,8 @@ mod tests {
             page(vec![widget(
                 "w",
                 K::Table {
+                    action_keys: Default::default(),
+                    follow: Default::default(),
                     rows,
                     columns: Vec::new(),
                     id_field: id_field.map(String::from),
@@ -901,6 +1014,8 @@ mod tests {
         let list = page(vec![widget(
             "w",
             K::List {
+                action_keys: Default::default(),
+                follow: Default::default(),
                 rows: json!(["x", {"id": "y"}, {"n": 1}, 4]),
                 actions: Vec::new(),
                 count_field: None,
@@ -924,6 +1039,8 @@ mod tests {
         let before = page(vec![widget(
             "tree",
             K::Tree {
+                action_keys: Default::default(),
+                follow: Default::default(),
                 nodes: vec![
                     tnode(json!(1), 0, false, false),
                     tnode(json!(2), 0, false, false),
@@ -941,6 +1058,8 @@ mod tests {
         let inserted = page(vec![widget(
             "tree",
             K::Tree {
+                action_keys: Default::default(),
+                follow: Default::default(),
                 nodes: vec![
                     tnode(json!(0), 0, false, false),
                     tnode(json!(1), 0, false, false),
@@ -960,6 +1079,8 @@ mod tests {
         let deleted = page(vec![widget(
             "tree",
             K::Tree {
+                action_keys: Default::default(),
+                follow: Default::default(),
                 nodes: vec![tnode(json!(1), 0, false, false)],
                 bind: None,
                 expanded: Vec::new(),

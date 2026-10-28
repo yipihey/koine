@@ -44,6 +44,7 @@
 //! blanks the whole surface.
 
 use serde_json::{Map, Value};
+use std::collections::BTreeMap;
 
 use crate::envelope::{first_row_keys, unwrap_rows};
 use crate::spec::{node_id, Node, NodeKind, SurfaceSpec, When};
@@ -126,6 +127,13 @@ pub enum RenderKind {
         /// The row field a renderer draws as the count (`Table::count_field`).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         count_field: Option<String>,
+        /// The row keys (`MenuAction::key`), key → menu label: pressing one on
+        /// the active row sends the `menu` event that entry would.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        action_keys: BTreeMap<String, String>,
+        /// The selection follows the cursor (`follow`).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        follow: bool,
     },
     List {
         rows: Value,
@@ -135,6 +143,13 @@ pub enum RenderKind {
         /// As [`RenderKind::Table`]'s `count_field`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         count_field: Option<String>,
+        /// As [`RenderKind::Table`]'s: the row keys (`MenuAction::key`), key → menu label: pressing one on
+        /// the active row sends the `menu` event that entry would.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        action_keys: BTreeMap<String, String>,
+        /// The selection follows the cursor (`follow`).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        follow: bool,
     },
     /// `tree{…}` (plan-koine-tree-stream T-D1): the visible outline, already
     /// nested and filtered by the expanded ids, in drawing order.
@@ -166,6 +181,13 @@ pub enum RenderKind {
         /// its row menu unless `actions` already has that label (A-D2).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         deletable: bool,
+        /// As [`RenderKind::Table`]'s: the row keys (`MenuAction::key`), key → menu label: pressing one on
+        /// the active row sends the `menu` event that entry would.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        action_keys: BTreeMap<String, String>,
+        /// The selection follows the cursor (`follow`).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        follow: bool,
     },
     /// `graph{…}` (plan-koine-tree-stream T-D3): `spec` is the
     /// `koine_plot::graph::GraphSpec` the rows became (ids as text), `svg`
@@ -242,6 +264,13 @@ pub struct RenderTab {
 /// The labels of a row menu, in declaration order.
 fn menu_labels(actions: &[crate::spec::MenuAction]) -> Vec<String> {
     actions.iter().map(|a| a.label.clone()).collect()
+}
+
+fn menu_keys(actions: &[crate::spec::MenuAction]) -> BTreeMap<String, String> {
+    actions
+        .iter()
+        .filter_map(|a| Some((a.key.clone()?, a.label.clone())))
+        .collect()
 }
 
 /// See the module docs.
@@ -415,6 +444,8 @@ fn resolve_kind(
                 rows: rows.clone(),
                 actions: menu_labels(&t.actions),
                 count_field: t.count_field.clone(),
+                action_keys: menu_keys(&t.actions),
+                follow: t.follow,
             }
         }
         NodeKind::List(l) => {
@@ -423,6 +454,8 @@ fn resolve_kind(
                 rows: unwrap_rows(&resolved).0.clone(),
                 actions: menu_labels(&l.actions),
                 count_field: l.count_field.clone(),
+                action_keys: menu_keys(&l.actions),
+                follow: l.follow,
             }
         }
         NodeKind::Tree(t) => {
@@ -450,6 +483,8 @@ fn resolve_kind(
                 movable: !t.on_move.is_empty(),
                 renameable: !t.on_rename.is_empty(),
                 deletable: !t.on_delete.is_empty(),
+                action_keys: menu_keys(&t.actions),
+                follow: t.follow,
             }
         }
         NodeKind::Graph(g) => resolve_graph(g, ctx)?,

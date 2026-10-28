@@ -693,6 +693,7 @@ fn result_node(output_schema: &Value, returns_kind: Option<&str>, rows: Option<R
     let node_kind = match shape {
         ResultShape::Table => match (rows, layout) {
             (Some(rows), Some(layout)) => NodeKind::Table(impress_surface::spec::Table {
+                follow: Default::default(),
                 rows: json!(match &layout.container {
                     Some(property) => format!("{{{{state.result.{property}}}}}"),
                     None => "{{state.result}}".to_string(),
@@ -711,6 +712,7 @@ fn result_node(output_schema: &Value, returns_kind: Option<&str>, rows: Option<R
                 count_field: None,
             }),
             _ => NodeKind::Table(impress_surface::spec::Table {
+                follow: Default::default(),
                 rows: json!("{{state.result}}"),
                 columns: table_columns(output_schema),
                 id_field: None,
@@ -754,6 +756,7 @@ fn object_with_row_lists(output_schema: &Value) -> Option<Node> {
         match columns {
             Some(columns) => tables.push(
                 Node::leaf(NodeKind::Table(impress_surface::spec::Table {
+                    follow: Default::default(),
                     rows: json!(format!("{{{{state.result.{name}}}}}")),
                     columns,
                     id_field: None,
@@ -891,6 +894,7 @@ fn envelope_result_node(
         None => "Result".to_string(),
     };
     Node::leaf(NodeKind::Table(impress_surface::spec::Table {
+        follow: Default::default(),
         rows: json!("{{state.result}}"),
         columns,
         id_field,
@@ -992,6 +996,7 @@ pub fn catalogue() -> SurfaceSpec {
         columns.push("availability".to_string());
     }
     let table = Node::leaf(NodeKind::Table(impress_surface::spec::Table {
+        follow: Default::default(),
         rows: json!("{{source.verbs}}"),
         columns,
         id_field: None,

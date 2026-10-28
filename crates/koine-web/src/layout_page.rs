@@ -355,6 +355,8 @@ pub fn outline_tree(layout: &Layout, window: &Window, folded: &BTreeSet<u64>) ->
                 "drag a row to move its tile; x then p or P moves it from the keyboard".into(),
             ),
             node: RenderKind::Tree {
+                action_keys: Default::default(),
+                follow: Default::default(),
                 nodes,
                 bind: Some("expanded".into()),
                 expanded,
