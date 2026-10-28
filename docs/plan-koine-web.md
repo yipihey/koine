@@ -99,7 +99,7 @@ the SSR goldens:
 |---|---|---|
 | `column`, `row` | `div.koine-column` / `div.koine-row` | flex column / row; gap from the `column` / `row` slot |
 | `grid{columns}` | `div.koine-grid` with `grid-template-columns: repeat(N, …)` | |
-| `section{title,collapsed,body}` | `section` + `h2` + `details`-like body | collapsed is `hidden` on the body, not a DOM removal, so ids stay addressable |
+| `section{title,collapsed,body}` | `details` + `summary` heading + body | `collapsed` is where it starts (`open` absent); the heading opens and closes it in the page. The body stays in the DOM, so ids stay addressable. (Was `section` + `h2` with a `hidden` body, which a collapsed section could never leave — imbib's card BibTeX, 2026-10-28.) |
 | `tabs{tabs}` | `div[role=tablist]` + `button[role=tab]` + `div[role=tabpanel]` | the active tab is the page's memory of a gesture (the grammar's `tabs` has no handler); a tab click still sends `select` with the tab index |
 | `text{text}` | `p` | font class from the `text` slot |
 | `table{rows,columns}` | `table` with `thead`/`tbody` | one `tr` per row; a row click is `select` with `[row.id]` (the suite's convention: a selection is an array of ids, `[index]` when a row has none). `rows` may resolve to a `{rows, next}` envelope: the resolver reads its rows, and its `columns` / `id_field` when the node declares none (plan-koine-live L-D5); the mapping sees the array |

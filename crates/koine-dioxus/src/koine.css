@@ -177,7 +177,9 @@
 
 /* Sections and tabs */
 
-.koine-section > h2 {
+.koine-section > summary {
+  cursor: pointer;
+  list-style-position: inside;
   margin: 0 0 6px;
   padding: 0 var(--koine-inset);
   font-size: 13px;
@@ -192,7 +194,6 @@
   margin-top: 8px;
 }
 
-.koine-section-body[hidden],
 .koine-tabpanel[hidden] {
   display: none;
 }

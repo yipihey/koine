@@ -86,16 +86,20 @@ pub(crate) fn node(node: &RenderNode, ctx: &Ctx<'_>) -> Element {
                 ctx,
                 "",
             );
+            // A disclosure: `collapsed` is where it starts, and the heading
+            // opens and closes it in the page, with no round trip — a
+            // collapsed section that drew its body `hidden` had no way open.
             rsx! {
-                section {
+                details {
                     class: class("koine-section", None, ctx, id),
                     "data-koine-id": "{id}",
                     "data-koine-focused": focused,
                     "data-koine-collapsed": collapsed.then_some("true"),
+                    open: !*collapsed,
                     aria_label: label,
                     title: help,
-                    h2 { class: heading, "{title}" }
-                    div { class: "koine-section-body", hidden: *collapsed, {self::node(body, ctx)} }
+                    summary { class: heading, "{title}" }
+                    div { class: "koine-section-body", {self::node(body, ctx)} }
                 }
             }
         }

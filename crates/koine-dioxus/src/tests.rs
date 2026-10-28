@@ -136,8 +136,8 @@ fn every_kind_renders_and_every_id_is_on_the_dom_exactly_once() {
 
     // The element for each kind, per the D2 table.
     for fragment in [
-        "<section",
-        "<h2",
+        "<details",
+        "<summary",
         "role=\"tablist\"",
         "role=\"tab\"",
         "role=\"tabpanel\"",
@@ -555,14 +555,16 @@ fn a_plot_is_drawn_as_svg_and_a_bad_spec_names_its_error() {
 }
 
 #[test]
-fn a_collapsed_section_keeps_its_body_in_the_dom_hidden() {
+fn a_collapsed_section_is_a_closed_disclosure_that_keeps_its_body() {
     let html = render_html(&everything(), &web(), None);
     assert!(html.contains("kept in the DOM"));
-    let body = tags(&html)
+    let section = tags(&html)
         .into_iter()
-        .find(|tag| tag.contains("koine-section-body"))
+        .find(|tag| tag.starts_with("details") && tag.contains("koine-section"))
         .unwrap();
-    assert!(body.contains("hidden"), "{body}");
+    // Closed, but openable: the heading is its summary.
+    assert!(!section.contains(" open"), "{section}");
+    assert!(html.contains("<summary"), "{html}");
     // The second tab's panel is hidden and present.
     assert!(html.contains("second"));
 }
