@@ -9,6 +9,9 @@
 //!   root.
 //! - Ids may be strings or numbers; two ids are the same when their JSON is.
 //!   A row without an id, or repeating an earlier row's id, is skipped.
+//! - A row with `"has_children": true` is a branch even when no row names it
+//!   as a parent: a lazy tree's source answers a branch's children only once
+//!   the branch is in the expanded list.
 //! - A cycle is cut at the first repeated id: every row is drawn at most
 //!   once, and rows only reachable round a cycle (no root above them) are
 //!   promoted, the first in row order becoming the root the cycle is cut at.
@@ -107,7 +110,15 @@ pub fn build(rows: &Value, expanded: &[Value], fields: Fields<'_>) -> Vec<TreeNo
             }
             visited[index] = true;
             let at = order.len();
-            let has_children = children[index].iter().any(|&c| !visited[c]);
+            // A row may say it has children the rows do not hold yet (a
+            // lazy tree whose source answers a branch's children once it is
+            // expanded): it is a branch all the same.
+            let declares = entries[index]
+                .0
+                .get("has_children")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let has_children = declares || children[index].iter().any(|&c| !visited[c]);
             order.push((index, depth, has_children, parent_at));
             for &child in children[index].iter().rev() {
                 if !visited[child] {
@@ -270,6 +281,20 @@ pub fn paste_beside(nodes: &[TreeNode], cut: &Value, active: &Value) -> Option<V
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_row_that_says_it_has_children_is_a_branch_before_they_arrive() {
+        let rows = json!([
+            {"id": "ai", "label": "ai", "has_children": true},
+            {"id": "x", "label": "x"}
+        ]);
+        let closed = build(&rows, &[], Fields::default());
+        assert!(closed[0].has_children && !closed[0].expanded);
+        assert!(!closed[1].has_children);
+        let open = build(&rows, &[json!("ai")], Fields::default());
+        assert!(open[0].has_children && open[0].expanded);
+    }
+
     use super::*;
     use serde_json::json;
 
