@@ -76,6 +76,12 @@ pub enum OpenError {
 
 static OPENERS: RwLock<BTreeMap<&'static str, Opener>> = RwLock::new(BTreeMap::new());
 
+/// How a registered scheme hands a host its blob view: given the url's rest,
+/// the blobs beside that store (`Ok(None)` when this store has none).
+pub type BlobOpener = fn(&str) -> Result<Option<Arc<dyn BlobStore>>, StoreError>;
+
+static BLOB_OPENERS: RwLock<BTreeMap<&'static str, BlobOpener>> = RwLock::new(BTreeMap::new());
+
 fn open_memory(_rest: &str) -> Result<Box<dyn AttributedStore>, StoreError> {
     Ok(Box::new(koine_store_memory::MemoryStore::new()))
 }
@@ -179,6 +185,19 @@ pub fn register(scheme: &'static str, opener: Opener) {
     });
 }
 
+/// Give a registered `scheme` a blob view, so [`open_with_blobs`] (and so a
+/// host's `/api/blob/<item>/<name>`) serves blobs beside a store the
+/// [`Opener`] opens. The view need not be the same allocation as the store:
+/// an app whose files live beside its database (imbib's PDFs) serves them
+/// read-only through a view of its own. A later registration replaces the
+/// earlier.
+pub fn register_blobs(scheme: &'static str, opener: BlobOpener) {
+    BLOB_OPENERS
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(scheme, opener);
+}
+
 /// The schemes this process can open, sorted.
 pub fn schemes() -> Vec<&'static str> {
     with_builtins(|map| map.keys().copied().collect())
@@ -228,10 +247,9 @@ pub struct Opened {
 
 /// [`open`], keeping the blob view. `memory:` and `dir:<path>` open here with
 /// both views over one handle; any other registered scheme opens through its
-/// [`Opener`] with `blobs: None` (an opener returns a `Box<dyn
-/// AttributedStore>`, which has no blob view to recover), so a host asking a
-/// registered backend for blobs gets `None` even when the backend's
-/// capabilities say `blobs`.
+/// [`Opener`], with the blob view its [`register_blobs`] gives, or `blobs:
+/// None` when it registered none (an opener returns a `Box<dyn
+/// AttributedStore>`, which has no blob view to recover).
 pub fn open_with_blobs(url: &str) -> Result<Opened, OpenError> {
     let backend = |source| OpenError::Backend {
         url: url.to_string(),
@@ -252,7 +270,23 @@ pub fn open_with_blobs(url: &str) -> Result<Opened, OpenError> {
                 blobs: Some(store),
             })
         }
-        _ => {
+        Some((scheme, rest)) => {
+            let store: Box<dyn AttributedStore> = open(url)?;
+            let view = BLOB_OPENERS
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(scheme)
+                .copied();
+            let blobs = match view {
+                Some(view) => view(rest).map_err(backend)?,
+                None => None,
+            };
+            Ok(Opened {
+                store: Arc::from(store),
+                blobs,
+            })
+        }
+        None => {
             let store: Box<dyn AttributedStore> = open(url)?;
             Ok(Opened {
                 store: Arc::from(store),
@@ -265,6 +299,20 @@ pub fn open_with_blobs(url: &str) -> Result<Opened, OpenError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_registered_scheme_can_give_a_blob_view() {
+        fn store(_: &str) -> Result<Box<dyn AttributedStore>, StoreError> {
+            Ok(Box::new(koine_store_memory::MemoryStore::new()))
+        }
+        fn view(_: &str) -> Result<Option<Arc<dyn BlobStore>>, StoreError> {
+            Ok(Some(Arc::new(koine_store_memory::MemoryStore::new())))
+        }
+        register("test-blobview", store);
+        assert!(open_with_blobs("test-blobview:x").unwrap().blobs.is_none());
+        register_blobs("test-blobview", view);
+        assert!(open_with_blobs("test-blobview:x").unwrap().blobs.is_some());
+    }
 
     #[test]
     fn open_with_blobs_keeps_the_blob_view_of_memory_and_dir() {

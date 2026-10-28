@@ -1,8 +1,9 @@
 //! `GET/PUT/DELETE /api/blob/<item>/<name>`: bytes kept beside an item.
 //!
-//! Present when the store declares `blobs` and the host holds the blob view
-//! of it (`koine_store::open_with_blobs`: `memory:` and `dir:`); otherwise
-//! every method answers 404 and says which of the two is missing.
+//! Present when the host holds a blob view (`koine_store::open_with_blobs`:
+//! `memory:`, `dir:`, and a registered scheme that gave one with
+//! `koine_store::register_blobs`); otherwise every method answers 404 and
+//! says why.
 
 use std::sync::Arc;
 
@@ -18,23 +19,25 @@ use super::{json_response, refusal, Shared};
 
 /// The blob view and the parsed item id, or the 404/400 that says why not.
 fn target(state: &Shared, item: &str) -> Result<(Arc<dyn BlobStore>, ItemId), Box<Response>> {
-    if !state.capabilities.blobs {
-        return Err(Box::new(refusal(
-            codes::NOT_FOUND,
-            format!(
-                "the store at {} does not hold blobs (its capabilities say blobs: false)",
-                state.store_url
-            ),
-        )));
-    }
+    // The blob view decides: `memory:` and `dir:` hold their blobs, and a
+    // registered scheme may hand the host a view of files kept beside its
+    // store (`koine_store::register_blobs`) while its rows say nothing of
+    // blobs.
     let Some(blobs) = state.blobs.clone() else {
         return Err(Box::new(refusal(
             codes::NOT_FOUND,
-            format!(
-                "the store at {} declares blobs but was opened through a registered scheme, \
-                 which gives the host no blob view; memory: and dir: do",
-                state.store_url
-            ),
+            if state.capabilities.blobs {
+                format!(
+                    "the store at {} declares blobs but was opened through a registered scheme \
+                     that gives the host no blob view (koine_store::register_blobs)",
+                    state.store_url
+                )
+            } else {
+                format!(
+                    "the store at {} does not hold blobs (its capabilities say blobs: false)",
+                    state.store_url
+                )
+            },
         )));
     };
     let id = item.parse::<ItemId>().map_err(|_| {
