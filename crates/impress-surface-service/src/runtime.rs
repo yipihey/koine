@@ -90,6 +90,36 @@ fn in_band_refusal(value: &Value) -> Option<(String, String)> {
     })
 }
 
+/// A saved state with the spec's default for every top-level key it lacks.
+/// A key it has keeps its saved value; a key only it has is kept too. A
+/// state saved before the spec gained a key (a page upgraded by its package)
+/// would otherwise leave that key unset, and every source whose arguments
+/// name it would never run.
+fn with_spec_defaults(spec_state: &Value, mut state: Value) -> Value {
+    if let (Some(defaults), Some(saved)) = (spec_state.as_object(), state.as_object_mut()) {
+        for (key, value) in defaults {
+            saved.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
+    state
+}
+
+#[cfg(test)]
+mod state_default_tests {
+    use super::with_spec_defaults;
+    use serde_json::json;
+
+    #[test]
+    fn a_saved_state_gains_the_keys_a_newer_spec_declares() {
+        let spec = json!({"query": "", "sort": "", "selected": []});
+        let saved = json!({"query": "first stars", "selected": ["a"], "mine": 1});
+        assert_eq!(
+            with_spec_defaults(&spec, saved),
+            json!({"query": "first stars", "sort": "", "selected": ["a"], "mine": 1})
+        );
+    }
+}
+
 #[cfg(test)]
 mod in_band_tests {
     use super::in_band_refusal;
@@ -938,9 +968,13 @@ impl SurfaceRuntime {
             self.source_errors.clear();
             self.failed.clear();
             // No state row: the instance runs on the spec's initial state,
-            // which is the NEW spec's now.
+            // which is the NEW spec's now. With one, a key the new spec
+            // added gets its default (an upgraded page's `sort`), or every
+            // source that names it would never run.
             if state.is_none() {
                 self.state = self.spec.state.clone();
+            } else {
+                self.state = with_spec_defaults(&self.spec.state, self.state.clone());
             }
         }
         self.state_revision = state.as_ref().map(|(_, revision)| *revision);
@@ -957,7 +991,7 @@ impl SurfaceRuntime {
 
     fn adopt_state_text(&mut self, state_text: Option<String>) {
         self.state = match state_text.as_deref().map(serde_json::from_str::<Value>) {
-            Some(Ok(state)) => state,
+            Some(Ok(state)) => with_spec_defaults(&self.spec.state, state),
             // An unreadable state row is not a reason to refuse the surface:
             // it runs on the spec's initial state, and the next dispatch
             // writes a readable one over it.
