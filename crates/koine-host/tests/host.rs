@@ -1874,6 +1874,26 @@ async fn another_process_writing_the_same_directory_wakes_it_too() {
     host.served.shutdown().await;
 }
 
+#[tokio::test]
+async fn a_write_the_feed_cannot_hear_wakes_every_surface_through_the_waker() {
+    let _turn = TURN.lock().await;
+    let host = start("memory:", "wake-elsewhere-app").await;
+    let waker = host.served.waker().expect("a memory store has a feed");
+    // Creating the watcher was this host's own write: a note now is its echo.
+    let (_, waiting) = wait_on_a_watcher(&host).await;
+    assert!(!waker.store_changed_elsewhere(), "an echo wakes nothing");
+    tokio::time::sleep(koine_host::feed::OWN_ECHO + Duration::from_millis(100)).await;
+    assert!(waker.store_changed_elsewhere());
+
+    let (status, woken, _) = tokio::time::timeout(Duration::from_secs(5), waiting)
+        .await
+        .expect("the wait ended")
+        .unwrap();
+    assert_eq!(status, 200, "{woken}");
+    assert_eq!(woken["invalidated"], true, "{woken}");
+    host.served.shutdown().await;
+}
+
 // ------------------------------------------------------------ host/network
 
 /// This machine's address on a route to anywhere, when it has one (the UDP

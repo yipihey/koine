@@ -23,12 +23,19 @@
 //! and SQLite stores deliver this process's writes, which is what a
 //! background job's sample needs. Nothing is debounced: an event costs one
 //! map lookup.
+//!
+//! Another process's write to a SQLite store reaches no subscription here
+//! (SQLite events are per connection). An embedding app that hears of such a
+//! write by some other means (impress's Darwin notification, say) calls
+//! [`Waker::store_changed_elsewhere`], which wakes every surface: the note
+//! does not say what changed. A note heard within [`OWN_ECHO`] of this
+//! host's own write is taken for that write's echo and ignored.
 
 use std::collections::{BTreeSet, HashMap};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use impress_item::schema::refs;
 use impress_item::{AttributedStore, ItemEvent, ItemId, ItemQuery};
@@ -38,14 +45,82 @@ use impress_surface_service::SessionRegistry;
 /// How long the thread waits for an event before it looks at the stop flag.
 const POLL: Duration = Duration::from_millis(250);
 
+/// How long after this host's own write a "changed elsewhere" call is taken
+/// for that write's echo. impress posts its Darwin note within milliseconds
+/// of a write and a listener polls at a quarter of a second, so an echo
+/// lands well inside a second. The cost: another process's write in that
+/// second wakes nothing until the next write is heard.
+pub const OWN_ECHO: Duration = Duration::from_secs(1);
+
+/// When the feed last heard this host's own write, as milliseconds since
+/// `origin` plus one (zero: never).
+#[derive(Clone)]
+struct LastOwn {
+    origin: Instant,
+    at: Arc<AtomicU64>,
+}
+
+impl LastOwn {
+    fn new() -> Self {
+        Self {
+            origin: Instant::now(),
+            at: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    fn mark(&self) {
+        let now = self.origin.elapsed().as_millis() as u64 + 1;
+        self.at.store(now, Ordering::SeqCst);
+    }
+
+    fn within(&self, window: Duration) -> bool {
+        let at = self.at.load(Ordering::SeqCst);
+        at != 0 && self.origin.elapsed().as_millis() as u64 + 1 - at < window.as_millis() as u64
+    }
+}
+
+/// Wakes every surface when the store changed in a way the feed cannot hear.
+/// Cheap to clone; safe from any thread.
+#[derive(Clone)]
+pub struct Waker {
+    registry: Arc<SessionRegistry>,
+    layout: DefaultLayoutService,
+    app_id: String,
+    device: String,
+    last_own: LastOwn,
+}
+
+impl Waker {
+    /// Another process wrote the store: wake every surface that reads it,
+    /// unless this host wrote within [`OWN_ECHO`] (then it is that write's
+    /// echo, and the feed has already woken what it touched). `true` when
+    /// it woke them.
+    pub fn store_changed_elsewhere(&self) -> bool {
+        if self.last_own.within(OWN_ECHO) {
+            return false;
+        }
+        let mut refs = self.registry.watched_refs();
+        refs.insert(refs::IMPRESS_UI_LAYOUT.as_str().to_string());
+        self.layout.forget_session(&self.app_id, Some(&self.device));
+        self.registry.invalidate_refs(&refs);
+        true
+    }
+}
+
 /// A running feed. Dropping it stops the thread at its next wake-up (within
 /// a quarter of a second); [`Self::stop`] waits for that.
 pub struct FeedHandle {
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
+    waker: Waker,
 }
 
 impl FeedHandle {
+    /// A [`Waker`] for writes this feed cannot hear.
+    pub fn waker(&self) -> Waker {
+        self.waker.clone()
+    }
+
     /// Stop the thread and wait for it.
     pub fn stop(mut self) {
         self.stop.store(true, Ordering::SeqCst);
@@ -83,23 +158,32 @@ pub fn start(
             None
         }
     };
+    let waker = Waker {
+        registry,
+        layout,
+        app_id,
+        device,
+        last_own: LastOwn::new(),
+    };
     let thread = receiver.and_then(|receiver| {
         let flag = stop.clone();
+        let feed = waker.clone();
         std::thread::Builder::new()
             .name("koine-host-feed".into())
-            .spawn(move || run(store, registry, layout, app_id, device, receiver, flag))
+            .spawn(move || run(store, feed, receiver, flag))
             .map_err(|error| tracing::warn!(target: "koine-host", "store feed: {error}"))
             .ok()
     });
-    FeedHandle { stop, thread }
+    FeedHandle {
+        stop,
+        thread,
+        waker,
+    }
 }
 
 fn run(
     store: Arc<dyn AttributedStore>,
-    registry: Arc<SessionRegistry>,
-    layout: DefaultLayoutService,
-    app_id: String,
-    device: String,
+    feed: Waker,
     receiver: Receiver<ItemEvent>,
     stop: Arc<AtomicBool>,
 ) {
@@ -111,6 +195,7 @@ fn run(
             Err(RecvTimeoutError::Timeout) => continue,
             Err(RecvTimeoutError::Disconnected) => return,
         };
+        feed.last_own.mark();
         let mut touched = BTreeSet::new();
         let mut everything = false;
         let mut event = Some(first);
@@ -119,16 +204,16 @@ fn run(
             event = receiver.try_recv().ok();
         }
         if everything {
-            touched.extend(registry.watched_refs());
+            touched.extend(feed.registry.watched_refs());
             touched.insert(layout_ref.clone());
         }
         if touched.is_empty() {
             continue;
         }
         if touched.contains(&layout_ref) {
-            layout.forget_session(&app_id, Some(&device));
+            feed.layout.forget_session(&feed.app_id, Some(&feed.device));
         }
-        registry.invalidate_refs(&touched);
+        feed.registry.invalidate_refs(&touched);
     }
 }
 

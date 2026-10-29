@@ -238,6 +238,13 @@ impl Served {
         self.addr
     }
 
+    /// Wakes every surface when the store changed where the feed cannot
+    /// hear it (another process's write to a SQLite store). `None` when
+    /// the store could not be subscribed to.
+    pub fn waker(&self) -> Option<feed::Waker> {
+        self.feed.as_ref().map(feed::FeedHandle::waker)
+    }
+
     /// `http://<addr>`.
     pub fn url(&self) -> String {
         format!("http://{}", self.addr)
