@@ -150,6 +150,13 @@ fn emit(outcome: &Outcome) {
 /// next source; `ids` and `locations` are unioned, every source's count is
 /// kept in `metrics`, and `provenance.sources` lists every contributor.
 /// Among equal priorities the first given wins.
+///
+/// The title is the one exception to "the body is one source's": a title
+/// set in capitals throughout (Crossref's deposits for World Scientific
+/// chapters and older ApJ papers) gives way to the first contributor, in
+/// the same order, whose title is not. Priority ranks a source's metadata,
+/// not its typography, and the same work's title in another source is the
+/// same words properly cased.
 pub fn merge_works(works: Vec<Work>) -> Work {
     let mut indexed: Vec<(u32, usize, Work)> = works
         .into_iter()
@@ -157,6 +164,11 @@ pub fn merge_works(works: Vec<Work>) -> Work {
         .map(|(i, w)| (source_priority(source_of(&w)), i, w))
         .collect();
     indexed.sort_by_key(|(priority, i, _)| (*priority, *i));
+    let cased = indexed
+        .iter()
+        .filter_map(|(_, _, w)| w.title.as_deref())
+        .find(|t| !shouts(t))
+        .map(str::to_string);
     let mut it = indexed.into_iter().map(|(_, _, w)| w);
     let Some(mut kept) = it.next() else {
         return Work::default();
@@ -164,7 +176,20 @@ pub fn merge_works(works: Vec<Work>) -> Work {
     for other in it {
         crate::query::merge(&mut kept, other);
     }
+    if kept.title.as_deref().is_some_and(shouts) {
+        if let Some(cased) = cased {
+            kept.title = Some(cased);
+        }
+    }
     kept
+}
+
+/// Whether a title is set in capitals throughout: letters, and none of
+/// them lower case. A title of four letters or fewer (`GADGET`, `ALMA`
+/// aside) is too short to tell an acronym from shouting, so it never is.
+pub fn shouts(title: &str) -> bool {
+    let letters = title.chars().filter(|c| c.is_alphabetic()).count();
+    letters > 4 && !title.chars().any(char::is_lowercase)
 }
 
 /// A row seen in one source: where, and at which position.
@@ -335,6 +360,25 @@ mod tests {
             merged.provenance.unwrap().sources,
             vec!["crossref".to_string(), "openalex".to_string()]
         );
+    }
+
+    #[test]
+    fn a_title_in_capitals_gives_way_to_a_cased_one() {
+        // crossref (10) keeps the body; ads (30) has the title cased.
+        let merged = merge_works(vec![
+            work("ads", "10.1/x", "The Dark Matter Halo of M31", 2013, 5),
+            work("crossref", "10.1/x", "THE DARK MATTER HALO OF M31", 2013, 7),
+        ]);
+        assert_eq!(merged.title.as_deref(), Some("The Dark Matter Halo of M31"));
+        assert_eq!(source_of(&merged), "crossref");
+        // With no cased title anywhere, the priority source's stands.
+        let merged = merge_works(vec![
+            work("ads", "10.1/y", "WEIGHING THE HALO", 2005, 1),
+            work("crossref", "10.1/y", "WEIGHING THE HALO!", 2005, 1),
+        ]);
+        assert_eq!(merged.title.as_deref(), Some("WEIGHING THE HALO!"));
+        assert!(!shouts("ALMA"));
+        assert!(!shouts("21cm maps of HI"));
     }
 
     #[test]

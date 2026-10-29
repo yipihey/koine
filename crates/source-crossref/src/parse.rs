@@ -76,6 +76,29 @@ fn strip_tags(text: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Strip the inline tags publishers deposit in a title (`<i>`, `<sub>`,
+/// `<scp>`, `<mml:math>`), keeping their text. Unlike [`strip_tags`] a `<`
+/// that does not open a tag (`z < 6`) is text: a tag starts `<` or `</`
+/// followed by a letter and ends at the next `>`.
+fn strip_inline_tags(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('<') {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 1..];
+        let name = after.strip_prefix('/').unwrap_or(after);
+        match (name.chars().next(), after.find('>')) {
+            (Some(c), Some(end)) if c.is_ascii_alphabetic() => rest = &after[end + 1..],
+            _ => {
+                out.push('<');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Parse one `message` of `message-type: work` (or one item of a
 /// `work-list`). `None` when it has no DOI, which no Crossref work lacks.
 pub fn work(item: &Value, fetched_at: &str, query: Option<&Query>) -> Option<Work> {
@@ -178,7 +201,7 @@ pub fn work(item: &Value, fetched_at: &str, query: Option<&Query>) -> Option<Wor
             .and_then(Value::as_str)
             .map(|t| csl_type(t).to_string())
             .unwrap_or_else(|| "article".into()),
-        title: first_string(item.get("title")),
+        title: first_string(item.get("title")).map(|t| strip_inline_tags(&t)),
         author,
         issued,
         container_title: first_string(item.get("container-title")),
@@ -283,4 +306,24 @@ pub fn reference(entry: &Value, fetched_at: &str) -> Option<Work> {
         }),
         ..Default::default()
     })
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::*;
+
+    #[test]
+    fn a_title_loses_its_inline_tags_and_keeps_a_bare_less_than() {
+        let item = serde_json::json!({
+            "DOI": "10.1/x",
+            "title": ["The <i>z</i> &lt; 6 sky: H<sub>2</sub> at z < 6 in <scp>Gaia</scp>"],
+        });
+        let work = work(&item, "2026-10-28T00:00:00Z", None).unwrap();
+        assert_eq!(
+            work.title.as_deref(),
+            Some("The z &lt; 6 sky: H2 at z < 6 in Gaia")
+        );
+        assert_eq!(strip_inline_tags("a <b"), "a <b");
+        assert_eq!(strip_inline_tags("1 <2> 3"), "1 <2> 3");
+    }
 }
