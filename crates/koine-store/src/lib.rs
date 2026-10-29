@@ -82,6 +82,12 @@ pub type BlobOpener = fn(&str) -> Result<Option<Arc<dyn BlobStore>>, StoreError>
 
 static BLOB_OPENERS: RwLock<BTreeMap<&'static str, BlobOpener>> = RwLock::new(BTreeMap::new());
 
+/// How a scheme hands over a store some other code in the process already
+/// holds: given the url's rest, that store itself.
+pub type SharedOpener = fn(&str) -> Result<Arc<dyn AttributedStore>, StoreError>;
+
+static SHARED_OPENERS: RwLock<BTreeMap<&'static str, SharedOpener>> = RwLock::new(BTreeMap::new());
+
 fn open_memory(_rest: &str) -> Result<Box<dyn AttributedStore>, StoreError> {
     Ok(Box::new(koine_store_memory::MemoryStore::new()))
 }
@@ -198,9 +204,43 @@ pub fn register_blobs(scheme: &'static str, opener: BlobOpener) {
         .insert(scheme, opener);
 }
 
+/// Register `scheme` as a store this process already holds: the opener hands
+/// back that handle rather than opening another. An app whose own code keeps
+/// a store (imbib's library) registers it so the host serves the very same
+/// handle — one set of subscribers, so a write by either side wakes the
+/// pages of both, which two connections to one SQLite file do not. It
+/// replaces a plain [`register`] of the same scheme.
+pub fn register_shared(scheme: &'static str, opener: SharedOpener) {
+    with_builtins(|map| {
+        map.remove(scheme);
+    });
+    SHARED_OPENERS
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(scheme, opener);
+}
+
+fn shared_opener(scheme: &str) -> Option<SharedOpener> {
+    SHARED_OPENERS
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(scheme)
+        .copied()
+}
+
 /// The schemes this process can open, sorted.
 pub fn schemes() -> Vec<&'static str> {
-    with_builtins(|map| map.keys().copied().collect())
+    let mut all: Vec<&'static str> = with_builtins(|map| map.keys().copied().collect());
+    all.extend(
+        SHARED_OPENERS
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .keys()
+            .copied(),
+    );
+    all.sort_unstable();
+    all.dedup();
+    all
 }
 
 /// Open the backend `url` names: `memory:`, `dir:<path>`, or a registered
@@ -218,6 +258,16 @@ pub fn open(url: &str) -> Result<Box<dyn AttributedStore>, OpenError> {
             url: url.to_string(),
             known: known(),
         });
+    }
+    if let Some(shared) = shared_opener(scheme) {
+        // The held handle itself, behind the pass-through every host
+        // already puts its store behind (outside a verb call it only
+        // delegates), because this answer is a box.
+        let store = shared(rest).map_err(|source| OpenError::Backend {
+            url: url.to_string(),
+            source,
+        })?;
+        return Ok(Box::new(RecordingStore::new(store)));
     }
     let opener = with_builtins(|map| map.get(scheme).copied());
     let Some(opener) = opener else {
@@ -271,19 +321,25 @@ pub fn open_with_blobs(url: &str) -> Result<Opened, OpenError> {
             })
         }
         Some((scheme, rest)) => {
-            let store: Box<dyn AttributedStore> = open(url)?;
             let view = BLOB_OPENERS
                 .read()
                 .unwrap_or_else(|e| e.into_inner())
                 .get(scheme)
                 .copied();
-            let blobs = match view {
-                Some(view) => view(rest).map_err(backend)?,
-                None => None,
+            let blobs = |rest| match view {
+                Some(view) => view(rest).map_err(backend),
+                None => Ok(None),
             };
+            if let Some(shared) = shared_opener(scheme) {
+                return Ok(Opened {
+                    store: shared(rest).map_err(backend)?,
+                    blobs: blobs(rest)?,
+                });
+            }
+            let store: Box<dyn AttributedStore> = open(url)?;
             Ok(Opened {
                 store: Arc::from(store),
-                blobs,
+                blobs: blobs(rest)?,
             })
         }
         None => {
@@ -299,6 +355,26 @@ pub fn open_with_blobs(url: &str) -> Result<Opened, OpenError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shared_scheme_hands_back_the_held_handle() {
+        use std::sync::OnceLock;
+        static HELD: OnceLock<Arc<dyn AttributedStore>> = OnceLock::new();
+        fn held(_: &str) -> Result<Arc<dyn AttributedStore>, StoreError> {
+            Ok(HELD
+                .get_or_init(|| Arc::new(koine_store_memory::MemoryStore::new()))
+                .clone())
+        }
+        register_shared("test-shared", held);
+        assert!(schemes().contains(&"test-shared"));
+        let opened = open_with_blobs("test-shared:").unwrap();
+        assert!(
+            Arc::ptr_eq(&opened.store, HELD.get().unwrap()),
+            "the very same handle"
+        );
+        // `open` answers a box over the same handle.
+        assert!(open("test-shared:").is_ok());
+    }
 
     #[test]
     fn a_registered_scheme_can_give_a_blob_view() {
