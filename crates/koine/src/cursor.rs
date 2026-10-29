@@ -137,6 +137,9 @@ impl Key {
 pub struct Cursor {
     index: usize,
     active: BTreeMap<String, Value>,
+    /// Where each `follow` widget's active row was in the last tree
+    /// [`Cursor::settle`] saw, for when that row goes.
+    at: BTreeMap<String, usize>,
 }
 
 impl Cursor {
@@ -376,6 +379,38 @@ impl Cursor {
 
     /// Make `id` the active row of `widget` (a click on a row does this). The
     /// id is not checked until [`Self::active_row`] is asked.
+    /// Bring the cursor up to a new tree. For a `follow` widget whose active
+    /// row is gone — dismissed, deleted, moved out of the list — the row now
+    /// at the same position becomes active (the last one when the list got
+    /// shorter), as a mail list goes to the next message after a delete; a
+    /// widget without `follow` keeps the rule that a vanished row drops. A
+    /// frontend calls this whenever it is handed a new tree.
+    pub fn settle(&mut self, tree: &RenderTree) {
+        for id in &tree.focus_order {
+            let Some(widget) = find(&tree.root, id).filter(|w| follows(w)) else {
+                continue;
+            };
+            let Some(ids) = row_ids(widget) else {
+                continue;
+            };
+            let current = self
+                .active
+                .get(id)
+                .and_then(|row| ids.iter().position(|i| i == row));
+            match (current, self.at.get(id).copied()) {
+                (Some(i), _) => {
+                    self.at.insert(id.clone(), i);
+                }
+                (None, Some(was)) if self.active.contains_key(id) && !ids.is_empty() => {
+                    let to = was.min(ids.len() - 1);
+                    self.active.insert(id.clone(), ids[to].clone());
+                    self.at.insert(id.clone(), to);
+                }
+                _ => {}
+            }
+        }
+    }
+
     pub fn set_active_row(&mut self, widget: &str, id: Value) {
         self.active.insert(widget.to_string(), id);
     }
@@ -923,6 +958,39 @@ mod tests {
         let plain = keyed_table(false);
         let mut cursor = Cursor::new();
         assert_eq!(cursor.event_for(&plain, Key::Down), None);
+    }
+
+    #[test]
+    fn with_follow_a_vanished_active_row_hands_over_to_the_one_now_in_its_place() {
+        let rows = |ks: &[&str]| {
+            let mut tree = keyed_table(true);
+            if let K::Column { items } = &mut tree.root.node {
+                if let K::Table { rows, .. } = &mut items[0].node {
+                    *rows = json!(ks.iter().map(|k| json!({"k": k})).collect::<Vec<_>>());
+                }
+            }
+            tree
+        };
+        let mut cursor = Cursor::new();
+        let three = rows(&["a", "b", "c"]);
+        cursor.event_for(&three, Key::Down);
+        cursor.event_for(&three, Key::Down);
+        cursor.settle(&three);
+        assert_eq!(cursor.active_row(&three, "t"), Some(&json!("b")));
+        // b is dismissed: c takes its place.
+        let two = rows(&["a", "c"]);
+        cursor.settle(&two);
+        assert_eq!(cursor.active_row(&two, "t"), Some(&json!("c")));
+        // c, the last, goes too: the cursor stays on the new last row.
+        let one = rows(&["a"]);
+        cursor.settle(&one);
+        assert_eq!(cursor.active_row(&one, "t"), Some(&json!("a")));
+        // Without `follow`, a vanished row still drops.
+        let mut plain = Cursor::new();
+        let still = keyed_table(false);
+        plain.set_active_row("t", json!("zzz"));
+        plain.settle(&still);
+        assert_eq!(plain.active_row(&still, "t"), None);
     }
 
     #[test]

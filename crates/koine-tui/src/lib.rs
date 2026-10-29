@@ -205,6 +205,7 @@ impl TextFrontend {
     /// On a `plot` or an `image` it is a `click` whose value is `{"x": null,
     /// "y": null}`: there is no pointer, and a handler can tell.
     pub fn key(&mut self, tree: &RenderTree, key: Key) -> Option<Event> {
+        self.cursor.settle(tree);
         if let Some(prompt) = self.pending.take() {
             return self.answer(tree, prompt, key);
         }
@@ -417,6 +418,7 @@ impl TextFrontend {
             return None;
         }
         let name = c.to_string();
+        self.cursor.settle(tree);
         if let Some(event) = self.cursor.row_key(tree, &name) {
             return Some(event);
         }

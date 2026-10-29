@@ -74,6 +74,9 @@ impl Live {
         if let Some(id) = self.focused.peek().clone() {
             self.cursor.write().set_focus(&new, &id);
         }
+        // A `follow` list whose active row went (a dismiss) moves to the
+        // row now in its place.
+        self.cursor.write().settle(&new);
         let id = self.cursor.peek().focused_id(&new).map(str::to_string);
         if *self.focused.peek() != id {
             self.focused.set(id);
