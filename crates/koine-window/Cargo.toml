@@ -9,13 +9,16 @@ repository.workspace = true
 [features]
 # A native window (wry + tao): macOS and Windows out of the box, Linux needs
 # webkit2gtk and gtk3 development files. Off by default so CI never needs them.
-webview = ["dep:wry", "dep:tao"]
+webview = ["dep:wry", "dep:tao", "dep:muda"]
 
 [dependencies]
 webbrowser = { workspace = true }
 thiserror = { workspace = true }
 wry = { workspace = true, optional = true }
 tao = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = { workspace = true, optional = true }
 koine-workspace-hack.workspace = true
 
 [lints]

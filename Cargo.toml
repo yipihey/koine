@@ -195,6 +195,9 @@ koine-window = { path = "crates/koine-window" }
 webbrowser = "1"
 wry = "0.53"
 tao = "0.34"
+# The native window's macOS menu bar (Edit menu: without it Cmd-C/V/X/A do
+# nothing in the WebView, and there is no Cmd-Q).
+muda = { version = "0.17", default-features = false }
 impress-settings = { path = "crates/impress-settings" }
 # The capability and performance verbs, the verb transport's client, and the
 # Python module builder (docs/plan-koine-kit-moves.md KM1).
