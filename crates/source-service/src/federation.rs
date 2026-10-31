@@ -207,7 +207,7 @@ fn is_preprint(work: &Work) -> bool {
 /// Whether two rows that share no identifier are still one paper: the same
 /// title (case, markup and punctuation aside, and at least four words, so
 /// an "Introduction" is never anyone else's), the same first author's
-/// surname, and years at most one apart. That is a preprint and its
+/// surname (read leniently: [`surname_in`]), and years at most one apart. That is a preprint and its
 /// published version when a source knows only one of the two identifiers:
 /// OpenAlex lists both records of "The Power Spectrum Dependence of Dark
 /// Matter Halo Concentrations", 2000 and 2001, and a search showed both.
@@ -219,17 +219,31 @@ pub fn same_paper(a: &Work, b: &Work) -> bool {
     if ka.len() < 4 || ka != title_words(tb) {
         return false;
     }
-    let first = |w: &Work| {
-        w.author
-            .first()
-            .and_then(|au| au.family.as_deref())
-            .map(|f| title_words(f).join(" "))
-            .filter(|f| !f.is_empty())
+    let same_first_author = match (a.author.first(), b.author.first()) {
+        (Some(x), Some(y)) => surname_in(x, y) || surname_in(y, x),
+        _ => false,
     };
-    match (first(a), first(b), year_of(a), year_of(b)) {
-        (Some(fa), Some(fb), Some(ya), Some(yb)) => fa == fb && (ya - yb).abs() <= 1,
+    match (year_of(a), year_of(b)) {
+        (Some(ya), Some(yb)) => same_first_author && (ya - yb).abs() <= 1,
         _ => false,
     }
+}
+
+/// Whether `a`'s surname is one of the words of `b`'s whole name. Not
+/// surname to surname: a source that misreads "V. R. Eke" stores family
+/// "R", given "Eke, V" (OpenAlex's preprint record of Eke et al. 2001), and
+/// the name is still Eke's. An initial is never a surname here.
+fn surname_in(a: &koine_sources::kind::Author, b: &koine_sources::kind::Author) -> bool {
+    let surname = title_words(a.family.as_deref().unwrap_or(""));
+    if surname.is_empty() || surname.iter().all(|w| w.chars().count() < 2) {
+        return false;
+    }
+    let whole: Vec<String> = [b.family.as_deref(), b.given.as_deref()]
+        .into_iter()
+        .flatten()
+        .flat_map(title_words)
+        .collect();
+    surname.iter().all(|w| whole.contains(w))
 }
 
 /// A title's words, lower case, with markup (`<sup>`) and punctuation gone.
@@ -469,16 +483,21 @@ mod tests {
             container_title: Some("The Astrophysical Journal".into()),
             ..by(work("openalex", "10.1086/318245", title, 2001, 486), "Eke")
         };
-        let preprint = by(
-            work(
+        // OpenAlex's own preprint record misreads "V. R. Eke" as family "R".
+        let preprint = Work {
+            author: vec![koine_sources::kind::Author {
+                family: Some("R".into()),
+                given: Some("Eke, V".into()),
+                ..Default::default()
+            }],
+            ..work(
                 "openalex",
                 "10.48550/arxiv.astro-ph/0012337",
                 &title.to_uppercase(),
                 2000,
                 304,
-            ),
-            "Eke",
-        );
+            )
+        };
         let other_author = by(work("openalex", "10.1/z", title, 2001, 3), "Navarro");
         let ten_years_on = by(work("openalex", "10.1/later", title, 2011, 3), "Eke");
         let outcomes = vec![Outcome {
