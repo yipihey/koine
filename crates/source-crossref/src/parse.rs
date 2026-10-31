@@ -76,10 +76,15 @@ fn strip_tags(text: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Strip the inline tags publishers deposit in a title (`<i>`, `<sub>`,
-/// `<scp>`, `<mml:math>`), keeping their text. Unlike [`strip_tags`] a `<`
-/// that does not open a tag (`z < 6`) is text: a tag starts `<` or `</`
-/// followed by a letter and ends at the next `>`.
+/// Strip the inline tags publishers deposit in a title (`<i>`, `<scp>`,
+/// `<mml:math>`), keeping their text. Unlike [`strip_tags`] a `<` that does
+/// not open a tag (`z < 6`) is text: a tag starts `<` or `</` followed by a
+/// letter and ends at the next `>`.
+///
+/// `<sub>` and `<sup>` stay, lower-cased: they carry meaning. Stripped,
+/// `10<sup>−6</sup>` read as `10−6` and `10<sup>3</sup>` as `103`, which is a
+/// different number; a reader turns them into ¹⁰⁻⁶ or its own markup, as
+/// they do ADS's `<SUP>`.
 fn strip_inline_tags(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
@@ -88,7 +93,15 @@ fn strip_inline_tags(text: &str) -> String {
         let after = &rest[at + 1..];
         let name = after.strip_prefix('/').unwrap_or(after);
         match (name.chars().next(), after.find('>')) {
-            (Some(c), Some(end)) if c.is_ascii_alphabetic() => rest = &after[end + 1..],
+            (Some(c), Some(end)) if c.is_ascii_alphabetic() => {
+                let tag = after[..end].to_ascii_lowercase();
+                if matches!(tag.as_str(), "sub" | "/sub" | "sup" | "/sup") {
+                    out.push('<');
+                    out.push_str(&tag);
+                    out.push('>');
+                }
+                rest = &after[end + 1..];
+            }
             _ => {
                 out.push('<');
                 rest = after;
@@ -313,7 +326,7 @@ mod title_tests {
     use super::*;
 
     #[test]
-    fn a_title_loses_its_inline_tags_and_keeps_a_bare_less_than() {
+    fn a_title_loses_its_inline_tags_but_its_scripts_and_a_bare_less_than() {
         let item = serde_json::json!({
             "DOI": "10.1/x",
             "title": ["The <i>z</i> &lt; 6 sky: H<sub>2</sub> at z < 6 in <scp>Gaia</scp>"],
@@ -321,9 +334,10 @@ mod title_tests {
         let work = work(&item, "2026-10-28T00:00:00Z", None).unwrap();
         assert_eq!(
             work.title.as_deref(),
-            Some("The z &lt; 6 sky: H2 at z < 6 in Gaia")
+            Some("The z &lt; 6 sky: H<sub>2</sub> at z < 6 in Gaia")
         );
         assert_eq!(strip_inline_tags("a <b"), "a <b");
         assert_eq!(strip_inline_tags("1 <2> 3"), "1 <2> 3");
+        assert_eq!(strip_inline_tags("10<SUP>3</SUP> M"), "10<sup>3</sup> M");
     }
 }
