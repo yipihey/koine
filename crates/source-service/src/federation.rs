@@ -157,13 +157,20 @@ fn emit(outcome: &Outcome) {
 /// the same order, whose title is not. Priority ranks a source's metadata,
 /// not its typography, and the same work's title in another source is the
 /// same words properly cased.
+///
+/// Among one source's records of a work (a preprint and its published
+/// version, joined by [`same_paper`]) the published one keeps the body.
 pub fn merge_works(works: Vec<Work>) -> Work {
-    let mut indexed: Vec<(u32, usize, Work)> = works
+    let mut indexed: Vec<(u32, bool, usize, Work)> = works
         .into_iter()
         .enumerate()
-        .map(|(i, w)| (source_priority(source_of(&w)), i, w))
+        .map(|(i, w)| (source_priority(source_of(&w)), is_preprint(&w), i, w))
         .collect();
-    indexed.sort_by_key(|(priority, i, _)| (*priority, *i));
+    indexed.sort_by_key(|(priority, preprint, i, _)| (*priority, *preprint, *i));
+    let indexed: Vec<(u32, usize, Work)> = indexed
+        .into_iter()
+        .map(|(priority, _, i, w)| (priority, i, w))
+        .collect();
     let cased = indexed
         .iter()
         .filter_map(|(_, _, w)| w.title.as_deref())
@@ -182,6 +189,71 @@ pub fn merge_works(works: Vec<Work>) -> Work {
         }
     }
     kept
+}
+
+/// A record of a work before its publication: an arXiv DOI, or no venue
+/// but arXiv.
+fn is_preprint(work: &Work) -> bool {
+    let arxiv_doi = |d: &str| d.to_ascii_lowercase().starts_with("10.48550/");
+    work.doi.as_deref().is_some_and(arxiv_doi)
+        || work.ids.get("doi").is_some_and(|d| arxiv_doi(d))
+        || work.container_title.as_deref().is_none_or(|v| {
+            let v = v.trim().to_ascii_lowercase();
+            // DBLP files arXiv as "CoRR".
+            v.is_empty() || v.contains("arxiv") || v == "corr"
+        })
+}
+
+/// Whether two rows that share no identifier are still one paper: the same
+/// title (case, markup and punctuation aside, and at least four words, so
+/// an "Introduction" is never anyone else's), the same first author's
+/// surname, and years at most one apart. That is a preprint and its
+/// published version when a source knows only one of the two identifiers:
+/// OpenAlex lists both records of "The Power Spectrum Dependence of Dark
+/// Matter Halo Concentrations", 2000 and 2001, and a search showed both.
+pub fn same_paper(a: &Work, b: &Work) -> bool {
+    let (Some(ta), Some(tb)) = (a.title.as_deref(), b.title.as_deref()) else {
+        return false;
+    };
+    let ka = title_words(ta);
+    if ka.len() < 4 || ka != title_words(tb) {
+        return false;
+    }
+    let first = |w: &Work| {
+        w.author
+            .first()
+            .and_then(|au| au.family.as_deref())
+            .map(|f| title_words(f).join(" "))
+            .filter(|f| !f.is_empty())
+    };
+    match (first(a), first(b), year_of(a), year_of(b)) {
+        (Some(fa), Some(fb), Some(ya), Some(yb)) => fa == fb && (ya - yb).abs() <= 1,
+        _ => false,
+    }
+}
+
+/// A title's words, lower case, with markup (`<sup>`) and punctuation gone.
+fn title_words(title: &str) -> Vec<String> {
+    let mut text = String::with_capacity(title.len());
+    let mut in_tag = false;
+    let mut chars = title.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '<' if chars
+                .peek()
+                .is_some_and(|n| n.is_ascii_alphabetic() || *n == '/') =>
+            {
+                in_tag = true
+            }
+            '>' if in_tag => in_tag = false,
+            _ if in_tag => {}
+            _ => text.extend(c.to_lowercase()),
+        }
+    }
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Whether a title is set in capitals throughout: letters, and none of
@@ -227,7 +299,8 @@ impl Entry {
 /// The sorts the service applies across the merged rows.
 pub const SORTS: &[&str] = &["relevance", "year", "cited_by"];
 
-/// Merge the outcomes' rows by identifier and order them. With `sort`, the
+/// Merge the outcomes' rows by identifier (or, sharing none, by
+/// [`same_paper`]) and order them. With `sort`, the
 /// order is across every merged row (`year` and `cited_by` descending,
 /// unknown last; `relevance` the row's position in its first source, ties
 /// by source priority); without, the first-listed source's rows in its
@@ -253,10 +326,11 @@ pub fn merge_rows(outcomes: &[Outcome], sort: Option<&str>) -> Vec<Work> {
                 pos,
                 priority,
             };
-            match entries
-                .iter_mut()
-                .find(|e| e.contributions.iter().any(|c| shares_id(c, row)))
-            {
+            match entries.iter_mut().find(|e| {
+                e.contributions
+                    .iter()
+                    .any(|c| shares_id(c, row) || same_paper(c, row))
+            }) {
                 Some(entry) => {
                     entry.contributions.push(row.clone());
                     entry.seen.push(seen);
@@ -379,6 +453,53 @@ mod tests {
         assert_eq!(merged.title.as_deref(), Some("WEIGHING THE HALO!"));
         assert!(!shouts("ALMA"));
         assert!(!shouts("21cm maps of HI"));
+    }
+
+    #[test]
+    fn a_preprint_and_its_published_version_are_one_row() {
+        let by = |w: Work, family: &str| Work {
+            author: vec![koine_sources::kind::Author {
+                family: Some(family.into()),
+                ..Default::default()
+            }],
+            ..w
+        };
+        let title = "The Power Spectrum Dependence of Dark Matter Halo Concentrations";
+        let published = Work {
+            container_title: Some("The Astrophysical Journal".into()),
+            ..by(work("openalex", "10.1086/318245", title, 2001, 486), "Eke")
+        };
+        let preprint = by(
+            work(
+                "openalex",
+                "10.48550/arxiv.astro-ph/0012337",
+                &title.to_uppercase(),
+                2000,
+                304,
+            ),
+            "Eke",
+        );
+        let other_author = by(work("openalex", "10.1/z", title, 2001, 3), "Navarro");
+        let ten_years_on = by(work("openalex", "10.1/later", title, 2011, 3), "Eke");
+        let outcomes = vec![Outcome {
+            source: "openalex".into(),
+            rows: vec![preprint, published, other_author, ten_years_on],
+            ..Default::default()
+        }];
+        let rows = merge_rows(&outcomes, None);
+        assert_eq!(
+            rows.len(),
+            3,
+            "only the preprint folds into its published version"
+        );
+        // The published record keeps the body, though the preprint came first.
+        assert_eq!(rows[0].ids["doi"], "10.1086/318245");
+        assert_eq!(year_of(&rows[0]), Some(2001));
+        // Short titles never fold on their words alone.
+        assert!(!same_paper(
+            &by(work("a", "10.1/a", "Introduction", 2001, 0), "Eke"),
+            &by(work("b", "10.1/b", "Introduction", 2001, 0), "Eke"),
+        ));
     }
 
     #[test]

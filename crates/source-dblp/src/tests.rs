@@ -461,7 +461,20 @@ async fn the_service_runs_the_adapter_end_to_end_including_dblp_ids() {
         .await
         .answer
         .expect("ok");
-    assert_eq!(answer.rows.len(), 3);
+    // Three hits, two of them one paper: "Attention is All you Need" at
+    // NIPS and as its CoRR preprint, which share no identifier. The merge
+    // makes them one row (federation::same_paper) and keeps the NIPS record.
+    assert_eq!(answer.rows.len(), 2);
+    let attention = answer
+        .rows
+        .iter()
+        .find(|w| {
+            w.title
+                .as_deref()
+                .is_some_and(|t| t.starts_with("Attention"))
+        })
+        .expect("the attention paper");
+    assert_eq!(attention.ids["dblp"], KEY);
     assert!(answer.next.unwrap().contains("dblp"));
     let r = service
         .fetch(format!("https://dblp.org/rec/{KEY}.html"), None, None)
